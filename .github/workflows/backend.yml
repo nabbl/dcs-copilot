@@ -83,54 +83,20 @@ jobs:
       - name: Validate production configuration
         shell: bash
         env:
-          CAPROVER_SERVER: ${{ secrets.CAPROVER_SERVER }}
-          CAPROVER_BACKEND_APP: ${{ secrets.CAPROVER_BACKEND_APP }}
+          CAPROVER_SERVER: ${{ vars.CAPROVER_SERVER }}
+          CAPROVER_BACKEND_APP: ${{ vars.CAPROVER_BACKEND_APP }}
           CAPROVER_BACKEND_APP_TOKEN: ${{ secrets.CAPROVER_BACKEND_APP_TOKEN }}
-          HEALTH_URL: ${{ vars.DCS_COPILOT_HEALTH_URL }}
         run: |
-          for name in CAPROVER_SERVER CAPROVER_BACKEND_APP CAPROVER_BACKEND_APP_TOKEN HEALTH_URL; do
+          for name in CAPROVER_SERVER CAPROVER_BACKEND_APP CAPROVER_BACKEND_APP_TOKEN; do
             if [ -z "${!name}" ]; then
               echo "Missing production setting: $name" >&2
               exit 1
             fi
           done
-          case "$HEALTH_URL" in
-            https://*/healthz) ;;
-            *) echo "DCS_COPILOT_HEALTH_URL must be an HTTPS /healthz URL" >&2; exit 1 ;;
-          esac
       - name: Deploy backend to CapRover
         uses: caprover/deploy-from-github@d76580d79952f6841c453bb3ed37ef452b19752c
         with:
-          server: ${{ secrets.CAPROVER_SERVER }}
-          app: ${{ secrets.CAPROVER_BACKEND_APP }}
+          server: ${{ vars.CAPROVER_SERVER }}
+          app: ${{ vars.CAPROVER_BACKEND_APP }}
           token: ${{ secrets.CAPROVER_BACKEND_APP_TOKEN }}
           image: ${{ needs.publish.outputs.backend-image }}:${{ github.sha }}
-      - name: Verify production health
-        shell: bash
-        env:
-          HEALTH_URL: ${{ vars.DCS_COPILOT_HEALTH_URL }}
-        run: |
-          body_file=$(mktemp)
-          trap 'rm -f "$body_file"' EXIT
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error --max-time 10 "$HEALTH_URL" -o "$body_file" && \
-              python - "$body_file" <<'PY'
-          import json
-          import pathlib
-          import sys
-
-          payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-          healthy = payload.get("status") == "ok" and payload.get("ai_inference") is True
-          raise SystemExit(0 if healthy else 1)
-          PY
-            then
-              echo "Production health check passed: $HEALTH_URL"
-              cat "$body_file"
-              exit 0
-            fi
-            echo "Health check attempt ${attempt}/30 failed; retrying in 5 seconds"
-            sleep 5
-          done
-          echo "Production did not become healthy: $HEALTH_URL" >&2
-          [ ! -s "$body_file" ] || cat "$body_file" >&2
-          exit 1

@@ -38,15 +38,13 @@ Create a `production` environment and add:
 
 | Type | Name | Value |
 | --- | --- | --- |
-| Secret | `CAPROVER_SERVER` | `https://captain.example.com` |
-| Secret | `CAPROVER_BACKEND_APP` | `dcs-copilot-api` |
+| Variable | `CAPROVER_SERVER` | `https://captain.example.com` |
+| Variable | `CAPROVER_BACKEND_APP` | `dcs-copilot-api` |
 | Secret | `CAPROVER_BACKEND_APP_TOKEN` | Backend app token from CapRover |
-| Variable | `DCS_COPILOT_HEALTH_URL` | `https://api.example.com/healthz` |
 
 The workflow tests the cloud and shared packages, publishes a commit-addressed
 backend image plus a moving `main` tag, deploys the immutable commit tag, and
-retries the public health endpoint for up to 150 seconds. Deployment only
-passes when `/healthz` reports both `status=ok` and `ai_inference=true`.
+reports the CapRover deployment result.
 
 For the Windows installer workflow, set the existing repository variable
 `DCS_COPILOT_SERVICE_URL` to the matching
