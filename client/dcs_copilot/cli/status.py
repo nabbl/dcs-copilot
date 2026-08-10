@@ -1,0 +1,139 @@
+"""Bounded DCS Copilot health snapshot."""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+
+from dcs_copilot.audio.devices import inspect_audio_devices
+from dcs_copilot.config import Settings
+from dcs_copilot.dcs.bios_client import DcsBiosClient
+from dcs_copilot.dcs.bios_registry import DcsBiosControlRegistry
+from dcs_copilot.diagnostics.cloud import CloudProbeResult, probe_cloud
+from dcs_copilot.diagnostics.resources import ResourceSnapshot, format_bytes
+from dcs_copilot.input.ptt import function_key_virtual_code
+from dcs_copilot.state.store import AircraftStateStore
+
+
+def _load_registry(
+    settings: Settings,
+) -> tuple[DcsBiosControlRegistry | None, str | None]:
+    try:
+        path = DcsBiosControlRegistry.discover(settings.dcs_bios_path)
+    except FileNotFoundError as exc:
+        return None, str(exc)
+    if path is None:
+        return None, (
+            "DCS-BIOS control JSON not found; install DCS-BIOS separately and "
+            "set DCS_BIOS_PATH (see docs/dcs-bios.md)"
+        )
+    registry = DcsBiosControlRegistry.from_path(path)
+    return registry, None
+
+
+async def collect_status(settings: Settings, wait: float) -> tuple[list[str], int]:
+    resource_start = ResourceSnapshot.capture()
+    cloud_task = (
+        asyncio.create_task(
+            probe_cloud(settings, timeout=min(2.0, max(0.25, wait))),
+            name="cloud-diagnostics",
+        )
+        if wait > 0
+        else None
+    )
+    registry, registry_error = _load_registry(settings)
+    client = DcsBiosClient(
+        multicast_group=settings.multicast_group,
+        port=settings.port,
+        interface=settings.interface,
+        stale_timeout=settings.stale_timeout,
+        registry=registry,
+    )
+    state_store = (
+        AircraftStateStore(
+            registry,
+            client=client,
+            value_stale_timeout=settings.value_stale_timeout,
+        )
+        if registry is not None
+        else None
+    )
+    socket_error: str | None = None
+    try:
+        await client.listen_for(wait)
+    except OSError as exc:
+        socket_error = str(exc)
+    finally:
+        # Preserve values used to build the report before close invalidates them.
+        connected = client.connected
+        frame_age = client.frame_age
+        aircraft = client.current_aircraft
+        parser_errors = client.parser.error_count
+        normalized = state_store.refresh() if state_store is not None else None
+        client.close()
+    resource_end = ResourceSnapshot.capture()
+    cloud = (
+        await cloud_task
+        if cloud_task is not None
+        else CloudProbeResult(False, False, "not probed; use --wait 0.25 or longer")
+    )
+
+    if socket_error:
+        dcs_status = f"socket error ({socket_error})"
+    else:
+        dcs_status = "connected" if connected else "disconnected"
+    age_text = "never" if frame_age is None else f"{frame_age * 1000:.0f} ms ago"
+    registry_text = str(registry.control_count) if registry else "0"
+    module_text = str(registry.module_count) if registry else "0"
+    metadata_status = (
+        "ready" if registry is not None else f"unavailable ({registry_error})"
+    )
+    if registry and registry.load_errors:
+        metadata_status = f"degraded ({len(registry.load_errors)} file errors)"
+    resource_sample_seconds = resource_end.wall_time - resource_start.wall_time
+    cpu_status = (
+        f"{resource_start.cpu_percent_until(resource_end):.3f}%"
+        if resource_sample_seconds >= 0.05
+        else "unavailable (use --wait 0.1 or longer)"
+    )
+    try:
+        function_key_virtual_code(settings.copilot_ptt_key)
+        ptt_status = (
+            settings.copilot_ptt_key
+            if sys.platform == "win32"
+            else f"{settings.copilot_ptt_key} (Windows only)"
+        )
+    except ValueError as exc:
+        ptt_status = f"invalid ({exc})"
+    audio_devices = inspect_audio_devices(
+        settings.audio_input_device, settings.audio_output_device
+    )
+
+    lines = [
+        f"DCS-BIOS: {dcs_status}",
+        f"Aircraft: {aircraft or 'unavailable'}",
+        f"Last frame: {age_text}",
+        f"Controls loaded: {registry_text}",
+        f"Modules loaded: {module_text}",
+        f"Control metadata: {metadata_status}",
+        f"Parser errors: {parser_errors}",
+        f"Normalized fields: {normalized.available_field_count if normalized else 0}",
+        f"Unavailable fields: {normalized.unavailable_field_count if normalized else 0}",
+        f"Flight phase: {normalized.flight_phase if normalized else 'UNKNOWN'}",
+        f"Active issues: {len(state_store.rule_engine.active_issues) if state_store else 0}",
+        f"Cloud: {cloud.detail}",
+        f"Authenticated: {'yes' if cloud.authenticated else 'no'}",
+        f"PTT: {ptt_status}",
+        f"Microphone: {audio_devices.input_detail} (not opened)",
+        f"Output: {audio_devices.output_detail} (not opened)",
+        f"Client CPU during sample: {cpu_status}",
+        f"Client RAM: {format_bytes(resource_end.resident_memory_bytes)}",
+        "AI inference running locally: NO",
+    ]
+    return lines, 0 if not socket_error else 1
+
+
+def run_status(settings: Settings, wait: float) -> int:
+    lines, exit_code = asyncio.run(collect_status(settings, wait))
+    print("\n".join(lines))
+    return exit_code
