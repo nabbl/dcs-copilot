@@ -8,7 +8,12 @@ import sys
 from collections.abc import Coroutine
 from typing import Any
 
-from dcs_copilot_protocol import AircraftChanged, AudioFormat, ControlMessage
+from dcs_copilot_protocol import (
+    AircraftChanged,
+    AudioFormat,
+    ControlMessage,
+    FlightSummary,
+)
 
 from .audio.portaudio import PortAudioCapture, PortAudioPlayback
 from .cli.status import _load_registry
@@ -63,13 +68,25 @@ async def run_client_runtime(settings: Settings, *, stdin_ptt: bool = False) -> 
         else None
     )
     aircraft_tools = AircraftToolExecutor(store)
+    summary_requests: dict[str, str] = {}
+
+    def send_flight_summary(summary: FlightSummary) -> bool:
+        message = summary.to_control()
+        if not connection.send_message(message):
+            return False
+        summary_requests[message.message_id] = summary.summary_id
+        return True
 
     def status_changed(status: CloudConnectionStatus) -> None:
         print(f"Cloud: {status.detail}")
+        if not status.connected:
+            summary_requests.clear()
         if status.session_active and store is not None:
             connection.send_message(
                 AircraftChanged(store.current.aircraft).to_control()
             )
+            for summary in store.flight_stats.pending:
+                send_flight_summary(summary)
 
     def control_received(message: ControlMessage) -> None:
         if message.type == "tool.request":
@@ -82,6 +99,24 @@ async def run_client_runtime(settings: Settings, *, stdin_ptt: bool = False) -> 
                 "Cloud received utterance: "
                 f"{message.payload.get('audio_bytes', 0)} bytes"
             )
+        elif message.type == "event" and message.payload.get("event_type") == (
+            "flight.summary.accepted"
+        ):
+            summary_id = message.payload.get("summary_id")
+            request_summary_id = (
+                summary_requests.pop(message.correlation_id, None)
+                if message.correlation_id is not None
+                else None
+            )
+            if (
+                store is not None
+                and isinstance(summary_id, str)
+                and request_summary_id == summary_id
+            ):
+                store.flight_stats.acknowledge(summary_id)
+                for request_id, pending_id in tuple(summary_requests.items()):
+                    if pending_id == summary_id:
+                        del summary_requests[request_id]
         elif message.type == "assistant.text":
             text = message.payload.get("text")
             if isinstance(text, str):
@@ -130,6 +165,12 @@ async def run_client_runtime(settings: Settings, *, stdin_ptt: bool = False) -> 
 
     if store is not None:
         store.event_manager.add_callback(proactive_event)
+
+        def flight_summary_ready(summary: FlightSummary) -> None:
+            if not send_flight_summary(summary):
+                LOGGER.info("flight summary retained until cloud reconnects")
+
+        store.flight_stats.add_summary_callback(flight_summary_ready)
 
         def state_changed(change: NormalizedStateChange) -> None:
             if change.field == "aircraft":
@@ -190,6 +231,9 @@ async def run_client_runtime(settings: Settings, *, stdin_ptt: bool = False) -> 
             tasks.append(ptt_task)
         await asyncio.gather(*tasks)
     finally:
+        if store is not None:
+            store.flight_stats.finish()
+            await connection.drain()
         stop.set()
         if hotkey is not None:
             hotkey.stop()

@@ -1,7 +1,7 @@
 # DCS Copilot cloud
 
-Milestones 3 through 6 run the PTT voice, aircraft-tool, proactive-speech, and
-account-memory services in the cloud:
+Milestones 3 through 7 run the PTT voice, aircraft-tool, proactive-speech,
+account-memory, and deterministic habit services in the cloud:
 
 ```text
 bounded PCM turn -> OpenAI STT -> Pipecat context -> OpenAI Responses
@@ -25,6 +25,12 @@ layer. SQLite is supported for development; production uses PostgreSQL through
 session. Pipecat exposes narrow cloud tools for explicit remember/forget/recall,
 chatter preferences, and bounded flight history. These are separate from the
 four client-side aircraft tools.
+
+Milestone 7 accepts versioned semantic end-of-flight summaries only from signed
+user sessions. Storage is idempotent and user-isolated. The allowlisted
+`get_pilot_habits` cloud tool calculates coverage-aware counts and returns the
+exact sentence the LLM should speak. It does not infer habits from memories or
+generic flight-session history.
 
 STT, LLM, and TTS are selected through provider interfaces and environment
 configuration. The OpenAI key exists only in the cloud process. Copy

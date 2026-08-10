@@ -54,6 +54,7 @@ class DcsBiosClient:
         self._decoded_values: dict[ControlDefinition, int | str] = {}
         self._frame_callbacks: list[Callable[[FrameComplete], None]] = []
         self._change_callbacks: list[Callable[[ControlChange], None]] = []
+        self._connection_callbacks: list[Callable[[bool], None]] = []
 
     @property
     def connected(self) -> bool:
@@ -71,6 +72,9 @@ class DcsBiosClient:
 
     def add_change_callback(self, callback: Callable[[ControlChange], None]) -> None:
         self._change_callbacks.append(callback)
+
+    def add_connection_callback(self, callback: Callable[[bool], None]) -> None:
+        self._connection_callbacks.append(callback)
 
     def open(self) -> None:
         if self.socket is not None:
@@ -106,11 +110,14 @@ class DcsBiosClient:
             self.socket = None
         self.state.clear_availability()
         self.current_aircraft = None
+        was_connected = self._connected
         self._connected = False
         self._pending_definitions.clear()
         self._decoded_values.clear()
         if had_socket:
             LOG.info("DCS-BIOS disconnected", extra={"event": "dcs_disconnected"})
+        if was_connected:
+            self._emit_connection(False)
 
     async def receive_once(self, timeout: float | None = None) -> int:
         self.open()
@@ -157,6 +164,7 @@ class DcsBiosClient:
         self._connected = True
         if not was_connected:
             LOG.info("DCS connected", extra={"event": "dcs_connected"})
+            self._emit_connection(True)
         self._update_aircraft(frame)
         self._emit_control_changes()
         for callback in tuple(self._frame_callbacks):
@@ -173,6 +181,11 @@ class DcsBiosClient:
             self._pending_definitions.clear()
             self._decoded_values.clear()
             LOG.info("DCS-BIOS timed out", extra={"event": "dcs_disconnected"})
+            self._emit_connection(False)
+
+    def _emit_connection(self, connected: bool) -> None:
+        for callback in tuple(self._connection_callbacks):
+            callback(connected)
 
     def _update_aircraft(self, frame: FrameComplete) -> None:
         if self.registry is None:

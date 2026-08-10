@@ -30,6 +30,10 @@ def test_taxi_fixture_drives_phase_rules_and_resolution() -> None:
     assert result.active_issue_count == 0
     assert result.event_count == 4
     assert result.final_phase is FlightPhase.TAXI
+    assert len(result.flight_summaries) == 1
+    assert result.flight_summaries[0].rule_activations[
+        "FA18_PARKING_BRAKE_TAXI"
+    ] == 1
 
 
 def test_airborne_fixture_triggers_and_resolves_three_rules() -> None:
@@ -54,6 +58,7 @@ def test_airborne_fixture_triggers_and_resolves_three_rules() -> None:
     assert result.active_issue_count == 0
     assert result.event_count == 6
     assert result.final_phase is FlightPhase.TAKEOFF
+    assert result.flight_summaries[0].rule_activations["FA18_MASTER_CAUTION"] == 1
     assert player.run(FIXTURES / "airborne-alerts.jsonl") == result
 
 

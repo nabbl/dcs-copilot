@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -113,6 +113,39 @@ class FlightSessionRecord(Base):
     ended_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class FlightSummaryRecord(Base):
+    __tablename__ = "flight_summaries"
+    __table_args__ = (
+        UniqueConstraint("user_id", "summary_id", name="uq_user_flight_summary"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    summary_id: Mapped[str] = mapped_column(String(36))
+    aircraft: Mapped[str] = mapped_column(String(64), index=True)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now
+    )
+
+
+class FlightRuleStatistic(Base):
+    __tablename__ = "flight_rule_statistics"
+    __table_args__ = (
+        UniqueConstraint(
+            "flight_summary_id", "rule_id", name="uq_flight_summary_rule"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    flight_summary_id: Mapped[str] = mapped_column(
+        ForeignKey("flight_summaries.id", ondelete="CASCADE"), index=True
+    )
+    rule_id: Mapped[str] = mapped_column(String(64), index=True)
+    activations: Mapped[int] = mapped_column(Integer)
 
 
 class Database:

@@ -56,6 +56,11 @@ class RuleEngine:
     ) -> None:
         self._callbacks.append(callback)
 
+    def evaluable_rule_ids(self, state: AircraftState) -> frozenset[str]:
+        """Return rules whose allowlisted local inputs are usable right now."""
+
+        return frozenset(rule.id for rule in self.rules if self._applicable(rule, state))
+
     def evaluate(
         self,
         state: AircraftState,

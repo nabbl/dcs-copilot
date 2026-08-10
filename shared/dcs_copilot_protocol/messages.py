@@ -24,6 +24,7 @@ KNOWN_CONTROL_TYPES = frozenset(
         "tool.request",
         "tool.result",
         "aircraft.changed",
+        "flight.summary",
         "event.raised",
         "event.resolved",
         "event",

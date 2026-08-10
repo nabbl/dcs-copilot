@@ -107,6 +107,15 @@ class CloudSessionConnection:
             return False
         return True
 
+    async def drain(self, timeout: float = 1.0) -> bool:
+        """Wait briefly for already queued frames to reach the active transport."""
+
+        try:
+            await asyncio.wait_for(self._outbound.join(), timeout=timeout)
+        except TimeoutError:
+            return False
+        return True
+
     async def run(self, stop: asyncio.Event) -> None:
         delay = 0.5
         while not stop.is_set():
@@ -218,10 +227,13 @@ class CloudSessionConnection:
     async def _writer(self, transport: RealtimeTransport) -> None:
         while True:
             payload = await self._outbound.get()
-            if isinstance(payload, str):
-                await transport.send_text(payload)
-            else:
-                await transport.send_bytes(payload)
+            try:
+                if isinstance(payload, str):
+                    await transport.send_text(payload)
+                else:
+                    await transport.send_bytes(payload)
+            finally:
+                self._outbound.task_done()
 
     async def _receiver(self, transport: RealtimeTransport) -> None:
         while True:
@@ -301,6 +313,7 @@ class CloudSessionConnection:
                 self._outbound.get_nowait()
             except asyncio.QueueEmpty:
                 break
+            self._outbound.task_done()
 
     def _notify_status(
         self,

@@ -82,6 +82,7 @@ def test_connection_handshake_uplink_and_downlink() -> None:
         assert await connection.wait_ready(timeout=1)
         assert connection.send_control("ptt.start", {})
         assert connection.send_audio(b"pcm")
+        assert await connection.drain(timeout=1)
         for _ in range(100):
             if len(transport.sent) >= 4 and played:
                 break

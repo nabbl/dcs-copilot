@@ -15,6 +15,7 @@ from dcs_copilot.dcs.bios_protocol import FrameComplete
 from dcs_copilot.dcs.bios_registry import DcsBiosControlRegistry
 from dcs_copilot.dcs.bios_state import DcsBiosState
 from dcs_copilot.events import EventManager, SpeechPolicy
+from dcs_copilot.habits import FlightStatsManager
 from dcs_copilot.rules.engine import RuleEngine
 from dcs_copilot.rules.fa18c import fa18c_rules
 
@@ -43,6 +44,7 @@ class AircraftStateStore:
         phase_detector: FlightPhaseDetector | None = None,
         rule_engine: RuleEngine | None = None,
         event_manager: EventManager | None = None,
+        flight_stats: FlightStatsManager | None = None,
         speech_policy: SpeechPolicy | None = None,
         adapters: list[AircraftAdapter] | None = None,
     ) -> None:
@@ -61,6 +63,9 @@ class AircraftStateStore:
             self.rule_engine,
             speech_policy=speech_policy,
         )
+        if flight_stats is not None and flight_stats.rule_engine is not self.rule_engine:
+            raise ValueError("flight_stats must observe this store's rule_engine")
+        self.flight_stats = flight_stats or FlightStatsManager(self.rule_engine)
         self.generic_adapter = GenericAircraftAdapter(registry)
         selected_adapters = adapters or [FA18CAdapter(registry)]
         self._adapters = {
@@ -72,6 +77,7 @@ class AircraftStateStore:
         self._callbacks: list[Callable[[NormalizedStateChange], None]] = []
         if client is not None:
             client.add_frame_callback(self._on_frame)
+            client.add_connection_callback(self._on_connection)
 
     def add_change_callback(
         self, callback: Callable[[NormalizedStateChange], None]
@@ -88,6 +94,7 @@ class AircraftStateStore:
         timestamp = time.monotonic() if now is None else now
         previous = self.current
         if not connected or self.bios_state is None:
+            self.flight_stats.observe(AircraftState(aircraft=aircraft, connected=False))
             self.current = AircraftState(aircraft=aircraft, connected=False)
             self.history.clear()
             self.phase_detector.reset()
@@ -108,6 +115,7 @@ class AircraftStateStore:
             state, self.history, now=timestamp
         )
         self.current = state
+        self.flight_stats.observe(state)
         self.rule_engine.evaluate(state, self.history, now=timestamp)
         self._emit_changes(previous, state)
         return state
@@ -123,6 +131,10 @@ class AircraftStateStore:
 
     def _on_frame(self, _frame: FrameComplete) -> None:
         self.refresh()
+
+    def _on_connection(self, connected: bool) -> None:
+        if not connected:
+            self.refresh()
 
     def _emit_changes(self, previous: AircraftState, current: AircraftState) -> None:
         if previous.aircraft != current.aircraft:

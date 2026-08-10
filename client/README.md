@@ -12,8 +12,14 @@ Deterministic rule transitions also feed a bounded local `EventManager`.
 only eligible semantic events to cloud TTS and never uploads a cockpit snapshot.
 There is intentionally no local warning-audio pack in this build.
 
-Milestone 6 still keeps account data off the gaming PC. The client sends its
+Milestone 6 keeps account data off the gaming PC. The client sends its
 service-issued, short-lived access token and a stable device identifier during
 the WebSocket handshake. It reports only a versioned aircraft identifier for
 the cloud flight-session record; no cockpit snapshot or telemetry accompanies
 that metadata. Login, refresh, memory, and database logic remain cloud-side.
+
+Milestone 7 adds local `FlightStatsManager` aggregation over the same
+deterministic rules. On flight end it sends only an allowlisted rule/count map
+with explicit telemetry coverage. Unavailable rules are omitted, never guessed
+clear. Summaries remain bounded and pending until a correlated cloud ack; no
+raw or complete normalized state is uploaded.

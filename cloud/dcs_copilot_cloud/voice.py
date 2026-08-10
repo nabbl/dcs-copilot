@@ -426,7 +426,7 @@ def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
 
 
 def account_tool_schemas(handler: Any) -> list[FunctionSchema]:
-    """Narrow cloud tools for explicit memories, preferences, and flights."""
+    """Narrow cloud tools for memories, preferences, flights, and exact habits."""
 
     aircraft = {
         "type": "string",
@@ -515,6 +515,36 @@ def account_tool_schemas(handler: Any) -> list[FunctionSchema]:
             properties={
                 "aircraft": aircraft,
                 "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 20,
+                    "default": 5,
+                },
+            },
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="get_pilot_habits",
+            description=(
+                "Read deterministic, coverage-aware habit statistics calculated "
+                "from allowlisted end-of-flight rule summaries. Repeat the returned "
+                "statement exactly; never calculate a statistic yourself."
+            ),
+            properties={
+                "aircraft": aircraft,
+                "rule_id": {
+                    "type": "string",
+                    "enum": [
+                        "FA18_MASTER_CAUTION",
+                        "FA18_GEAR_OVERSPEED",
+                        "FA18_CANOPY_OPEN_MOVING",
+                        "FA18_PARKING_BRAKE_TAXI",
+                        "FA18_EJECTION_SEAT_NOT_ARMED",
+                        "FA18_REFUELING_PROBE_LEFT_OUT",
+                    ],
+                },
+                "window": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 20,

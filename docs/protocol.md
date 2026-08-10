@@ -26,7 +26,7 @@ closing an otherwise valid session.
 
 The v1 registry includes `hello`, `authenticate`, `session.start`,
 `session.end`, `ptt.start`, `ptt.end`, `assistant.text`, `assistant.interrupt`,
-`tool.request`, `tool.result`, aircraft/event lifecycle messages,
+`tool.request`, `tool.result`, `flight.summary`, aircraft/event lifecycle messages,
 `connection.status`, and `error`. Aircraft tool and semantic event behavior is
 implemented; unrelated future lifecycle types remain forward-compatible.
 
@@ -221,3 +221,37 @@ flight session and closes the session on `session.end` or disconnect.
 Cloud memory and preference tools are internal Pipecat functions. They do not
 produce `tool.request` messages and never cross into the client. This keeps
 account persistence distinct from authoritative local aircraft reads.
+
+## End-of-flight semantic summaries
+
+Milestone 7 adds a strict `flight.summary` control after a local flight ends:
+
+```json
+{
+  "protocol_version": 1,
+  "type": "flight.summary",
+  "message_id": "message-uuid",
+  "payload": {
+    "summary_version": 1,
+    "summary_id": "summary-uuid",
+    "aircraft": "FA-18C_hornet",
+    "rules": {
+      "FA18_REFUELING_PROBE_LEFT_OUT": 1,
+      "FA18_MASTER_CAUTION": 0
+    }
+  }
+}
+```
+
+The rule keys are a fixed allowlist and counts are bounded integers. A present
+zero means the rule had usable telemetry and did not activate; an omitted rule
+means its telemetry coverage was unavailable and must not be treated as clear.
+Unknown versions, rule IDs, extra fields, booleans, negative counts, and raw or
+nested telemetry are rejected.
+
+The cloud accepts summaries only for an active session authenticated by a
+signed user token. It responds with an `event` whose `event_type` is
+`flight.summary.accepted`, whose `summary_id` matches the upload, and whose
+`correlation_id` is the upload message ID. Repeated summary UUIDs are
+acknowledged as duplicates without incrementing statistics. The client retains
+unacknowledged summaries in a bounded queue and retries them after reconnect.

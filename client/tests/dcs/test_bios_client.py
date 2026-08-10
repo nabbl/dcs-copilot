@@ -75,11 +75,14 @@ def test_detects_aircraft_and_emits_only_changed_controls(bios_json_dir: Path) -
 
 def test_connection_becomes_stale_without_frames() -> None:
     client = DcsBiosClient(stale_timeout=0.01)
+    connections = []
+    client.add_connection_callback(connections.append)
     client._connected = True
     client.state.apply_write(0, b"\x01\x00")
     client.latest_frame_at = time.monotonic() - 1
     assert not client.connected
     assert client.state.read(0, 2) is None
+    assert connections == [False]
 
 
 def test_aircraft_change_invalidates_values_not_written_in_new_frame(

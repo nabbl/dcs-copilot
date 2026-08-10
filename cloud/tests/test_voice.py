@@ -89,8 +89,9 @@ def test_pipecat_context_separates_allowlisted_account_and_aircraft_tools() -> N
         "get_aircraft_preferences",
         "set_chatter_level",
         "get_flight_history",
+        "get_pilot_habits",
     }
-    assert len(copilot_tool_schemas(handler)) == 10
+    assert len(copilot_tool_schemas(handler)) == 11
     assert all(schema.handler is handler for schema in account_schemas)
 
 

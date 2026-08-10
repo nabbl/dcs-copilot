@@ -5,6 +5,12 @@ from .events import (
     AircraftEvent,
     EventProtocolError,
 )
+from .habits import (
+    FLIGHT_SUMMARY_VERSION,
+    HABIT_RULE_IDS,
+    FlightSummary,
+    FlightSummaryProtocolError,
+)
 from .media import AudioFormat, MediaKind, MediaPacket
 from .messages import (
     KNOWN_CONTROL_TYPES,
@@ -29,6 +35,8 @@ __all__ = [
     "AIRCRAFT_EVENT_VERSION",
     "AIRCRAFT_TOOL_VERSION",
     "ALLOWED_AIRCRAFT_STATE_FIELDS",
+    "FLIGHT_SUMMARY_VERSION",
+    "HABIT_RULE_IDS",
     "KNOWN_CONTROL_TYPES",
     "PROTOCOL_VERSION",
     "SESSION_METADATA_VERSION",
@@ -40,6 +48,8 @@ __all__ = [
     "AudioFormat",
     "ControlMessage",
     "EventProtocolError",
+    "FlightSummary",
+    "FlightSummaryProtocolError",
     "MediaKind",
     "MediaPacket",
     "ProtocolError",

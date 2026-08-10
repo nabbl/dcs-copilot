@@ -22,7 +22,7 @@ the authenticated cloud connection. It does not contain an OpenAI credential or
 run neural STT, TTS, turn detection, embeddings, vector search, or an LLM.
 
 The cloud owns Pipecat, STT, conversational orchestration, provider-isolated
-LLM and TTS services, account data, memory, usage metering, and subscriptions.
+LLM and TTS services, account data, memory, and deterministic habit storage.
 It learns live aircraft facts only by issuing narrow, versioned tool requests to
 the connected client. Raw DCS-BIOS telemetry is never continuously uploaded.
 
@@ -42,7 +42,8 @@ DCS -> DCS-BIOS -> thin client            authenticated session gateway
                   |- semantic events ---------->|- cloud proactive TTS
                   |- PTT audio ---------------->|- LLM provider
                   |- response playback <-------|- TTS provider
-                  `- speech policy             `- memory + metering
+                  |- flight summaries -------->|- memory + habits
+                  `- speech policy             `- account persistence
 ```
 
 Client-to-cloud data is limited by default to intentional PTT audio, requested
@@ -137,12 +138,12 @@ Rust client.
 6. **Accounts and memory (implemented):** signed short-lived authentication,
    rotating refresh credentials, PostgreSQL/SQLite persistence, explicit
    memories, preferences, and semantic flight sessions.
-7. **Habit learning:** deterministic end-of-flight statistics and stored habit
-   calculations.
+7. **Habit learning (implemented):** deterministic, coverage-aware end-of-flight
+   rule summaries and stored per-user habit calculations.
 8. **Commercial foundation:** metering, entitlements, devices, rate limiting,
    and operations monitoring.
 
-Milestones 3 through 6 preserve the original dependency boundary: Pipecat and
+Milestones 3 through 7 preserve the original dependency boundary: Pipecat and
 every AI provider exist only in the cloud package, while telemetry and tool
 execution remain in the thin client.
 
@@ -251,7 +252,32 @@ records are scoped by the authenticated user. Missing values stay missing, and
 the prompt permits memory writes/deletes only on an explicit pilot request.
 
 The client sends versioned `aircraft.changed` metadata so the cloud can attach
-an optional own-aircraft name to the current flight session. A flight record
+an optional own-aircraft name to the current flight session. A Milestone 6 flight record
 contains timestamps and identifiers only—no raw telemetry, cockpit snapshot,
-audio, semantic event totals, or inferred habit. Milestone 7 statistics and
-habit learning are not included.
+audio, semantic event totals, or inferred habit.
+
+## Milestone 7 deterministic-habit contract
+
+The local `FlightStatsManager` observes the same deterministic rule transitions
+used by live monitoring and replay. At aircraft change, DCS disconnect, replay
+completion, or client shutdown, it creates a versioned semantic summary. The
+summary contains a UUID, own-aircraft name, and an allowlisted map of rule IDs
+to activation counts. It contains no raw DCS-BIOS values, normalized cockpit
+snapshot, timestamps, mission data, audio, transcript, enemy/world state, or
+free-form client claims.
+
+A rule is included with a zero only if its required telemetry was usable during
+that flight. Rules that were never evaluable are omitted, preserving unknown
+coverage rather than guessing an all-clear. Summaries remain pending in bounded
+client memory until the gateway returns a correlated acknowledgement. A lost
+acknowledgement can cause a resend; cloud insertion is idempotent by user and
+summary UUID.
+
+Only a signed-in account may upload or query statistics. The cloud stores each
+covered rule separately, scopes all rows by user, and calculates observed-flight
+counts from the requested recent-flight window. `get_pilot_habits` returns both
+the integer evidence and a deterministic server-generated sentence. The LLM is
+required to repeat that sentence and is forbidden to derive counts from memory
+or generic flight history. Milestone 7 does not implement Milestone 8 metering,
+entitlements, device management, rate limiting, subscriptions, or operations
+monitoring.

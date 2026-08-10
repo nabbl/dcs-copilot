@@ -15,6 +15,7 @@ from dcs_copilot_protocol import (
     PROTOCOL_VERSION,
     AircraftEvent,
     ControlMessage,
+    FlightSummary,
     MediaKind,
     MediaPacket,
     ProtocolError,
@@ -114,7 +115,7 @@ def create_app(
 
     app = FastAPI(
         title="DCS Copilot Cloud",
-        version="0.6.0",
+        version="0.7.0",
         lifespan=lifespan,
     )
     app.include_router(auth_router(auth))
@@ -135,6 +136,7 @@ def create_app(
             "proactive_events": True,
             "accounts": True,
             "memory": True,
+            "habits": True,
         }
 
     @app.websocket("/v1/realtime")
@@ -319,7 +321,69 @@ def create_app(
                 try:
                     if incoming.get("text") is not None:
                         message = ControlMessage.from_json(incoming["text"])
-                        if message.type == "tool.result":
+                        if message.type == "flight.summary":
+                            summary = FlightSummary.from_control(message)
+                            if (
+                                not session.authenticated
+                                or session.session_id is None
+                                or session.user_id is None
+                            ):
+                                result = SessionResult(
+                                    responses=(
+                                        ControlMessage(
+                                            "error",
+                                            {
+                                                "code": "account_authentication_required",
+                                                "detail": (
+                                                    "flight summaries require a signed "
+                                                    "user access token and active session"
+                                                ),
+                                                "fatal": False,
+                                            },
+                                            correlation_id=message.message_id,
+                                        ),
+                                    )
+                                )
+                            else:
+                                try:
+                                    inserted = await accounts.ingest_flight_summary(
+                                        session.user_id, summary
+                                    )
+                                except Exception:
+                                    LOGGER.exception("flight summary storage failed")
+                                    result = SessionResult(
+                                        responses=(
+                                            ControlMessage(
+                                                "error",
+                                                {
+                                                    "code": "flight_summary_storage_failed",
+                                                    "detail": (
+                                                        "flight statistics storage is "
+                                                        "temporarily unavailable"
+                                                    ),
+                                                    "fatal": False,
+                                                },
+                                                correlation_id=message.message_id,
+                                            ),
+                                        )
+                                    )
+                                else:
+                                    result = SessionResult(
+                                        responses=(
+                                            ControlMessage(
+                                                "event",
+                                                {
+                                                    "event_type": (
+                                                        "flight.summary.accepted"
+                                                    ),
+                                                    "summary_id": summary.summary_id,
+                                                    "duplicate": not inserted,
+                                                },
+                                                correlation_id=message.message_id,
+                                            ),
+                                        )
+                                    )
+                        elif message.type == "tool.result":
                             aircraft_tools.resolve(message)
                             result = SessionResult()
                         elif message.type in {"event.raised", "event.resolved"}:

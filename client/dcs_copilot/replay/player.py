@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from dcs_copilot_protocol import FlightSummary
+
 from dcs_copilot.events import EventManager
+from dcs_copilot.habits import FlightStatsManager
 from dcs_copilot.rules.base import RuleTransition
 from dcs_copilot.rules.engine import RuleEngine
 from dcs_copilot.rules.fa18c import fa18c_rules
@@ -45,6 +48,7 @@ class ReplayRun:
     event_count: int
     active_issue_count: int
     final_phase: FlightPhase
+    flight_summaries: tuple[FlightSummary, ...] = field(compare=False)
 
 
 class ReplayPlayer:
@@ -59,6 +63,7 @@ class ReplayPlayer:
         self.phase_detector = phase_detector or FlightPhaseDetector()
         self.rule_engine = rule_engine or RuleEngine(fa18c_rules())
         self.event_manager = event_manager or EventManager(self.rule_engine)
+        self.flight_stats = FlightStatsManager(self.rule_engine)
         self.history = history or StateHistory()
 
     def load(self, path: Path) -> tuple[ReplayFrame, ...]:
@@ -95,9 +100,12 @@ class ReplayPlayer:
         self.phase_detector.reset()
         self.rule_engine.reset(now=start_time, emit=False)
         self.event_manager.reset()
+        for pending in self.flight_stats.pending:
+            self.flight_stats.acknowledge(pending.summary_id)
         for frame in frames:
             state = frame.state
             if not state.connected:
+                self.flight_stats.observe(state)
                 self.history.clear()
                 self.phase_detector.reset()
                 transitions.extend(self.rule_engine.reset(now=frame.timestamp))
@@ -110,9 +118,11 @@ class ReplayPlayer:
                     state, self.history, now=frame.timestamp
                 )
             )
+            self.flight_stats.observe(state)
             transitions.extend(
                 self.rule_engine.evaluate(state, self.history, now=frame.timestamp)
             )
+        self.flight_stats.finish()
         final_phase = frames[-1].state.flight_phase if frames else FlightPhase.UNKNOWN
         return ReplayRun(
             frame_count=len(frames),
@@ -120,6 +130,7 @@ class ReplayPlayer:
             event_count=len(self.event_manager.history),
             active_issue_count=len(self.rule_engine.active_issues),
             final_phase=final_phase,
+            flight_summaries=self.flight_stats.pending,
         )
 
 

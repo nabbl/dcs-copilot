@@ -6,6 +6,7 @@ import pytest
 from dcs_copilot_protocol import (
     AIRCRAFT_EVENT_VERSION,
     AIRCRAFT_TOOL_VERSION,
+    FLIGHT_SUMMARY_VERSION,
     AircraftChanged,
     AircraftEvent,
     AircraftToolName,
@@ -14,6 +15,8 @@ from dcs_copilot_protocol import (
     AudioFormat,
     ControlMessage,
     EventProtocolError,
+    FlightSummary,
+    FlightSummaryProtocolError,
     MediaKind,
     MediaPacket,
     ProtocolError,
@@ -253,5 +256,48 @@ def test_aircraft_changed_is_versioned_and_semantic_only() -> None:
                     "aircraft": "F/A-18C",
                     "cockpit": {"raw": "forbidden"},
                 },
+            )
+        )
+
+
+def test_flight_summary_is_versioned_allowlisted_and_semantic_only() -> None:
+    summary = FlightSummary(
+        "5a9a86e7-2de1-44da-841c-09177d05c09d",
+        "FA-18C_hornet",
+        {"FA18_REFUELING_PROBE_LEFT_OUT": 2, "FA18_MASTER_CAUTION": 0},
+    )
+    control = summary.to_control()
+    assert control.type == "flight.summary"
+    assert set(control.payload) == {
+        "summary_version",
+        "summary_id",
+        "aircraft",
+        "rules",
+    }
+    assert FlightSummary.from_control(control) == summary
+
+    with pytest.raises(FlightSummaryProtocolError, match="not allowlisted"):
+        FlightSummary(summary.summary_id, summary.aircraft, {"RAW_COCKPIT": 1})
+    with pytest.raises(FlightSummaryProtocolError, match="between"):
+        FlightSummary(
+            summary.summary_id,
+            summary.aircraft,
+            {"FA18_MASTER_CAUTION": True},
+        )
+    with pytest.raises(FlightSummaryProtocolError, match="unexpected fields"):
+        FlightSummary.from_control(
+            ControlMessage(
+                "flight.summary",
+                {
+                    **control.payload,
+                    "raw_telemetry": {"address": 1234},
+                },
+            )
+        )
+    with pytest.raises(FlightSummaryProtocolError, match="unsupported"):
+        FlightSummary.from_control(
+            ControlMessage(
+                "flight.summary",
+                {**control.payload, "summary_version": FLIGHT_SUMMARY_VERSION + 1},
             )
         )

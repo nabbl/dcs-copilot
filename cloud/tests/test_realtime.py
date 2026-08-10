@@ -124,6 +124,7 @@ def test_health_explicitly_reports_no_ai_pipeline() -> None:
             "proactive_events": True,
             "accounts": True,
             "memory": True,
+            "habits": True,
         }
 
 

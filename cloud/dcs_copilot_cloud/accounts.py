@@ -11,12 +11,16 @@ from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
+from dcs_copilot_protocol import HABIT_RULE_IDS, FlightSummary
 from sqlalchemy import Select, select
+from sqlalchemy.exc import IntegrityError
 
 from .database import (
     AircraftPreference,
     Database,
+    FlightRuleStatistic,
     FlightSessionRecord,
+    FlightSummaryRecord,
     PilotMemory,
     utc_now,
 )
@@ -24,6 +28,37 @@ from .database import (
 ACCOUNT_TOOL_VERSION = 1
 MEMORY_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 CHATTER_LEVELS = frozenset({"minimal", "normal", "coach"})
+HABIT_LABELS = {
+    "FA18_MASTER_CAUTION": "triggered Master Caution",
+    "FA18_GEAR_OVERSPEED": "oversped the landing gear",
+    "FA18_CANOPY_OPEN_MOVING": "moved with the canopy open",
+    "FA18_PARKING_BRAKE_TAXI": "taxied with the parking brake set",
+    "FA18_EJECTION_SEAT_NOT_ARMED": "left the ejection seat unarmed",
+    "FA18_REFUELING_PROBE_LEFT_OUT": "left the refueling probe out",
+}
+COUNT_WORDS = (
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -34,6 +69,7 @@ class AccountToolName(StrEnum):
     GET_AIRCRAFT_PREFERENCES = "get_aircraft_preferences"
     SET_CHATTER_LEVEL = "set_chatter_level"
     GET_FLIGHT_HISTORY = "get_flight_history"
+    GET_PILOT_HABITS = "get_pilot_habits"
 
 
 ACCOUNT_TOOL_NAMES = tuple(item.value for item in AccountToolName)
@@ -91,6 +127,15 @@ class AccountToolExecutor:
                     value=level,
                 )
                 return account_tool_result(preference=preference)
+            if name is AccountToolName.GET_PILOT_HABITS:
+                aircraft, rule_id, window = validate_habit_query(arguments)
+                habits = await self._store.get_habits(
+                    self._user_id,
+                    aircraft=aircraft,
+                    rule_id=rule_id,
+                    window=window,
+                )
+                return account_tool_result(habits=habits)
             aircraft, limit = validate_history_query(arguments)
             flights = await self._store.get_flight_history(
                 self._user_id, aircraft=aircraft, limit=limit
@@ -300,6 +345,90 @@ class AccountStore:
             records = (await session.scalars(query)).all()
             return [serialize_flight(record) for record in records]
 
+    async def ingest_flight_summary(
+        self, user_id: str, summary: FlightSummary
+    ) -> bool:
+        """Persist an allowlisted semantic summary; return False for a duplicate."""
+
+        aircraft = canonical_aircraft_name(summary.aircraft)
+        async with self.database.session() as session:
+            existing = await session.scalar(
+                select(FlightSummaryRecord).where(
+                    FlightSummaryRecord.user_id == user_id,
+                    FlightSummaryRecord.summary_id == summary.summary_id,
+                )
+            )
+            if existing is not None:
+                return False
+            record = FlightSummaryRecord(
+                id=str(uuid4()),
+                user_id=user_id,
+                summary_id=summary.summary_id,
+                aircraft=aircraft,
+            )
+            session.add(record)
+            for rule_id, activations in summary.rule_activations.items():
+                session.add(
+                    FlightRuleStatistic(
+                        id=str(uuid4()),
+                        flight_summary_id=record.id,
+                        rule_id=rule_id,
+                        activations=activations,
+                    )
+                )
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                existing = await session.scalar(
+                    select(FlightSummaryRecord).where(
+                        FlightSummaryRecord.user_id == user_id,
+                        FlightSummaryRecord.summary_id == summary.summary_id,
+                    )
+                )
+                if existing is None:
+                    raise
+                return False
+            return True
+
+    async def get_habits(
+        self,
+        user_id: str,
+        *,
+        aircraft: str | None,
+        rule_id: str | None,
+        window: int,
+    ) -> list[dict[str, Any]]:
+        query: Select[tuple[FlightSummaryRecord]] = select(
+            FlightSummaryRecord
+        ).where(FlightSummaryRecord.user_id == user_id)
+        if aircraft is not None:
+            query = query.where(FlightSummaryRecord.aircraft == aircraft)
+        query = query.order_by(FlightSummaryRecord.received_at.desc()).limit(window)
+        async with self.database.session() as session:
+            flights = list((await session.scalars(query)).all())
+            if not flights:
+                return []
+            flight_ids = [flight.id for flight in flights]
+            stat_query = select(FlightRuleStatistic).where(
+                FlightRuleStatistic.flight_summary_id.in_(flight_ids)
+            )
+            if rule_id is not None:
+                stat_query = stat_query.where(FlightRuleStatistic.rule_id == rule_id)
+            stats = list((await session.scalars(stat_query)).all())
+        rule_ids = [rule_id] if rule_id is not None else sorted({s.rule_id for s in stats})
+        return [
+            serialize_habit(
+                current_rule_id,
+                stats,
+                aircraft=aircraft or canonical_aircraft_name(flights[0].aircraft),
+                window=window,
+                flight_count=len(flights),
+            )
+            for current_rule_id in rule_ids
+            if current_rule_id is not None
+        ]
+
 
 def validate_memory_query(
     arguments: dict[str, Any],
@@ -360,6 +489,23 @@ def validate_history_query(arguments: dict[str, Any]) -> tuple[str | None, int]:
     return (
         optional_aircraft(arguments.get("aircraft")),
         bounded_int(arguments.get("limit", 5), minimum=1, maximum=20),
+    )
+
+
+def validate_habit_query(
+    arguments: dict[str, Any],
+) -> tuple[str | None, str | None, int]:
+    require_keys(arguments, {"aircraft", "rule_id", "window"})
+    aircraft = optional_aircraft(arguments.get("aircraft"))
+    rule_id = arguments.get("rule_id")
+    if rule_id is not None and (
+        not isinstance(rule_id, str) or rule_id not in HABIT_RULE_IDS
+    ):
+        raise AccountToolError("rule_id is not an allowlisted habit rule")
+    return (
+        aircraft,
+        rule_id,
+        bounded_int(arguments.get("window", 5), minimum=1, maximum=20),
     )
 
 
@@ -458,6 +604,44 @@ def serialize_flight(record: FlightSessionRecord) -> dict[str, Any]:
         "duration_seconds": max(0, round((ended - started).total_seconds()))
         if ended is not None
         else None,
+    }
+
+
+def serialize_habit(
+    rule_id: str,
+    stats: list[FlightRuleStatistic],
+    *,
+    aircraft: str,
+    window: int,
+    flight_count: int,
+) -> dict[str, Any]:
+    matching = [stat for stat in stats if stat.rule_id == rule_id]
+    covered = len(matching)
+    observed = sum(stat.activations > 0 for stat in matching)
+    activations = sum(stat.activations for stat in matching)
+    aircraft_label = "Hornet" if aircraft == "F/A-18C" else aircraft
+    action = HABIT_LABELS[rule_id]
+    if flight_count == window and covered == window:
+        statement = (
+            f"You've {action} in {COUNT_WORDS[observed]} of your last "
+            f"{COUNT_WORDS[window]} "
+            f"{aircraft_label} flights."
+        )
+    else:
+        statement = (
+            f"You've {action} in {COUNT_WORDS[observed]} of "
+            f"{COUNT_WORDS[covered]} recent {aircraft_label} "
+            "flights with usable telemetry."
+        )
+    return {
+        "rule_id": rule_id,
+        "aircraft": aircraft,
+        "requested_window": window,
+        "recent_flights": flight_count,
+        "covered_flights": covered,
+        "observed_flights": observed,
+        "activation_count": activations,
+        "statement": statement,
     }
 
 

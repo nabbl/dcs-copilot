@@ -1,7 +1,7 @@
 # DCS Copilot
 
 DCS Copilot is a commercial thin-client/cloud service in development. The
-current build implements the reset Milestones 1 through 6:
+current build implements the reset Milestones 1 through 7:
 
 - passive local DCS-BIOS ingestion, normalized Hornet state, phases and rules;
 - replay, diagnostics and resource instrumentation;
@@ -18,6 +18,8 @@ current build implements the reset Milestones 1 through 6:
 - cloud user accounts with short-lived device-bound access tokens, rotating
   refresh credentials, PostgreSQL/SQLite persistence, explicit pilot memories,
   aircraft preferences, and semantic flight-session history.
+- coverage-aware end-of-flight rule summaries and deterministic, user-isolated
+  habit statistics that never ask an LLM to calculate a count.
 
 There is no Pipecat, STT, LLM, TTS, OpenAI key, or neural model on the customer
 client. All AI inference and its dependencies are isolated in `cloud/`.
@@ -65,7 +67,9 @@ cockpit snapshots remain local.
 Explicit account memories are different from live aircraft state. A request
 such as “Remember Hornet Bingo is 3500” invokes an allowlisted cloud memory
 tool. A later authenticated session retrieves that fact from the account
-database. The cloud does not infer habits from memories or flight history.
+database. Habit questions use separately uploaded, allowlisted semantic rule
+counts. The cloud calculates the exact coverage-aware statement before the LLM
+sees it; memories and generic flight history are never used to infer habits.
 
 Proactive warnings use the same cloud TTS path. If the cloud is unavailable,
 local monitoring and event history continue, but this build does not promise
@@ -85,5 +89,5 @@ uv run --with mypy mypy client/dcs_copilot shared/dcs_copilot_protocol cloud/dcs
 See [the architecture decision](docs/architecture.md), [wire
 protocol](docs/protocol.md), [privacy boundary](docs/privacy.md), [client
 performance methodology](docs/client-performance.md), [accounts and
-memory](docs/accounts.md), and [multiplayer validation
+memory](docs/accounts.md), [deterministic habits](docs/habits.md), and [multiplayer validation
 matrix](docs/multiplayer-validation.md).
