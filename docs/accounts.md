@@ -21,6 +21,13 @@ Only their SHA-256 hashes are stored, and every successful refresh revokes the
 old token before issuing a new one. A replayed, expired, revoked, or wrong-device
 refresh token fails closed.
 
+The Windows client performs registration/login against these endpoints. Its
+refresh credential is stored through the OS credential-vault API (Windows
+Credential Manager in the customer build), never in `config.json` or `.env`.
+It rotates that credential and obtains a new in-memory access token before each
+realtime reconnect. Signing out revokes the current refresh credential and
+removes it from the vault.
+
 The realtime WebSocket accepts the signed access token in the existing
 `authenticate` control. `DCS_COPILOT_DEV_TOKEN` remains an explicit localhost
 development escape hatch and has no account identity, so it cannot read or
@@ -82,9 +89,9 @@ curl -X POST http://127.0.0.1:8000/v1/auth/register \
   -d '{"email":"pilot@example.com","password":"choose-a-long-password","device_id":"gaming-pc"}'
 ```
 
-Place the returned short-lived `access_token` in
-`DCS_COPILOT_ACCESS_TOKEN`. The refresh endpoint returns a rotated access and
-refresh pair for the account client or launcher to retain securely.
+For CLI-only development, place the returned short-lived `access_token` in
+`DCS_COPILOT_ACCESS_TOKEN`. The desktop application handles this exchange
+automatically.
 
 ## Deterministic habit boundary
 

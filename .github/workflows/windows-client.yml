@@ -1,0 +1,41 @@
+name: Windows client
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Installer version
+        default: "0.1.0"
+        required: true
+  push:
+    branches: [main]
+    paths:
+      - "client/**"
+      - "shared/**"
+      - "packaging/windows/**"
+      - ".github/workflows/windows-client.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Test
+        run: uv run --all-packages pytest -q
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build installer
+        shell: pwsh
+        run: >-
+          ./packaging/windows/build.ps1
+          -Version "${{ inputs.version || '0.1.0' }}"
+          -ServiceUrl "${{ vars.DCS_COPILOT_SERVICE_URL || 'ws://127.0.0.1:8000/v1/realtime' }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dcs-copilot-windows
+          path: dist/windows/DCS-Copilot-Setup-*.exe
+          if-no-files-found: error

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from collections.abc import Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any
 
 from dcs_copilot_protocol import (
@@ -29,7 +29,12 @@ from .tools import AircraftToolExecutor
 LOGGER = logging.getLogger(__name__)
 
 
-async def run_client_runtime(settings: Settings, *, stdin_ptt: bool = False) -> int:
+async def run_client_runtime(
+    settings: Settings,
+    *,
+    stdin_ptt: bool = False,
+    access_token_provider: Callable[[], Awaitable[str]] | None = None,
+) -> int:
     input_audio_format = AudioFormat(
         sample_rate=settings.audio_sample_rate,
         channels=settings.audio_channels,
@@ -131,6 +136,7 @@ async def run_client_runtime(settings: Settings, *, stdin_ptt: bool = False) -> 
         queue_size=settings.audio_queue_size,
         handshake_timeout_seconds=settings.cloud_handshake_timeout_seconds,
         reconnect_max_seconds=settings.cloud_reconnect_max_seconds,
+        access_token_provider=access_token_provider,
         on_status=status_changed,
         on_control=control_received,
         on_audio_output=playback.play,

@@ -11,6 +11,8 @@ from .cli.run import run_client
 from .cli.status import run_status
 from .cli.watch import run_watch
 from .config import Settings
+from .desktop.config_store import DesktopConfig, discover_dcs_folders
+from .desktop.dcs_setup import DcsSetupError, install_dcs_bios
 from .logging import configure_logging
 
 
@@ -69,6 +71,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="idle CPU sampling interval (default: 1)",
     )
+    setup_dcs = subparsers.add_parser(
+        "setup-dcs", help="install the pinned DCS-BIOS release and configure Export.lua"
+    )
+    setup_dcs.add_argument(
+        "path",
+        nargs="?",
+        type=Path,
+        help="DCS Saved Games folder; auto-detected when omitted",
+    )
     return parser
 
 
@@ -94,4 +105,22 @@ def main(argv: list[str] | None = None) -> int:
             updates=args.updates,
             idle_seconds=args.idle_seconds,
         )
+    if args.command == "setup-dcs":
+        configured = DesktopConfig.load()
+        paths = [args.path] if args.path is not None else discover_dcs_folders()
+        if not paths and configured.dcs_path is not None:
+            paths = [configured.dcs_path]
+        if not paths:
+            print(
+                "No DCS Saved Games folder was found; complete setup in the desktop app."
+            )
+            return 0
+        try:
+            for path in paths:
+                result = install_dcs_bios(path)
+                print(f"DCS-BIOS {result.version} ready in {result.dcs_path}")
+        except DcsSetupError as exc:
+            print(f"DCS setup failed: {exc}")
+            return 1
+        return 0
     raise AssertionError(f"unhandled command: {args.command}")
