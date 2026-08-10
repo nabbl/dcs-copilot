@@ -21,7 +21,11 @@ from .config import Settings
 from .dcs.bios_client import DcsBiosClient
 from .events import ManagedAircraftEvent, SpeechPolicy
 from .input.controller import PttSessionController
-from .input.ptt import GlobalFunctionKeyPTT, PTTUnavailableError
+from .input.ptt import (
+    GlobalFunctionKeyPTT,
+    GlobalJoystickButtonPTT,
+    PTTUnavailableError,
+)
 from .network.connection import CloudConnectionStatus, CloudSessionConnection
 from .state.store import AircraftStateStore, NormalizedStateChange
 from .tools import AircraftToolExecutor
@@ -204,7 +208,7 @@ async def run_client_runtime(
 
         loop.call_soon_threadsafe(create)
 
-    hotkey: GlobalFunctionKeyPTT | None = None
+    ptt_input: GlobalFunctionKeyPTT | GlobalJoystickButtonPTT | None = None
     ptt_task: asyncio.Task[None] | None = None
     if stdin_ptt:
         if sys.platform == "win32":
@@ -214,13 +218,31 @@ async def run_client_runtime(
             _run_stdin_ptt(stop, controller), name="stdin-ptt"
         )
     else:
-        hotkey = GlobalFunctionKeyPTT(
-            settings.copilot_ptt_key,
-            on_press=lambda: schedule(controller.press()),
-            on_release=lambda: schedule(controller.release()),
-        )
+
+        def ptt_pressed() -> None:
+            schedule(controller.press())
+
+        def ptt_released() -> None:
+            schedule(controller.release())
+
+        if (
+            settings.copilot_ptt_device is not None
+            and settings.copilot_ptt_button is not None
+        ):
+            ptt_input = GlobalJoystickButtonPTT(
+                settings.copilot_ptt_device,
+                settings.copilot_ptt_button,
+                on_press=ptt_pressed,
+                on_release=ptt_released,
+            )
+        else:
+            ptt_input = GlobalFunctionKeyPTT(
+                settings.copilot_ptt_key,
+                on_press=ptt_pressed,
+                on_release=ptt_released,
+            )
         try:
-            hotkey.start()
+            ptt_input.start()
         except (PTTUnavailableError, ValueError) as exc:
             print(f"PTT unavailable: {exc}")
             return 2
@@ -230,7 +252,12 @@ async def run_client_runtime(
     )
     cloud_task = asyncio.create_task(connection.run(stop), name="cloud-session")
     print("Copilot voice is AI-generated.")
-    print(f"DCS Copilot running; PTT {settings.copilot_ptt_key}. Press Ctrl-C to stop.")
+    ptt_label = (
+        f"controller {settings.copilot_ptt_device}, button {settings.copilot_ptt_button}"
+        if settings.copilot_ptt_device is not None
+        else settings.copilot_ptt_key
+    )
+    print(f"DCS Copilot running; PTT {ptt_label}. Press Ctrl-C to stop.")
     try:
         tasks = [telemetry_task, cloud_task]
         if ptt_task is not None:
@@ -241,8 +268,8 @@ async def run_client_runtime(
             store.flight_stats.finish()
             await connection.drain()
         stop.set()
-        if hotkey is not None:
-            hotkey.stop()
+        if ptt_input is not None:
+            ptt_input.stop()
             await asyncio.sleep(0)
         await controller.release()
         await playback.close()

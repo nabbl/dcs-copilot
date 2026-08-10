@@ -5,7 +5,10 @@ from dataclasses import dataclass
 import pytest
 from dcs_copilot.input.ptt import (
     GlobalFunctionKeyPTT,
+    GlobalJoystickButtonPTT,
+    JoystickDevice,
     PTTUnavailableError,
+    discover_joysticks,
     function_key_virtual_code,
 )
 
@@ -65,3 +68,56 @@ def test_ptt_validation_and_non_windows_failure() -> None:
     )
     with pytest.raises(PTTUnavailableError, match="Windows"):
         ptt.start()
+
+
+class FakeJoystickBackend:
+    def __init__(self) -> None:
+        self.state = 0
+
+    def devices(self) -> list[JoystickDevice]:
+        return [JoystickDevice(2, "Throttle", 12)]
+
+    def buttons(self, device_id: int) -> int | None:
+        assert device_id == 2
+        return self.state
+
+
+def test_joystick_button_ptt_is_edge_triggered() -> None:
+    events: list[str] = []
+    backend = FakeJoystickBackend()
+    ptt = GlobalJoystickButtonPTT(
+        2,
+        5,
+        on_press=lambda: events.append("down"),
+        on_release=lambda: events.append("up"),
+        platform="win32",
+        backend=backend,
+        poll_interval=0.001,
+    )
+    ptt.start()
+    backend.state = 1 << 4
+    assert _wait_until(lambda: events == ["down"])
+    backend.state = 0
+    assert _wait_until(lambda: events == ["down", "up"])
+    ptt.stop()
+
+
+def test_joystick_discovery_and_validation() -> None:
+    backend = FakeJoystickBackend()
+    assert discover_joysticks(platform="win32", backend=backend) == [
+        JoystickDevice(2, "Throttle", 12)
+    ]
+    assert discover_joysticks(platform="darwin", backend=backend) == []
+    with pytest.raises(ValueError, match="1 through 32"):
+        GlobalJoystickButtonPTT(2, 33, on_press=lambda: None, on_release=lambda: None)
+
+
+def _wait_until(predicate, timeout: float = 0.2) -> bool:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.001)
+    return predicate()

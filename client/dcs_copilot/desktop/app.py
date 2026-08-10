@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped]
 )
 
 from dcs_copilot.cli.run import run_client
+from dcs_copilot.input.ptt import JoystickDevice, discover_joysticks
 from dcs_copilot.logging import configure_logging
 
 from .auth import AuthError, StoredAuthSession, TokenPair
@@ -273,9 +274,16 @@ class DashboardPage(QWidget):
         path_row.addWidget(self.dcs_path)
         path_row.addWidget(browse)
         self.cloud_url = QLineEdit(self.config.cloud_url)
-        self.ptt = QComboBox()
-        self.ptt.addItems([f"F{number}" for number in range(13, 25)])
-        self.ptt.setCurrentText(self.config.ptt_key)
+        ptt_device_row = QHBoxLayout()
+        self.ptt_device = QComboBox()
+        self.ptt_control = QComboBox()
+        refresh_ptt = QPushButton("Refresh")
+        refresh_ptt.clicked.connect(self._refresh_ptt_devices)
+        ptt_device_row.addWidget(self.ptt_device)
+        ptt_device_row.addWidget(refresh_ptt)
+        self._ptt_devices: dict[int, JoystickDevice] = {}
+        self._refresh_ptt_devices()
+        self.ptt_device.currentIndexChanged.connect(self._update_ptt_controls)
         self.speech = QComboBox()
         self.speech.addItems(["MINIMAL", "NORMAL", "COACH"])
         self.speech.setCurrentText(self.config.speech_mode)
@@ -283,7 +291,8 @@ class DashboardPage(QWidget):
         self.launch_login.setChecked(self.config.launch_at_login)
         form.addRow("DCS Saved Games folder", path_row)
         form.addRow("Service URL", self.cloud_url)
-        form.addRow("Push-to-talk", self.ptt)
+        form.addRow("PTT input device", ptt_device_row)
+        form.addRow("PTT key / button", self.ptt_control)
         form.addRow("Speech mode", self.speech)
         form.addRow("", self.launch_login)
         save = QPushButton("Save settings")
@@ -316,10 +325,75 @@ class DashboardPage(QWidget):
         if selected:
             self.dcs_path.setText(selected)
 
+    def _refresh_ptt_devices(self) -> None:
+        selected = (
+            self.ptt_device.currentData()
+            if self.ptt_device.count()
+            else self.config.ptt_device_id
+        )
+        devices = discover_joysticks()
+        self._ptt_devices = {device.device_id: device for device in devices}
+        self.ptt_device.blockSignals(True)
+        self.ptt_device.clear()
+        self.ptt_device.addItem("Keyboard", None)
+        for device in devices:
+            self.ptt_device.addItem(
+                f"{device.name} ({device.button_count} buttons)", device.device_id
+            )
+        if selected is not None and selected not in self._ptt_devices:
+            self.ptt_device.addItem(f"Controller {selected} (not connected)", selected)
+        index = self.ptt_device.findData(selected)
+        self.ptt_device.setCurrentIndex(max(0, index))
+        self.ptt_device.blockSignals(False)
+        self._update_ptt_controls()
+
+    def _update_ptt_controls(self) -> None:
+        selected_control = (
+            self.ptt_control.currentData()
+            if self.ptt_control.count()
+            else (
+                self.config.ptt_key
+                if self.config.ptt_device_id is None
+                else self.config.ptt_button
+            )
+        )
+        device_id = self.ptt_device.currentData()
+        self.ptt_control.clear()
+        desired: object
+        if device_id is None:
+            for number in range(1, 25):
+                key = f"F{number}"
+                self.ptt_control.addItem(key, key)
+            desired = (
+                selected_control
+                if isinstance(selected_control, str)
+                else self.config.ptt_key
+            )
+        else:
+            device = self._ptt_devices.get(device_id)
+            button_count = (
+                device.button_count if device else max(self.config.ptt_button or 1, 1)
+            )
+            for button in range(1, min(button_count, 32) + 1):
+                self.ptt_control.addItem(f"Button {button}", button)
+            desired = (
+                selected_control
+                if isinstance(selected_control, int)
+                else self.config.ptt_button
+            )
+        index = self.ptt_control.findData(desired)
+        self.ptt_control.setCurrentIndex(max(0, index))
+
     def update_config(self) -> None:
         self.config.dcs_saved_games_path = self.dcs_path.text().strip()
         self.config.cloud_url = self.cloud_url.text().strip()
-        self.config.ptt_key = self.ptt.currentText()
+        device_id = self.ptt_device.currentData()
+        self.config.ptt_device_id = device_id
+        if device_id is None:
+            self.config.ptt_key = str(self.ptt_control.currentData())
+            self.config.ptt_button = None
+        else:
+            self.config.ptt_button = int(self.ptt_control.currentData())
         self.config.speech_mode = self.speech.currentText()
         self.config.launch_at_login = self.launch_login.isChecked()
 
@@ -486,6 +560,14 @@ class MainWindow(QMainWindow):
         environment.insert("DCS_COPILOT_CLOUD_URL", self.config.cloud_url)
         environment.insert("DCS_COPILOT_DEVICE_ID", self.config.device_id)
         environment.insert("COPILOT_PTT_KEY", self.config.ptt_key)
+        environment.insert(
+            "COPILOT_PTT_DEVICE",
+            "" if self.config.ptt_device_id is None else str(self.config.ptt_device_id),
+        )
+        environment.insert(
+            "COPILOT_PTT_BUTTON",
+            "" if self.config.ptt_button is None else str(self.config.ptt_button),
+        )
         environment.insert("COPILOT_SPEECH_MODE", self.config.speech_mode)
         if self.config.dcs_path is not None:
             environment.insert(

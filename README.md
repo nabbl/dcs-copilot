@@ -8,7 +8,8 @@ current build implements the reset Milestones 1 through 7:
 - a versioned client/cloud protocol;
 - a FastAPI gateway with signed account authentication and a local dev-token
   escape hatch;
-- F13 PTT-scoped PCM capture, binary audio transport and playback plumbing;
+- keyboard or Windows USB joystick/HOTAS PTT-scoped PCM capture, binary audio
+  transport and playback plumbing;
 - a persistent cloud Pipecat cascade with configurable OpenAI STT, Responses
   LLM, streaming TTS, and PTT barge-in cancellation;
 - four versioned, allowlisted read-only aircraft tools evaluated against local
@@ -67,7 +68,9 @@ cd client
 uv run dcs-copilot-desktop
 ```
 
-On Windows, `run` listens globally for F13 while DCS has focus. For POSIX local
+On Windows, `run` listens globally for the configured keyboard key or USB
+joystick/HOTAS button while DCS has focus. The desktop Settings page detects
+connected Windows game controllers and their buttons. For POSIX local
 development, `uv run dcs-copilot run --stdin-ptt` uses Enter to start and end a
 turn. The microphone is not opened before PTT and release ends the turn without
 VAD. The cloud transcribes the bounded turn, generates a deliberately concise

@@ -18,8 +18,9 @@ not delete DCS-BIOS, `Export.lua`, their backups, or account data in the cloud.
 
 The first app screen signs in or creates an account. The main screen then shows
 account, DCS-BIOS, and runtime state; settings expose the Saved Games path,
-service URL, F13–F24 push-to-talk key, speech mode, and optional Windows login
-launch. The activity view contains local runtime output. It must not display
+service URL, keyboard or detected USB joystick/HOTAS push-to-talk button,
+speech mode, and optional Windows login launch. Controller discovery uses the
+native Windows game-controller API and supports buttons 1–32. The activity view contains local runtime output. It must not display
 tokens, passwords, raw audio, or cockpit snapshots.
 
 ## Build an installer
@@ -57,7 +58,8 @@ Before release, test on clean Windows 10 and 11 VMs with:
   DCS-BIOS installation;
 - successful login, invalid credentials, expired access, refresh rotation,
   logout, backend outage, and reconnect after 15 minutes;
-- microphone/output device changes, F13–F24 capture, DCS focus loss, repair,
+- microphone/output device changes, F-key and USB HOTAS button capture, controller
+  disconnect/reconnect, DCS focus loss, repair,
   upgrade, and uninstall.
 
 Production backend gates still include PostgreSQL migrations, TLS termination,

@@ -44,6 +44,8 @@ class Settings:
     access_token: str = field(default="local-dev-token", repr=False)
     device_id: str = "local-development-device"
     copilot_ptt_key: str = "F13"
+    copilot_ptt_device: int | None = None
+    copilot_ptt_button: int | None = None
     speech_mode: SpeechMode = SpeechMode.NORMAL
     audio_input_device: int | None = None
     audio_output_device: int | None = None
@@ -80,6 +82,8 @@ class Settings:
                 "DCS_COPILOT_DEVICE_ID", "local-development-device"
             ).strip(),
             copilot_ptt_key=os.getenv("COPILOT_PTT_KEY", "F13").strip().upper(),
+            copilot_ptt_device=_optional_int("COPILOT_PTT_DEVICE"),
+            copilot_ptt_button=_optional_int("COPILOT_PTT_BUTTON"),
             speech_mode=SpeechMode(
                 os.getenv("COPILOT_SPEECH_MODE", "NORMAL").strip().upper()
             ),

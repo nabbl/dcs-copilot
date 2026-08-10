@@ -14,6 +14,8 @@ def test_settings_load_dotenv_without_overriding_environment(
         "DCS_BIOS_PORT=6000\n"
         "DCS_COPILOT_CLOUD_URL=ws://localhost:9000/v1/realtime\n"
         "COPILOT_PTT_KEY=f14\n"
+        "COPILOT_PTT_DEVICE=2\n"
+        "COPILOT_PTT_BUTTON=5\n"
         "COPILOT_SPEECH_MODE=coach\n"
         "LOG_LEVEL=debug\n"
     )
@@ -22,6 +24,8 @@ def test_settings_load_dotenv_without_overriding_environment(
     assert settings.port == 7000
     assert settings.cloud_url == "ws://localhost:9000/v1/realtime"
     assert settings.copilot_ptt_key == "F14"
+    assert settings.copilot_ptt_device == 2
+    assert settings.copilot_ptt_button == 5
     assert settings.speech_mode is SpeechMode.COACH
     assert settings.audio_sample_rate == 16_000
     assert settings.audio_output_sample_rate == 24_000

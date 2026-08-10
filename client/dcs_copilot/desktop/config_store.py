@@ -126,6 +126,8 @@ class DesktopConfig:
     email: str = ""
     device_id: str = ""
     ptt_key: str = "F13"
+    ptt_device_id: int | None = None
+    ptt_button: int | None = None
     speech_mode: str = "NORMAL"
     launch_at_login: bool = False
 
@@ -147,6 +149,15 @@ class DesktopConfig:
             return value if isinstance(value, str) else default
 
         launch_value = values.get("launch_at_login", defaults.launch_at_login)
+
+        def optional_int_value(name: str) -> int | None:
+            value = values.get(name)
+            return (
+                value
+                if isinstance(value, int) and not isinstance(value, bool)
+                else None
+            )
+
         config = cls(
             cloud_url=text_value("cloud_url", defaults.cloud_url),
             dcs_saved_games_path=text_value(
@@ -155,6 +166,8 @@ class DesktopConfig:
             email=text_value("email", defaults.email),
             device_id=text_value("device_id", defaults.device_id),
             ptt_key=text_value("ptt_key", defaults.ptt_key),
+            ptt_device_id=optional_int_value("ptt_device_id"),
+            ptt_button=optional_int_value("ptt_button"),
             speech_mode=text_value("speech_mode", defaults.speech_mode),
             launch_at_login=(
                 launch_value
@@ -201,5 +214,7 @@ class DesktopConfig:
             access_token=access_token,
             device_id=self.device_id,
             copilot_ptt_key=self.ptt_key.strip().upper(),
+            copilot_ptt_device=self.ptt_device_id,
+            copilot_ptt_button=self.ptt_button,
             speech_mode=SpeechMode(self.speech_mode.strip().upper()),
         )
