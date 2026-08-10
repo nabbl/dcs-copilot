@@ -6,20 +6,18 @@ on:
     paths:
       - "cloud/**"
       - "shared/**"
-      - "ops/postgres-backup/**"
       - "pyproject.toml"
       - "uv.lock"
-      - "captain-definition*"
+      - "captain-definition"
       - ".github/workflows/backend.yml"
   push:
     branches: [main]
     paths:
       - "cloud/**"
       - "shared/**"
-      - "ops/postgres-backup/**"
       - "pyproject.toml"
       - "uv.lock"
-      - "captain-definition*"
+      - "captain-definition"
       - ".github/workflows/backend.yml"
 
 concurrency:
@@ -50,7 +48,6 @@ jobs:
       packages: write
     outputs:
       backend-image: ${{ steps.images.outputs.backend }}
-      backup-image: ${{ steps.images.outputs.backup }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -60,7 +57,6 @@ jobs:
         run: |
           repository="${GITHUB_REPOSITORY,,}"
           echo "backend=ghcr.io/${repository}-cloud" >>"$GITHUB_OUTPUT"
-          echo "backup=ghcr.io/${repository}-postgres-backup" >>"$GITHUB_OUTPUT"
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -79,20 +75,6 @@ jobs:
           cache-to: type=gha,mode=max,scope=backend
           provenance: true
           sbom: true
-      - name: Build and publish PostgreSQL backup image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ops/postgres-backup/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.images.outputs.backup }}:${{ github.sha }}
-            ${{ steps.images.outputs.backup }}:main
-          cache-from: type=gha,scope=postgres-backup
-          cache-to: type=gha,mode=max,scope=postgres-backup
-          provenance: true
-          sbom: true
-
   deploy:
     needs: publish
     runs-on: ubuntu-latest
@@ -104,11 +86,9 @@ jobs:
           CAPROVER_SERVER: ${{ secrets.CAPROVER_SERVER }}
           CAPROVER_BACKEND_APP: ${{ secrets.CAPROVER_BACKEND_APP }}
           CAPROVER_BACKEND_APP_TOKEN: ${{ secrets.CAPROVER_BACKEND_APP_TOKEN }}
-          CAPROVER_BACKUP_APP: ${{ secrets.CAPROVER_BACKUP_APP }}
-          CAPROVER_BACKUP_APP_TOKEN: ${{ secrets.CAPROVER_BACKUP_APP_TOKEN }}
           HEALTH_URL: ${{ vars.DCS_COPILOT_HEALTH_URL }}
         run: |
-          for name in CAPROVER_SERVER CAPROVER_BACKEND_APP CAPROVER_BACKEND_APP_TOKEN CAPROVER_BACKUP_APP CAPROVER_BACKUP_APP_TOKEN HEALTH_URL; do
+          for name in CAPROVER_SERVER CAPROVER_BACKEND_APP CAPROVER_BACKEND_APP_TOKEN HEALTH_URL; do
             if [ -z "${!name}" ]; then
               echo "Missing production setting: $name" >&2
               exit 1
@@ -118,13 +98,6 @@ jobs:
             https://*/healthz) ;;
             *) echo "DCS_COPILOT_HEALTH_URL must be an HTTPS /healthz URL" >&2; exit 1 ;;
           esac
-      - name: Deploy PostgreSQL backup service to CapRover
-        uses: caprover/deploy-from-github@d76580d79952f6841c453bb3ed37ef452b19752c
-        with:
-          server: ${{ secrets.CAPROVER_SERVER }}
-          app: ${{ secrets.CAPROVER_BACKUP_APP }}
-          token: ${{ secrets.CAPROVER_BACKUP_APP_TOKEN }}
-          image: ${{ needs.publish.outputs.backup-image }}:${{ github.sha }}
       - name: Deploy backend to CapRover
         uses: caprover/deploy-from-github@d76580d79952f6841c453bb3ed37ef452b19752c
         with:

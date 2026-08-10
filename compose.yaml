@@ -55,31 +55,8 @@ services:
     networks:
       - backend
 
-  database-backup:
-    build:
-      context: .
-      dockerfile: ops/postgres-backup/Dockerfile
-    restart: unless-stopped
-    depends_on:
-      database:
-        condition: service_healthy
-    environment:
-      PGHOST: database
-      PGPORT: 5432
-      PGDATABASE: dcs_copilot
-      PGUSER: dcs_copilot
-      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
-      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
-      BACKUP_MAX_AGE_SECONDS: ${BACKUP_MAX_AGE_SECONDS:-90000}
-    volumes:
-      - postgres-backups:/backups
-    networks:
-      - backend
-
 volumes:
   postgres-data:
-  postgres-backups:
 
 networks:
   backend:

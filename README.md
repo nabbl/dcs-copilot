@@ -125,4 +125,4 @@ docker compose up --build -d
 See [the Docker deployment guide](docs/docker-deployment.md) for health checks,
 Windows client configuration, persistent data, and remote TLS requirements.
 For production, see [the CapRover deployment guide](docs/caprover-deployment.md)
-for the GHCR pipeline, direct deployment, and PostgreSQL backup/restore setup.
+for the GHCR pipeline and direct deployment setup.
