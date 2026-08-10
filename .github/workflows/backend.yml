@@ -1,0 +1,163 @@
+name: Backend container
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "cloud/**"
+      - "shared/**"
+      - "ops/postgres-backup/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "captain-definition*"
+      - ".github/workflows/backend.yml"
+  push:
+    branches: [main]
+    paths:
+      - "cloud/**"
+      - "shared/**"
+      - "ops/postgres-backup/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "captain-definition*"
+      - ".github/workflows/backend.yml"
+
+concurrency:
+  group: backend-${{ github.event.pull_request.number || 'production' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Test cloud and shared packages
+        run: uv run --frozen --package dcs-copilot-cloud pytest -q cloud/tests shared/tests
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend-image: ${{ steps.images.outputs.backend }}
+      backup-image: ${{ steps.images.outputs.backup }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Resolve image names
+        id: images
+        shell: bash
+        run: |
+          repository="${GITHUB_REPOSITORY,,}"
+          echo "backend=ghcr.io/${repository}-cloud" >>"$GITHUB_OUTPUT"
+          echo "backup=ghcr.io/${repository}-postgres-backup" >>"$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cloud/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.images.outputs.backend }}:${{ github.sha }}
+            ${{ steps.images.outputs.backend }}:main
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+          provenance: true
+          sbom: true
+      - name: Build and publish PostgreSQL backup image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ops/postgres-backup/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.images.outputs.backup }}:${{ github.sha }}
+            ${{ steps.images.outputs.backup }}:main
+          cache-from: type=gha,scope=postgres-backup
+          cache-to: type=gha,mode=max,scope=postgres-backup
+          provenance: true
+          sbom: true
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Validate production configuration
+        shell: bash
+        env:
+          CAPROVER_SERVER: ${{ secrets.CAPROVER_SERVER }}
+          CAPROVER_BACKEND_APP: ${{ secrets.CAPROVER_BACKEND_APP }}
+          CAPROVER_BACKEND_APP_TOKEN: ${{ secrets.CAPROVER_BACKEND_APP_TOKEN }}
+          CAPROVER_BACKUP_APP: ${{ secrets.CAPROVER_BACKUP_APP }}
+          CAPROVER_BACKUP_APP_TOKEN: ${{ secrets.CAPROVER_BACKUP_APP_TOKEN }}
+          HEALTH_URL: ${{ vars.DCS_COPILOT_HEALTH_URL }}
+        run: |
+          for name in CAPROVER_SERVER CAPROVER_BACKEND_APP CAPROVER_BACKEND_APP_TOKEN CAPROVER_BACKUP_APP CAPROVER_BACKUP_APP_TOKEN HEALTH_URL; do
+            if [ -z "${!name}" ]; then
+              echo "Missing production setting: $name" >&2
+              exit 1
+            fi
+          done
+          case "$HEALTH_URL" in
+            https://*/healthz) ;;
+            *) echo "DCS_COPILOT_HEALTH_URL must be an HTTPS /healthz URL" >&2; exit 1 ;;
+          esac
+      - name: Deploy PostgreSQL backup service to CapRover
+        uses: caprover/deploy-from-github@d76580d79952f6841c453bb3ed37ef452b19752c
+        with:
+          server: ${{ secrets.CAPROVER_SERVER }}
+          app: ${{ secrets.CAPROVER_BACKUP_APP }}
+          token: ${{ secrets.CAPROVER_BACKUP_APP_TOKEN }}
+          image: ${{ needs.publish.outputs.backup-image }}:${{ github.sha }}
+      - name: Deploy backend to CapRover
+        uses: caprover/deploy-from-github@d76580d79952f6841c453bb3ed37ef452b19752c
+        with:
+          server: ${{ secrets.CAPROVER_SERVER }}
+          app: ${{ secrets.CAPROVER_BACKEND_APP }}
+          token: ${{ secrets.CAPROVER_BACKEND_APP_TOKEN }}
+          image: ${{ needs.publish.outputs.backend-image }}:${{ github.sha }}
+      - name: Verify production health
+        shell: bash
+        env:
+          HEALTH_URL: ${{ vars.DCS_COPILOT_HEALTH_URL }}
+        run: |
+          body_file=$(mktemp)
+          trap 'rm -f "$body_file"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 10 "$HEALTH_URL" -o "$body_file" && \
+              python - "$body_file" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          healthy = payload.get("status") == "ok" and payload.get("ai_inference") is True
+          raise SystemExit(0 if healthy else 1)
+          PY
+            then
+              echo "Production health check passed: $HEALTH_URL"
+              cat "$body_file"
+              exit 0
+            fi
+            echo "Health check attempt ${attempt}/30 failed; retrying in 5 seconds"
+            sleep 5
+          done
+          echo "Production did not become healthy: $HEALTH_URL" >&2
+          [ ! -s "$body_file" ] || cat "$body_file" >&2
+          exit 1

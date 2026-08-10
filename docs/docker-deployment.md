@@ -1,6 +1,7 @@
 # Docker deployment
 
-Docker Compose runs the cloud/Pipecat backend and PostgreSQL. The Windows
+Docker Compose runs the cloud/Pipecat backend, PostgreSQL, and a scheduled
+PostgreSQL backup worker. The Windows
 client remains a native application because it needs Windows global keyboard
 input, the credential vault, DCS process focus, host audio devices, and local
 DCS-BIOS multicast.
@@ -28,8 +29,21 @@ curl http://127.0.0.1:8000/healthz
 The health response should contain `"status":"ok"` and
 `"ai_inference":true`. Follow logs with `docker compose logs -f backend` and
 stop the deployment with `docker compose down`. PostgreSQL data is retained in
-the `postgres-data` named volume. `docker compose down -v` also deletes that
-database and should only be used when a full reset is intended.
+the `postgres-data` named volume. Daily validated custom-format dumps are
+retained for 14 days in the separate `postgres-backups` volume. `docker compose
+down -v` deletes both the database and its backups and should only be used when
+a full reset is intended.
+
+List or validate a local dump with:
+
+```bash
+docker compose exec database-backup ls -lh /backups
+docker compose exec database-backup \
+  pg_restore --list /backups/dcs_copilot-YYYYMMDDTHHMMSSZ.dump
+```
+
+Copy the backup volume off the Docker host as part of the host backup policy;
+keeping the database and every dump on one machine does not cover host loss.
 
 Compose deliberately disables `DCS_COPILOT_DEV_TOKEN`. Users authenticate via
 the registration/login API and the Windows desktop client stores its refresh
