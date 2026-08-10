@@ -13,6 +13,7 @@ from .messages import (
     ProtocolError,
     UnsupportedProtocolVersion,
 )
+from .sessions import SESSION_METADATA_VERSION, AircraftChanged
 from .tools import (
     AIRCRAFT_TOOL_VERSION,
     ALLOWED_AIRCRAFT_STATE_FIELDS,
@@ -30,6 +31,8 @@ __all__ = [
     "ALLOWED_AIRCRAFT_STATE_FIELDS",
     "KNOWN_CONTROL_TYPES",
     "PROTOCOL_VERSION",
+    "SESSION_METADATA_VERSION",
+    "AircraftChanged",
     "AircraftEvent",
     "AircraftToolName",
     "AircraftToolRequest",

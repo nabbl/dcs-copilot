@@ -134,14 +134,15 @@ Rust client.
    state, active deterministic issues, recent rule events, and flight phase.
 5. **Proactive warnings (implemented, cloud-connected):** bounded semantic
    events, local speech policy, and interruptible cloud TTS advisories.
-6. **Accounts and memory:** production authentication, PostgreSQL, memories,
-   preferences, and flight sessions.
+6. **Accounts and memory (implemented):** signed short-lived authentication,
+   rotating refresh credentials, PostgreSQL/SQLite persistence, explicit
+   memories, preferences, and semantic flight sessions.
 7. **Habit learning:** deterministic end-of-flight statistics and stored habit
    calculations.
 8. **Commercial foundation:** metering, entitlements, devices, rate limiting,
    and operations monitoring.
 
-Milestones 3 through 5 preserve the original dependency boundary: Pipecat and
+Milestones 3 through 6 preserve the original dependency boundary: Pipecat and
 every AI provider exist only in the cloud package, while telemetry and tool
 execution remain in the thin client.
 
@@ -177,9 +178,9 @@ assistant playback and sends `assistant.interrupt`. Cloud failures reconnect
 with bounded backoff while the independent DCS task continues running.
 
 Plain `ws://` connections are accepted only for loopback development. Any
-non-loopback service URL must use `wss://`. The placeholder token is not
-production authentication and must be replaced by device login and short-lived
-credentials in the account milestone.
+non-loopback service URL must use `wss://`. Milestone 6 retains the placeholder
+token only as an explicit local escape hatch alongside service-issued,
+device-bound access credentials.
 
 ## Milestone 3 voice contract
 
@@ -232,4 +233,25 @@ Per the revised product requirement, Milestone 5 does not ship prerecorded
 audio or promise warning speech without a cloud connection. DCS monitoring,
 rules, normalized state, and bounded event history continue locally during a
 disconnect, but speech resumes only for new eligible events after reconnection.
-No Milestone 6 account, memory, or persistence work is included.
+Milestone 5 itself did not include account, memory, or persistence work.
+
+## Milestone 6 accounts-and-memory contract
+
+The cloud authenticates email/password accounts and issues device-bound,
+short-lived signed access tokens plus rotating opaque refresh credentials.
+Passwords use salted scrypt; only refresh-token hashes are stored. The local
+development token has no user identity and therefore cannot invoke account
+tools. PostgreSQL is the production datastore and SQLite is supported for
+development.
+
+Pipecat exposes explicit, bounded cloud tools for memory recall, remember,
+forget, aircraft preferences, and semantic flight history. They never cross the
+client aircraft-tool broker and cannot reach DCS, the filesystem, or shell. All
+records are scoped by the authenticated user. Missing values stay missing, and
+the prompt permits memory writes/deletes only on an explicit pilot request.
+
+The client sends versioned `aircraft.changed` metadata so the cloud can attach
+an optional own-aircraft name to the current flight session. A flight record
+contains timestamps and identifiers only—no raw telemetry, cockpit snapshot,
+audio, semantic event totals, or inferred habit. Milestone 7 statistics and
+habit learning are not included.

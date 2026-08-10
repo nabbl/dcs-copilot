@@ -80,6 +80,22 @@ def test_unknown_message_is_nonfatal_and_invalid_token_closes() -> None:
     with TestClient(app) as client:
         with client.websocket_connect("/v1/realtime") as websocket:
             authenticate_and_start(websocket)
+            websocket.send_text(
+                ControlMessage(
+                    "authenticate",
+                    {"access_token": "test-token", "device_id": "device-1"},
+                ).to_json()
+            )
+            assert receive_control(websocket).payload["code"] == "already_authenticated"
+            websocket.send_text(
+                ControlMessage(
+                    "session.start",
+                    {"session_id": "other", "audio": AudioFormat().to_dict()},
+                ).to_json()
+            )
+            assert (
+                receive_control(websocket).payload["code"] == "session_already_active"
+            )
             websocket.send_text(ControlMessage("future.message").to_json())
             error = receive_control(websocket)
             assert error.type == "error"
@@ -106,6 +122,8 @@ def test_health_explicitly_reports_no_ai_pipeline() -> None:
             "ai_inference": False,
             "voice_pipeline": "pipecat",
             "proactive_events": True,
+            "accounts": True,
+            "memory": True,
         }
 
 
@@ -262,7 +280,9 @@ def test_complete_mocked_voice_tool_result_voice_round_trip() -> None:
                         }
                     ],
                 },
-            ).to_control().to_json()
+            )
+            .to_control()
+            .to_json()
         )
 
         output = MediaPacket.from_bytes(websocket.receive_bytes())

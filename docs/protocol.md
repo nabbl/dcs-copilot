@@ -48,11 +48,13 @@ cloud  -> event (utterance.received)
 client -> session.end
 ```
 
-The development authenticator compares `DCS_COPILOT_ACCESS_TOKEN` with the
-server's `DCS_COPILOT_DEV_TOKEN`. This proves the protocol flow only; it is not
-the device-login, refresh-token, revocation, or rate-limiting system required
-for production. Both peers enforce a bounded handshake timeout so an idle or
-malicious half-open connection cannot occupy a session indefinitely.
+Milestone 6 normally uses a short-lived, signed access token returned by the
+cloud HTTP account API. The token is bound to the `device_id`; an expired,
+tampered, or wrong-device token closes authentication. Refresh rotation occurs
+over HTTPS outside this media protocol. A configured `DCS_COPILOT_DEV_TOKEN`
+remains a loopback-development escape hatch with no account identity or memory
+access. Both peers enforce a bounded handshake timeout so an idle or malicious
+half-open connection cannot occupy a session indefinitely.
 
 ## Binary media envelope
 
@@ -193,3 +195,29 @@ dropped while another response or PTT turn is active; warnings and critical
 events may replace an active cloud response. `ptt.start`,
 `assistant.interrupt`, or the matching resolution cancels active proactive
 speech. The client does not replay events accumulated during a disconnect.
+
+## Flight-session metadata
+
+After session start and whenever the locally detected aircraft changes, the
+client may send this bounded semantic message:
+
+```json
+{
+  "protocol_version": 1,
+  "type": "aircraft.changed",
+  "message_id": "message-uuid",
+  "payload": {
+    "metadata_version": 1,
+    "aircraft": "F/A-18C"
+  }
+}
+```
+
+Only `metadata_version` and the nullable, 64-character aircraft identifier are
+accepted. Extra fields—including raw cockpit or telemetry data—are rejected.
+The cloud attaches the identifier to the authenticated user's current semantic
+flight session and closes the session on `session.end` or disconnect.
+
+Cloud memory and preference tools are internal Pipecat functions. They do not
+produce `tool.request` messages and never cross into the client. This keeps
+account persistence distinct from authoritative local aircraft reads.

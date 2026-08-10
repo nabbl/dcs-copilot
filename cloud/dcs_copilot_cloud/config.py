@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+LOCAL_DEVELOPMENT_SIGNING_KEY = "local-development-signing-key-change-me"
+
 
 def _load_dotenv(path: Path) -> None:
     if not path.is_file():
@@ -28,6 +30,10 @@ class CloudSettings:
     host: str = "127.0.0.1"
     port: int = 8000
     dev_access_token: str = field(default="local-dev-token", repr=False)
+    database_url: str = field(default="sqlite+aiosqlite:///:memory:", repr=False)
+    auth_signing_key: str = field(default=LOCAL_DEVELOPMENT_SIGNING_KEY, repr=False)
+    auth_access_token_seconds: int = 900
+    auth_refresh_token_days: int = 30
     handshake_timeout_seconds: float = 5.0
     log_level: str = "info"
     max_utterance_seconds: float = 60.0
@@ -54,6 +60,18 @@ class CloudSettings:
             host=os.getenv("CLOUD_HOST", "127.0.0.1"),
             port=int(os.getenv("CLOUD_PORT", "8000")),
             dev_access_token=os.getenv("DCS_COPILOT_DEV_TOKEN", "local-dev-token"),
+            database_url=os.getenv(
+                "DCS_COPILOT_DATABASE_URL",
+                "sqlite+aiosqlite:///./dcs-copilot.db",
+            ).strip(),
+            auth_signing_key=os.getenv(
+                "DCS_COPILOT_AUTH_SIGNING_KEY",
+                LOCAL_DEVELOPMENT_SIGNING_KEY,
+            ),
+            auth_access_token_seconds=int(
+                os.getenv("AUTH_ACCESS_TOKEN_SECONDS", "900")
+            ),
+            auth_refresh_token_days=int(os.getenv("AUTH_REFRESH_TOKEN_DAYS", "30")),
             handshake_timeout_seconds=float(
                 os.getenv("CLOUD_HANDSHAKE_TIMEOUT_SECONDS", "5")
             ),

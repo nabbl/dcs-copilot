@@ -6,6 +6,7 @@ import pytest
 from dcs_copilot_protocol import (
     AIRCRAFT_EVENT_VERSION,
     AIRCRAFT_TOOL_VERSION,
+    AircraftChanged,
     AircraftEvent,
     AircraftToolName,
     AircraftToolRequest,
@@ -237,3 +238,20 @@ def test_recent_events_tool_accepts_only_typed_semantic_rule_events() -> None:
         },
     )
     assert AircraftToolResult.from_control(result.to_control()) == result
+
+
+def test_aircraft_changed_is_versioned_and_semantic_only() -> None:
+    message = AircraftChanged("F/A-18C").to_control()
+    assert message.payload == {"metadata_version": 1, "aircraft": "F/A-18C"}
+    assert AircraftChanged.from_control(message).aircraft == "F/A-18C"
+    with pytest.raises(ProtocolError, match="unexpected fields"):
+        AircraftChanged.from_control(
+            ControlMessage(
+                "aircraft.changed",
+                {
+                    "metadata_version": 1,
+                    "aircraft": "F/A-18C",
+                    "cockpit": {"raw": "forbidden"},
+                },
+            )
+        )

@@ -1,6 +1,6 @@
 # Privacy and data minimization
 
-The current Milestone 5 build transmits microphone audio only after an
+The current Milestone 6 build transmits microphone audio only after an
 intentional PTT press and stops capture before sending `ptt.end`. There is no
 open-microphone mode, local VAD, background transcription, or continuous
 microphone analysis.
@@ -24,7 +24,16 @@ flight phase when known, a short deterministic message, and bounded rule data.
 Raw telemetry and complete state are never attached. Events remain in bounded
 client memory when the cloud is unavailable and are not replayed on reconnect.
 
-The client contains only a DCS Copilot development access token. It never reads
-or stores an OpenAI credential. Production conversation retention, deletion
-controls, consent, and account export are later requirements and must be
-defined before real customer traffic is accepted.
+Milestone 6 adds cloud persistence for user identity, salted password hashes,
+hashed refresh credentials, explicit memories/preferences, and semantic flight
+session timestamps plus an optional aircraft name. These records are isolated
+by user. Flight history deliberately excludes raw telemetry, rule-event totals,
+audio, transcripts, mission data, and enemy/world state. A pilot can explicitly
+forget an individual memory and revoke a refresh credential; broader account
+export/deletion and conversation-retention controls remain requirements before
+real customer traffic is accepted.
+
+The client contains only DCS Copilot service credentials. It never reads or
+stores an OpenAI credential. Account memory is queried inside the cloud and is
+not copied into the local aircraft-tool protocol. No deterministic habit
+statistics are uploaded in Milestone 6.

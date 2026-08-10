@@ -20,7 +20,9 @@ from dcs_copilot_cloud.voice import (
     PipecatVoicePipeline,
     VoiceAnnouncement,
     VoiceTurn,
+    account_tool_schemas,
     aircraft_tool_schemas,
+    copilot_tool_schemas,
     pcm_to_wav,
 )
 from dcs_copilot_protocol import AudioFormat
@@ -73,6 +75,23 @@ def test_pipecat_context_exposes_only_milestone_four_aircraft_tools() -> None:
         "get_flight_phase",
     }
     assert all(schema.handler is handler for schema in schemas)
+
+
+def test_pipecat_context_separates_allowlisted_account_and_aircraft_tools() -> None:
+    async def handler(_params) -> None:
+        return None
+
+    account_schemas = account_tool_schemas(handler)
+    assert {schema.name for schema in account_schemas} == {
+        "get_pilot_memories",
+        "remember_pilot_fact",
+        "forget_pilot_fact",
+        "get_aircraft_preferences",
+        "set_chatter_level",
+        "get_flight_history",
+    }
+    assert len(copilot_tool_schemas(handler)) == 10
+    assert all(schema.handler is handler for schema in account_schemas)
 
 
 class _FakeSTT(FrameProcessor):

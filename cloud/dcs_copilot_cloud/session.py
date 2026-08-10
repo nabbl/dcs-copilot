@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
-import hmac
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
 from dcs_copilot_protocol import (
     PROTOCOL_VERSION,
+    AircraftChanged,
     AudioFormat,
     ControlMessage,
     MediaKind,
     MediaPacket,
     ProtocolError,
 )
+
+from .auth import AuthenticatedPrincipal, AuthenticationError
+
+AccessTokenVerifier = Callable[[str, str | None], AuthenticatedPrincipal]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,15 +45,24 @@ class SessionResult:
     responses: tuple[ControlMessage, ...] = ()
     receipt: UtteranceReceipt | None = None
     utterance: CompletedUtterance | None = None
+    lifecycle: SessionLifecycle | None = None
     close_code: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SessionLifecycle:
+    action: str
+    session_id: str
+    aircraft: str | None = None
 
 
 @dataclass(slots=True)
 class RealtimeSession:
-    expected_token: str
+    verify_access_token: AccessTokenVerifier
     max_utterance_seconds: float = 60.0
     connection_id: str = field(default_factory=lambda: str(uuid4()))
     authenticated: bool = False
+    user_id: str | None = None
     device_id: str | None = None
     session_id: str | None = None
     input_audio_format: AudioFormat | None = None
@@ -80,6 +94,8 @@ class RealtimeSession:
             return self._start_session(message)
         if message.type == "session.end":
             return self._end_session(message)
+        if message.type == "aircraft.changed":
+            return self._aircraft_changed(message)
         if message.type == "assistant.interrupt":
             self.interrupted = True
             return SessionResult()
@@ -115,24 +131,32 @@ class RealtimeSession:
         return SessionResult()
 
     def _authenticate(self, message: ControlMessage) -> SessionResult:
+        if self.authenticated:
+            return SessionResult((self._error(message, "already_authenticated"),))
         token = message.payload.get("access_token")
         device_id = message.payload.get("device_id")
-        if not isinstance(token, str) or not hmac.compare_digest(
-            token, self.expected_token
-        ):
+        if not isinstance(token, str) or not isinstance(device_id, str):
             return SessionResult(
                 (self._error(message, "authentication_failed"),),
                 close_code=4401,
             )
-        if not isinstance(device_id, str) or not device_id:
-            return SessionResult((self._error(message, "invalid_device_id"),))
+        try:
+            principal = self.verify_access_token(token, device_id)
+        except AuthenticationError:
+            return SessionResult(
+                (self._error(message, "authentication_failed"),),
+                close_code=4401,
+            )
         self.authenticated = True
-        self.device_id = device_id
+        self.user_id = principal.user_id
+        self.device_id = principal.device_id
         return SessionResult((self._status(message),))
 
     def _start_session(self, message: ControlMessage) -> SessionResult:
+        if self.session_id is not None:
+            return SessionResult((self._error(message, "session_already_active"),))
         session_id = message.payload.get("session_id")
-        if not isinstance(session_id, str) or not session_id:
+        if not isinstance(session_id, str) or not session_id or len(session_id) > 128:
             return SessionResult((self._error(message, "invalid_session_id"),))
         try:
             input_audio_format = AudioFormat.from_dict(
@@ -153,15 +177,46 @@ class RealtimeSession:
         self.output_audio_format = output_audio_format
         self.ptt_active = False
         self._reset_utterance()
-        return SessionResult((self._status(message),))
+        return SessionResult(
+            (self._status(message),),
+            lifecycle=SessionLifecycle("started", session_id),
+        )
 
     def _end_session(self, message: ControlMessage) -> SessionResult:
+        requested_session_id = message.payload.get("session_id")
+        if (
+            self.session_id is None
+            or requested_session_id != self.session_id
+            or set(message.payload) != {"session_id"}
+        ):
+            return SessionResult((self._error(message, "invalid_session_id"),))
+        session_id = self.session_id
         self.session_id = None
         self.input_audio_format = None
         self.output_audio_format = None
         self.ptt_active = False
         self._reset_utterance()
-        return SessionResult((self._status(message),))
+        return SessionResult(
+            (self._status(message),),
+            lifecycle=SessionLifecycle("ended", session_id)
+            if session_id is not None
+            else None,
+        )
+
+    def _aircraft_changed(self, message: ControlMessage) -> SessionResult:
+        if self.session_id is None:
+            return SessionResult((self._error(message, "session_not_active"),))
+        try:
+            aircraft = AircraftChanged.from_control(message).aircraft
+        except ProtocolError:
+            return SessionResult((self._error(message, "invalid_aircraft"),))
+        return SessionResult(
+            lifecycle=SessionLifecycle(
+                "aircraft_changed",
+                self.session_id,
+                aircraft,
+            )
+        )
 
     def _start_ptt(self, message: ControlMessage) -> SessionResult:
         if self.session_id is None:

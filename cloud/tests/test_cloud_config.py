@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from dcs_copilot_cloud.app import create_app
 from dcs_copilot_cloud.config import CloudSettings
 
 
@@ -25,3 +27,15 @@ def test_cloud_settings_load_dotenv_without_overriding_environment(
     assert settings.llm_model == "gpt-test"
     assert settings.aircraft_tool_timeout_seconds == 2.5
     assert settings.tts_model == "gpt-4o-mini-tts"
+
+
+def test_non_loopback_service_rejects_development_credentials() -> None:
+    with pytest.raises(ValueError, match="DEV_TOKEN"):
+        create_app(CloudSettings(host="0.0.0.0"))
+    with pytest.raises(ValueError, match="AUTH_SIGNING_KEY"):
+        create_app(
+            CloudSettings(
+                host="0.0.0.0",
+                dev_access_token="",
+            )
+        )

@@ -6,9 +6,10 @@ repeatable microbenchmark below and an in-game Windows measurement.
 
 ## Dependency and model audit
 
-Milestones 2 through 4 add only standard-library tool schemas/execution plus the
-WebSocket transport, PyAudio and Windows hotkey listener. Cloud Pipecat and AI
-providers remain excluded. Before a release, inspect the client-only resolved
+Milestones 2 through 6 add only standard-library protocol/event/session logic
+plus the WebSocket transport, PyAudio and Windows hotkey listener. Database,
+authentication, cloud Pipecat, and AI providers remain excluded from the
+client. Before a release, inspect the client-only resolved
 environment and packaged artifact and verify that it contains no FastAPI cloud
 stack, Pipecat, OpenAI, Torch, CUDA, ONNX, Whisper, Kokoro, Piper, Smart Turn,
 embedding, or vector-database package or model file.

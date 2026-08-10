@@ -8,7 +8,7 @@ import sys
 from collections.abc import Coroutine
 from typing import Any
 
-from dcs_copilot_protocol import AudioFormat, ControlMessage
+from dcs_copilot_protocol import AircraftChanged, AudioFormat, ControlMessage
 
 from .audio.portaudio import PortAudioCapture, PortAudioPlayback
 from .cli.status import _load_registry
@@ -18,7 +18,7 @@ from .events import ManagedAircraftEvent, SpeechPolicy
 from .input.controller import PttSessionController
 from .input.ptt import GlobalFunctionKeyPTT, PTTUnavailableError
 from .network.connection import CloudConnectionStatus, CloudSessionConnection
-from .state.store import AircraftStateStore
+from .state.store import AircraftStateStore, NormalizedStateChange
 from .tools import AircraftToolExecutor
 
 LOGGER = logging.getLogger(__name__)
@@ -66,6 +66,10 @@ async def run_client_runtime(settings: Settings, *, stdin_ptt: bool = False) -> 
 
     def status_changed(status: CloudConnectionStatus) -> None:
         print(f"Cloud: {status.detail}")
+        if status.session_active and store is not None:
+            connection.send_message(
+                AircraftChanged(store.current.aircraft).to_control()
+            )
 
     def control_received(message: ControlMessage) -> None:
         if message.type == "tool.request":
@@ -126,6 +130,12 @@ async def run_client_runtime(settings: Settings, *, stdin_ptt: bool = False) -> 
 
     if store is not None:
         store.event_manager.add_callback(proactive_event)
+
+        def state_changed(change: NormalizedStateChange) -> None:
+            if change.field == "aircraft":
+                connection.send_message(AircraftChanged(change.new_value).to_control())
+
+        store.add_change_callback(state_changed)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

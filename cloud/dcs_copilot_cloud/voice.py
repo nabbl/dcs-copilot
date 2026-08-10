@@ -279,7 +279,7 @@ class PipecatVoicePipeline:
         if self._worker is not None:
             return
         context = LLMContext(
-            tools=ToolsSchema(aircraft_tool_schemas(self._handle_tool_call))
+            tools=ToolsSchema(copilot_tool_schemas(self._handle_tool_call))
         )
         strategies = UserTurnStrategies(
             start=[ExternalUserTurnStartStrategy()],
@@ -423,6 +423,112 @@ def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
             handler=handler,
         ),
     ]
+
+
+def account_tool_schemas(handler: Any) -> list[FunctionSchema]:
+    """Narrow cloud tools for explicit memories, preferences, and flights."""
+
+    aircraft = {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "description": "Canonical aircraft name when the fact is aircraft-specific.",
+    }
+    memory_key = {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{0,63}$",
+    }
+    return [
+        FunctionSchema(
+            name="get_pilot_memories",
+            description=(
+                "Recall explicitly saved pilot facts. Use this for questions about "
+                "remembered values such as Bingo fuel; never invent a memory."
+            ),
+            properties={
+                "aircraft": aircraft,
+                "key": memory_key,
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 20,
+                    "default": 10,
+                },
+            },
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="remember_pilot_fact",
+            description=(
+                "Save a fact only when the pilot explicitly asks you to remember it."
+            ),
+            properties={
+                "aircraft": aircraft,
+                "key": memory_key,
+                "value": {
+                    "anyOf": [
+                        {"type": "string", "minLength": 1, "maxLength": 512},
+                        {"type": "number"},
+                        {"type": "boolean"},
+                    ]
+                },
+            },
+            required=["key", "value"],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="forget_pilot_fact",
+            description=(
+                "Delete one explicit memory only when the pilot asks you to forget it."
+            ),
+            properties={"aircraft": aircraft, "key": memory_key},
+            required=["key"],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="get_aircraft_preferences",
+            description="Read explicit stored copilot preferences without inferring any.",
+            properties={"aircraft": aircraft},
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="set_chatter_level",
+            description="Save the pilot's explicit copilot chatter preference.",
+            properties={
+                "aircraft": aircraft,
+                "level": {
+                    "type": "string",
+                    "enum": ["minimal", "normal", "coach"],
+                },
+            },
+            required=["level"],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="get_flight_history",
+            description=(
+                "Read bounded semantic flight-session metadata. This contains no "
+                "raw telemetry and no inferred habits."
+            ),
+            properties={
+                "aircraft": aircraft,
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 20,
+                    "default": 5,
+                },
+            },
+            required=[],
+            handler=handler,
+        ),
+    ]
+
+
+def copilot_tool_schemas(handler: Any) -> list[FunctionSchema]:
+    return aircraft_tool_schemas(handler) + account_tool_schemas(handler)
 
 
 def pcm_to_wav(audio: bytes, audio_format: AudioFormat) -> bytes:
