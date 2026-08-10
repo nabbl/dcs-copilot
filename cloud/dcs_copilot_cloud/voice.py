@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import io
-import wave
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -24,6 +22,8 @@ from pipecat.frames.frames import (
     TTSAudioRawFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
@@ -176,16 +176,17 @@ class PipecatVoicePipeline:
             self._audio_callback = on_audio
             self._tool_callback = request_tool
             self._turn_active = True
-            wav_audio = pcm_to_wav(turn.audio, turn.input_format)
             try:
                 await worker.queue_frames(
                     (
                         UserStartedSpeakingFrame(),
+                        VADUserStartedSpeakingFrame(),
                         InputAudioRawFrame(
-                            audio=wav_audio,
+                            audio=turn.audio,
                             sample_rate=turn.input_format.sample_rate,
                             num_channels=turn.input_format.channels,
                         ),
+                        VADUserStoppedSpeakingFrame(),
                         UserStoppedSpeakingFrame(),
                     )
                 )
@@ -559,13 +560,3 @@ def account_tool_schemas(handler: Any) -> list[FunctionSchema]:
 
 def copilot_tool_schemas(handler: Any) -> list[FunctionSchema]:
     return aircraft_tool_schemas(handler) + account_tool_schemas(handler)
-
-
-def pcm_to_wav(audio: bytes, audio_format: AudioFormat) -> bytes:
-    output = io.BytesIO()
-    with wave.open(output, "wb") as wav:
-        wav.setnchannels(audio_format.channels)
-        wav.setsampwidth(2)
-        wav.setframerate(audio_format.sample_rate)
-        wav.writeframes(audio)
-    return output.getvalue()

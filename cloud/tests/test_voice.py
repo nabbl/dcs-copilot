@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import io
-import wave
 
 import pytest
 from dcs_copilot_cloud.config import CloudSettings
@@ -23,7 +21,6 @@ from dcs_copilot_cloud.voice import (
     account_tool_schemas,
     aircraft_tool_schemas,
     copilot_tool_schemas,
-    pcm_to_wav,
 )
 from dcs_copilot_protocol import AudioFormat
 from pipecat.frames.frames import (
@@ -35,18 +32,10 @@ from pipecat.frames.frames import (
     LLMTextFrame,
     TranscriptionFrame,
     TTSAudioRawFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-
-
-def test_pcm_is_wrapped_as_bounded_wav_for_file_transcription() -> None:
-    pcm = b"\x01\x02" * 320
-    encoded = pcm_to_wav(pcm, AudioFormat())
-    with wave.open(io.BytesIO(encoded), "rb") as wav:
-        assert wav.getframerate() == 16_000
-        assert wav.getnchannels() == 1
-        assert wav.getsampwidth() == 2
-        assert wav.readframes(wav.getnframes()) == pcm
 
 
 def test_provider_selection_is_configuration_driven() -> None:
@@ -96,14 +85,24 @@ def test_pipecat_context_separates_allowlisted_account_and_aircraft_tools() -> N
 
 
 class _FakeSTT(FrameProcessor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.audio = bytearray()
+        self.saw_speech_start = False
+        self.saw_speech_stop = False
+
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
-        if isinstance(frame, InputAudioRawFrame):
+        if isinstance(frame, VADUserStartedSpeakingFrame):
+            self.saw_speech_start = True
+        elif isinstance(frame, InputAudioRawFrame) and self.saw_speech_start:
+            self.audio.extend(frame.audio)
+        elif isinstance(frame, VADUserStoppedSpeakingFrame):
+            self.saw_speech_stop = True
             await self.push_frame(
                 TranscriptionFrame("Hello?", "pilot", "2026-01-01T00:00:00Z")
             )
-        else:
-            await self.push_frame(frame, direction)
+        await self.push_frame(frame, direction)
 
 
 class _FakeLLM(FrameProcessor):
@@ -128,16 +127,21 @@ class _FakeTTS(FrameProcessor):
 class _FakeProvider:
     def __init__(self, processor_type: type[FrameProcessor]) -> None:
         self._processor_type = processor_type
+        self.processor: FrameProcessor | None = None
 
     def create_processor(self) -> FrameProcessor:
-        return self._processor_type()
+        self.processor = self._processor_type()
+        return self.processor
 
 
 def test_pipecat_pipeline_uses_explicit_ptt_turn_and_streams_audio() -> None:
+    pcm = b"\x01\x02" * 320
+    stt_provider = _FakeProvider(_FakeSTT)
+
     async def scenario() -> tuple[str, str, list[bytes]]:
         pipeline = PipecatVoicePipeline(
             ProviderBundle(
-                _FakeProvider(_FakeSTT),
+                stt_provider,
                 _FakeProvider(_FakeLLM),
                 _FakeProvider(_FakeTTS),
             )
@@ -151,7 +155,7 @@ def test_pipecat_pipeline_uses_explicit_ptt_turn_and_streams_audio() -> None:
             result = await asyncio.wait_for(
                 pipeline.respond(
                     VoiceTurn(
-                        b"\x01\x02" * 320,
+                        pcm,
                         AudioFormat(),
                         AudioFormat(sample_rate=24_000),
                     ),
@@ -167,6 +171,10 @@ def test_pipecat_pipeline_uses_explicit_ptt_turn_and_streams_audio() -> None:
     assert transcript == "Hello?"
     assert response == "Ready."
     assert chunks == [b"\x10\x20" * 240]
+    assert isinstance(stt_provider.processor, _FakeSTT)
+    assert stt_provider.processor.saw_speech_start
+    assert stt_provider.processor.saw_speech_stop
+    assert bytes(stt_provider.processor.audio) == pcm
 
 
 def test_pipecat_proactive_announcement_bypasses_stt_and_streams_cloud_tts() -> None:
