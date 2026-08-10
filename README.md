@@ -107,3 +107,17 @@ matrix](docs/multiplayer-validation.md).
 
 See [the Windows client and release guide](docs/windows-client.md) for local
 packaging, the installer flow, code-signing requirements, and first-run setup.
+
+## Docker deployment
+
+The cloud/Pipecat backend and PostgreSQL are deployable with Docker Compose;
+the Windows client stays native so it can access DCS, Windows input, audio, and
+the credential vault. Copy the root `.env.example` to `.env`, set the OpenAI
+key and generated signing/database secrets, then run:
+
+```bash
+docker compose up --build -d
+```
+
+See [the Docker deployment guide](docs/docker-deployment.md) for health checks,
+Windows client configuration, persistent data, and remote TLS requirements.
