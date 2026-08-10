@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "dcs-copilot-shared",
+    "keyring>=25.6,<26",
     "pyaudio>=0.2.14,<0.3",
+    "pyside6-essentials>=6.8,<7",
     "pynput>=1.8,<2; sys_platform == 'win32'",
     "websockets>=16,<17",
 ]
@@ -16,6 +18,9 @@ dcs-copilot-shared = { workspace = true }
 
 [project.scripts]
 dcs-copilot = "dcs_copilot.main:main"
+
+[project.gui-scripts]
+dcs-copilot-desktop = "dcs_copilot.desktop.app:main"
 
 [dependency-groups]
 dev = [
@@ -34,5 +39,5 @@ addopts = "-ra"
 testpaths = ["tests"]
 
 [[tool.mypy.overrides]]
-module = ["pyaudio", "pynput.*"]
+module = ["pyaudio", "pynput.*", "PySide6.*"]
 ignore_missing_imports = true

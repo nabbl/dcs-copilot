@@ -133,3 +133,48 @@ def test_client_handshake_has_a_timeout() -> None:
             await connection.run_once(asyncio.Event())
 
     asyncio.run(scenario())
+
+
+def test_connection_gets_a_fresh_access_token_for_each_handshake() -> None:
+    async def scenario() -> list[str]:
+        tokens = iter(("first-token", "second-token"))
+        seen: list[str] = []
+
+        async def provide_token() -> str:
+            value = next(tokens)
+            seen.append(value)
+            return value
+
+        connection = CloudSessionConnection(
+            url="ws://localhost/v1/realtime",
+            access_token="bootstrap-token",
+            access_token_provider=provide_token,
+            device_id="device",
+            audio_format=AudioFormat(),
+        )
+        for _ in range(2):
+            transport = FakeTransport()
+            await transport.incoming.put(ControlMessage("hello").to_json())
+            await transport.incoming.put(
+                ControlMessage(
+                    "connection.status",
+                    {"authenticated": True, "session_active": False},
+                ).to_json()
+            )
+            await transport.incoming.put(
+                ControlMessage(
+                    "connection.status",
+                    {"authenticated": True, "session_active": True},
+                ).to_json()
+            )
+            connection._transport_factory = lambda _url, current=transport: (
+                FakeTransportContext(current)
+            )
+            stop = asyncio.Event()
+            task = asyncio.create_task(connection.run_once(stop))
+            assert await connection.wait_ready(timeout=1)
+            stop.set()
+            await task
+        return seen
+
+    assert asyncio.run(scenario()) == ["first-token", "second-token"]

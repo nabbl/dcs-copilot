@@ -25,8 +25,8 @@ def _load_registry(
         return None, str(exc)
     if path is None:
         return None, (
-            "DCS-BIOS control JSON not found; install DCS-BIOS separately and "
-            "set DCS_BIOS_PATH (see docs/dcs-bios.md)"
+            "DCS-BIOS control JSON not found; install DCS-BIOS from the desktop "
+            "app or set DCS_BIOS_PATH (see docs/dcs-bios.md)"
         )
     registry = DcsBiosControlRegistry.from_path(path)
     return registry, None

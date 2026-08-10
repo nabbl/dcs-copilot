@@ -24,6 +24,12 @@ current build implements the reset Milestones 1 through 7:
 There is no Pipecat, STT, LLM, TTS, OpenAI key, or neural model on the customer
 client. All AI inference and its dependencies are isolated in `cloud/`.
 
+The customer build is a native Windows desktop application with account login,
+Saved Games discovery, DCS-BIOS installation/repair, `Export.lua` setup,
+client settings, health status, and runtime controls. Refresh credentials are
+kept in the operating-system credential vault; short-lived access tokens are
+renewed before each realtime connection.
+
 ```text
 client/   customer-side DCS telemetry/audio peripheral
 cloud/    session gateway, Pipecat, and provider-isolated AI cascade
@@ -52,6 +58,13 @@ connectivity and run the client:
 cd client
 uv run dcs-copilot status --wait 1
 uv run dcs-copilot run
+```
+
+To run the desktop shell during development:
+
+```bash
+cd client
+uv run dcs-copilot-desktop
 ```
 
 On Windows, `run` listens globally for F13 while DCS has focus. For POSIX local
@@ -91,3 +104,6 @@ protocol](docs/protocol.md), [privacy boundary](docs/privacy.md), [client
 performance methodology](docs/client-performance.md), [accounts and
 memory](docs/accounts.md), [deterministic habits](docs/habits.md), and [multiplayer validation
 matrix](docs/multiplayer-validation.md).
+
+See [the Windows client and release guide](docs/windows-client.md) for local
+packaging, the installer flow, code-signing requirements, and first-run setup.

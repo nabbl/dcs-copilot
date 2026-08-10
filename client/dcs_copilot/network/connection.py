@@ -25,6 +25,7 @@ from .transport import RealtimeTransport, open_websocket_transport
 LOGGER = logging.getLogger(__name__)
 OutboundPayload = str | bytes
 TransportFactory = Callable[[str], AbstractAsyncContextManager[RealtimeTransport]]
+AccessTokenProvider = Callable[[], Awaitable[str]]
 
 
 class CloudConnectionError(RuntimeError):
@@ -52,6 +53,7 @@ class CloudSessionConnection:
         handshake_timeout_seconds: float = 5.0,
         reconnect_max_seconds: float = 10.0,
         transport_factory: TransportFactory = open_websocket_transport,
+        access_token_provider: AccessTokenProvider | None = None,
         on_status: Callable[[CloudConnectionStatus], None] | None = None,
         on_control: Callable[[ControlMessage], None] | None = None,
         on_audio_output: Callable[[bytes], Awaitable[None]] | None = None,
@@ -77,6 +79,7 @@ class CloudSessionConnection:
         self.handshake_timeout_seconds = handshake_timeout_seconds
         self.reconnect_max_seconds = reconnect_max_seconds
         self._transport_factory = transport_factory
+        self._access_token_provider = access_token_provider
         self._on_status = on_status
         self._on_control = on_control
         self._on_audio_output = on_audio_output
@@ -194,10 +197,17 @@ class CloudSessionConnection:
             raise CloudConnectionError("cloud did not send hello")
         self._notify_status(True, False, False, "connected; authenticating")
 
+        access_token = (
+            await self._access_token_provider()
+            if self._access_token_provider is not None
+            else self.access_token
+        )
+        if not access_token:
+            raise CloudConnectionError("access token provider returned an empty token")
         authentication = ControlMessage(
             "authenticate",
             {
-                "access_token": self.access_token,
+                "access_token": access_token,
                 "device_id": self.device_id,
             },
         )

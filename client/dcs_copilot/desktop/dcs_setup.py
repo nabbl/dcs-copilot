@@ -1,0 +1,165 @@
+"""Safe, repeatable DCS-BIOS installation for the selected Saved Games tree."""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import shutil
+import tempfile
+import zipfile
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path, PurePosixPath
+from urllib.error import URLError
+from urllib.request import Request, urlopen
+
+DCS_BIOS_VERSION = "0.11.5"
+DCS_BIOS_URL = (
+    "https://github.com/DCS-Skunkworks/dcs-bios/releases/download/"
+    f"v{DCS_BIOS_VERSION}/DCS-BIOS_v{DCS_BIOS_VERSION}.zip"
+)
+DCS_BIOS_SHA256 = "96091c9321773b5c2d4be088e28bb596f341bc2f560f71aba8868db348a1921d"
+EXPORT_LINE = r"dofile(lfs.writedir()..[[Scripts\DCS-BIOS\BIOS.lua]])"
+
+
+class DcsSetupError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class DcsSetupResult:
+    dcs_path: Path
+    bios_path: Path
+    export_path: Path
+    backup_paths: tuple[Path, ...]
+    version: str
+
+
+def inspect_installation(dcs_path: Path) -> tuple[bool, str]:
+    bios = dcs_path / "Scripts" / "DCS-BIOS"
+    export = dcs_path / "Scripts" / "Export.lua"
+    if not (bios / "BIOS.lua").is_file():
+        return False, "DCS-BIOS is not installed"
+    if not (bios / "doc" / "json" / "MetadataStart.json").is_file():
+        return False, "DCS-BIOS control metadata is missing"
+    if not export.is_file():
+        return False, "Export.lua is missing"
+    try:
+        configured = EXPORT_LINE in export.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        return False, f"Export.lua cannot be read: {exc}"
+    return (
+        (True, f"DCS-BIOS {DCS_BIOS_VERSION} is ready")
+        if configured
+        else (
+            False,
+            "DCS-BIOS is not enabled in Export.lua",
+        )
+    )
+
+
+def download_dcs_bios() -> bytes:
+    request = Request(DCS_BIOS_URL, headers={"User-Agent": "DCS-Copilot-Installer"})
+    try:
+        with urlopen(request, timeout=60) as response:
+            payload = response.read(128 * 1024 * 1024 + 1)
+    except (OSError, URLError) as exc:
+        raise DcsSetupError(f"DCS-BIOS download failed: {exc}") from exc
+    if len(payload) > 128 * 1024 * 1024:
+        raise DcsSetupError("DCS-BIOS archive is unexpectedly large")
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest != DCS_BIOS_SHA256:
+        raise DcsSetupError(
+            "DCS-BIOS archive checksum does not match the pinned release"
+        )
+    return payload
+
+
+def install_dcs_bios(dcs_path: Path, archive: bytes | None = None) -> DcsSetupResult:
+    dcs_path = dcs_path.expanduser().resolve()
+    if not dcs_path.is_dir():
+        raise DcsSetupError(f"DCS Saved Games folder does not exist: {dcs_path}")
+    if not dcs_path.name.lower().startswith("dcs"):
+        raise DcsSetupError("Select a DCS, DCS.openbeta, or DCS.openalpha folder")
+    payload = archive if archive is not None else download_dcs_bios()
+    if hashlib.sha256(payload).hexdigest() != DCS_BIOS_SHA256:
+        raise DcsSetupError(
+            "DCS-BIOS archive checksum does not match the pinned release"
+        )
+
+    scripts = dcs_path / "Scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    bios_path = scripts / "DCS-BIOS"
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    backups: list[Path] = []
+
+    with tempfile.TemporaryDirectory(prefix="dcs-copilot-bios-") as temporary:
+        staging = Path(temporary)
+        _safe_extract(payload, staging)
+        source = staging / "DCS-BIOS"
+        if not (source / "BIOS.lua").is_file():
+            raise DcsSetupError("DCS-BIOS archive has an unexpected layout")
+        if bios_path.exists():
+            backup = _available_backup(scripts / f"DCS-BIOS.backup-{timestamp}")
+            bios_path.replace(backup)
+            backups.append(backup)
+        try:
+            shutil.copytree(source, bios_path)
+        except Exception:
+            if backups and not bios_path.exists():
+                backups[-1].replace(bios_path)
+                backups.pop()
+            raise
+
+    export_path = scripts / "Export.lua"
+    existing = ""
+    if export_path.is_file():
+        existing = export_path.read_text(encoding="utf-8-sig")
+        if EXPORT_LINE not in existing:
+            backup = _available_backup(scripts / f"Export.lua.backup-{timestamp}")
+            shutil.copy2(export_path, backup)
+            backups.append(backup)
+    if EXPORT_LINE not in existing:
+        separator = "" if not existing or existing.endswith(("\n", "\r")) else "\n"
+        updated = existing + separator + EXPORT_LINE + "\n"
+        temporary_export = export_path.with_suffix(".lua.tmp")
+        temporary_export.write_text(updated, encoding="utf-8", newline="\n")
+        temporary_export.replace(export_path)
+
+    ready, detail = inspect_installation(dcs_path)
+    if not ready:
+        raise DcsSetupError(detail)
+    return DcsSetupResult(
+        dcs_path,
+        bios_path,
+        export_path,
+        tuple(backups),
+        DCS_BIOS_VERSION,
+    )
+
+
+def _safe_extract(payload: bytes, destination: Path) -> None:
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(payload))
+    except zipfile.BadZipFile as exc:
+        raise DcsSetupError("DCS-BIOS download is not a valid ZIP archive") from exc
+    total = 0
+    with archive:
+        for info in archive.infolist():
+            path = PurePosixPath(info.filename)
+            if path.is_absolute() or ".." in path.parts:
+                raise DcsSetupError("DCS-BIOS archive contains an unsafe path")
+            total += info.file_size
+            if total > 512 * 1024 * 1024:
+                raise DcsSetupError("DCS-BIOS archive expands beyond the safety limit")
+        archive.extractall(destination)
+
+
+def _available_backup(candidate: Path) -> Path:
+    if not candidate.exists():
+        return candidate
+    for number in range(2, 1_000):
+        numbered = candidate.with_name(f"{candidate.name}-{number}")
+        if not numbered.exists():
+            return numbered
+    raise DcsSetupError(f"Cannot allocate a backup name below {candidate.parent}")

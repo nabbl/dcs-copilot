@@ -2,11 +2,21 @@
 
 ## Installation boundary
 
-DCS Copilot does not install or modify DCS-BIOS. Install the standard
-DCS-Skunkworks release under the DCS Saved Games tree and configure its normal
-`Export.lua` entry according to the upstream instructions. This application
-opens only the read-only export multicast socket; it does not open the DCS-BIOS
-command/import port.
+DCS Copilot installs the pinned DCS-Skunkworks DCS-BIOS release under the
+selected DCS Saved Games tree and adds its standard `Export.lua` entry. The
+operation is explicit, checksum-verified, repeatable, and creates timestamped
+backups before replacing an existing DCS-BIOS directory or modifying an
+existing export file. Other export integrations are preserved. DCS Copilot
+still opens only the read-only export multicast socket; it does not open the
+DCS-BIOS command/import port.
+
+The Windows installer runs this setup for auto-detected DCS folders. It can be
+re-run from the desktop app or from a terminal:
+
+```text
+dcs-copilot setup-dcs
+dcs-copilot setup-dcs "C:\Users\Pilot\Saved Games\DCS"
+```
 
 Set `DCS_BIOS_PATH` to either of these locations:
 
