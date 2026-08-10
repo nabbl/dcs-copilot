@@ -18,6 +18,7 @@ from dcs_copilot_cloud.providers.openai import (
 )
 from dcs_copilot_cloud.voice import (
     PipecatVoicePipeline,
+    VoiceAnnouncement,
     VoiceTurn,
     aircraft_tool_schemas,
     pcm_to_wav,
@@ -145,4 +146,39 @@ def test_pipecat_pipeline_uses_explicit_ptt_turn_and_streams_audio() -> None:
     transcript, response, chunks = asyncio.run(scenario())
     assert transcript == "Hello?"
     assert response == "Ready."
+    assert chunks == [b"\x10\x20" * 240]
+
+
+def test_pipecat_proactive_announcement_bypasses_stt_and_streams_cloud_tts() -> None:
+    async def scenario() -> tuple[str, list[bytes]]:
+        pipeline = PipecatVoicePipeline(
+            ProviderBundle(
+                _FakeProvider(_FakeSTT),
+                _FakeProvider(_FakeLLM),
+                _FakeProvider(_FakeTTS),
+            )
+        )
+        chunks: list[bytes] = []
+
+        async def output(audio: bytes) -> None:
+            chunks.append(audio)
+
+        try:
+            response = await asyncio.wait_for(
+                pipeline.announce(
+                    VoiceAnnouncement(
+                        "Master Caution.",
+                        AudioFormat(),
+                        AudioFormat(sample_rate=24_000),
+                    ),
+                    output,
+                ),
+                timeout=2,
+            )
+            return response, chunks
+        finally:
+            await pipeline.close()
+
+    response, chunks = asyncio.run(scenario())
+    assert response == "Master Caution."
     assert chunks == [b"\x10\x20" * 240]

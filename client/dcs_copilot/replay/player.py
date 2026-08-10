@@ -7,6 +7,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
+from dcs_copilot.events import EventManager
 from dcs_copilot.rules.base import RuleTransition
 from dcs_copilot.rules.engine import RuleEngine
 from dcs_copilot.rules.fa18c import fa18c_rules
@@ -41,6 +42,7 @@ class ReplayFrame:
 class ReplayRun:
     frame_count: int
     transitions: tuple[RuleTransition, ...]
+    event_count: int
     active_issue_count: int
     final_phase: FlightPhase
 
@@ -52,9 +54,11 @@ class ReplayPlayer:
         phase_detector: FlightPhaseDetector | None = None,
         rule_engine: RuleEngine | None = None,
         history: StateHistory | None = None,
+        event_manager: EventManager | None = None,
     ) -> None:
         self.phase_detector = phase_detector or FlightPhaseDetector()
         self.rule_engine = rule_engine or RuleEngine(fa18c_rules())
+        self.event_manager = event_manager or EventManager(self.rule_engine)
         self.history = history or StateHistory()
 
     def load(self, path: Path) -> tuple[ReplayFrame, ...]:
@@ -90,6 +94,7 @@ class ReplayPlayer:
         self.history.clear()
         self.phase_detector.reset()
         self.rule_engine.reset(now=start_time, emit=False)
+        self.event_manager.reset()
         for frame in frames:
             state = frame.state
             if not state.connected:
@@ -112,6 +117,7 @@ class ReplayPlayer:
         return ReplayRun(
             frame_count=len(frames),
             transitions=tuple(transitions),
+            event_count=len(self.event_manager.history),
             active_issue_count=len(self.rule_engine.active_issues),
             final_phase=final_phase,
         )

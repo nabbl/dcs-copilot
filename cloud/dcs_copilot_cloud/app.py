@@ -10,6 +10,7 @@ from collections.abc import Callable
 
 from dcs_copilot_protocol import (
     PROTOCOL_VERSION,
+    AircraftEvent,
     ControlMessage,
     MediaKind,
     MediaPacket,
@@ -27,7 +28,13 @@ from .session import (
     UtteranceReceipt,
 )
 from .tools import LocalAircraftToolBroker
-from .voice import PipecatVoicePipeline, VoicePipeline, VoicePipelineError, VoiceTurn
+from .voice import (
+    PipecatVoicePipeline,
+    VoiceAnnouncement,
+    VoicePipeline,
+    VoicePipelineError,
+    VoiceTurn,
+)
 
 LOGGER = logging.getLogger("uvicorn.error")
 
@@ -52,7 +59,7 @@ def create_app(
     pipeline_factory = voice_pipeline_factory or (
         lambda current: PipecatVoicePipeline(build_provider_bundle(current))
     )
-    app = FastAPI(title="DCS Copilot Cloud", version="0.2.0")
+    app = FastAPI(title="DCS Copilot Cloud", version="0.3.0")
     received_utterances: deque[UtteranceReceipt] = deque(maxlen=1_000)
     app.state.received_utterances = received_utterances
 
@@ -64,6 +71,7 @@ def create_app(
             "ai_inference": configured.voice_configured
             or voice_pipeline_factory is not None,
             "voice_pipeline": "pipecat",
+            "proactive_events": True,
         }
 
     @app.websocket("/v1/realtime")
@@ -76,6 +84,8 @@ def create_app(
         send_lock = asyncio.Lock()
         voice: VoicePipeline | None = None
         response_task: asyncio.Task[None] | None = None
+        response_event_id: str | None = None
+        active_event_ids: dict[str, None] = {}
         output_sequence = 0
 
         async def send_control(message: ControlMessage) -> None:
@@ -88,32 +98,32 @@ def create_app(
         )
 
         async def interrupt_response() -> None:
-            nonlocal response_task
+            nonlocal response_event_id, response_task
             if voice is not None:
                 await voice.interrupt()
             if response_task is not None and not response_task.done():
                 response_task.cancel()
                 await asyncio.gather(response_task, return_exceptions=True)
             response_task = None
+            response_event_id = None
+
+        async def stream_audio(payload: bytes) -> None:
+            nonlocal output_sequence
+            packet = MediaPacket(
+                kind=MediaKind.AUDIO_OUTPUT,
+                sequence=output_sequence,
+                timestamp_ms=int(time.monotonic() * 1000),
+                payload=payload,
+            )
+            output_sequence = (output_sequence + 1) & 0xFFFFFFFF
+            async with send_lock:
+                await websocket.send_bytes(packet.to_bytes())
 
         async def run_voice_turn(utterance: CompletedUtterance) -> None:
-            nonlocal voice, output_sequence
+            nonlocal voice
             try:
                 if voice is None:
                     voice = pipeline_factory(configured)
-
-                async def stream_audio(payload: bytes) -> None:
-                    nonlocal output_sequence
-                    packet = MediaPacket(
-                        kind=MediaKind.AUDIO_OUTPUT,
-                        sequence=output_sequence,
-                        timestamp_ms=int(time.monotonic() * 1000),
-                        payload=payload,
-                    )
-                    output_sequence = (output_sequence + 1) & 0xFFFFFFFF
-                    async with send_lock:
-                        await websocket.send_bytes(packet.to_bytes())
-
                 result = await voice.respond(
                     VoiceTurn(
                         utterance.audio,
@@ -152,6 +162,58 @@ def create_app(
                     )
                 )
 
+        async def run_announcement(
+            event: AircraftEvent,
+            *,
+            correlation_id: str,
+        ) -> None:
+            nonlocal response_event_id, voice
+            try:
+                if voice is None:
+                    voice = pipeline_factory(configured)
+                if (
+                    session.input_audio_format is None
+                    or session.output_audio_format is None
+                ):
+                    raise VoicePipelineError("session audio format is unavailable")
+                response = await voice.announce(
+                    VoiceAnnouncement(
+                        event.message,
+                        session.input_audio_format,
+                        session.output_audio_format,
+                    ),
+                    stream_audio,
+                )
+                await send_control(
+                    ControlMessage(
+                        "assistant.text",
+                        {
+                            "text": response,
+                            "proactive": True,
+                            "event_id": event.event_id,
+                        },
+                        correlation_id=correlation_id,
+                    )
+                )
+            except asyncio.CancelledError:
+                raise
+            except (ValueError, VoicePipelineError) as exc:
+                LOGGER.warning("proactive announcement failed: %s", exc)
+                await send_control(
+                    ControlMessage(
+                        "error",
+                        {
+                            "code": "proactive_voice_failed",
+                            "detail": str(exc),
+                            "fatal": False,
+                        },
+                        correlation_id=correlation_id,
+                    )
+                )
+            finally:
+                if response_event_id == event.event_id:
+                    response_event_id = None
+
         await send_control(session.hello())
         try:
             while True:
@@ -180,6 +242,46 @@ def create_app(
                         if message.type == "tool.result":
                             aircraft_tools.resolve(message)
                             result = SessionResult()
+                        elif message.type in {"event.raised", "event.resolved"}:
+                            event = AircraftEvent.from_control(message)
+                            if not session.authenticated or session.session_id is None:
+                                result = session.handle_control(message)
+                            elif message.type == "event.resolved":
+                                active_event_ids.pop(event.event_id, None)
+                                if response_event_id == event.event_id:
+                                    await interrupt_response()
+                                result = SessionResult()
+                            elif event.event_id in active_event_ids:
+                                result = SessionResult()
+                            elif session.ptt_active:
+                                active_event_ids[event.event_id] = None
+                                result = SessionResult()
+                            elif response_task is not None and not response_task.done():
+                                active_event_ids[event.event_id] = None
+                                if event.severity in {"WARNING", "CRITICAL"}:
+                                    await interrupt_response()
+                                    response_event_id = event.event_id
+                                    response_task = asyncio.create_task(
+                                        run_announcement(
+                                            event,
+                                            correlation_id=message.message_id,
+                                        ),
+                                        name=f"proactive-{event.event_id}",
+                                    )
+                                result = SessionResult()
+                            else:
+                                active_event_ids[event.event_id] = None
+                                response_event_id = event.event_id
+                                response_task = asyncio.create_task(
+                                    run_announcement(
+                                        event,
+                                        correlation_id=message.message_id,
+                                    ),
+                                    name=f"proactive-{event.event_id}",
+                                )
+                                result = SessionResult()
+                            if len(active_event_ids) > 1_000:
+                                del active_event_ids[next(iter(active_event_ids))]
                         else:
                             if message.type in {"assistant.interrupt", "ptt.start"}:
                                 await interrupt_response()

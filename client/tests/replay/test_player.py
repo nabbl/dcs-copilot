@@ -28,6 +28,7 @@ def test_taxi_fixture_drives_phase_rules_and_resolution() -> None:
     }
     assert resolved == activated
     assert result.active_issue_count == 0
+    assert result.event_count == 4
     assert result.final_phase is FlightPhase.TAXI
 
 
@@ -51,6 +52,7 @@ def test_airborne_fixture_triggers_and_resolves_three_rules() -> None:
     }
     assert resolved == activated
     assert result.active_issue_count == 0
+    assert result.event_count == 6
     assert result.final_phase is FlightPhase.TAKEOFF
     assert player.run(FIXTURES / "airborne-alerts.jsonl") == result
 

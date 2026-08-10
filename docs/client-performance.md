@@ -32,7 +32,8 @@ The command measures:
 - process CPU used during a blocking idle sample;
 - resident/high-water memory before and after the workload;
 - DCS-BIOS binary parser throughput and bytes processed;
-- normalized history, phase-detector, and six-rule evaluation cost;
+- normalized history, phase-detector, six-rule evaluation, and bounded semantic
+  event-management cost;
 - the workload CPU time projected to 30 updates per second.
 
 It does not open a microphone, initialize audio, contact a server, or load a

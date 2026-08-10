@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 from dcs_copilot.dcs.bios_protocol import DcsBiosProtocolParser
+from dcs_copilot.events import EventManager
 from dcs_copilot.rules.engine import RuleEngine
 from dcs_copilot.rules.fa18c import fa18c_rules
 from dcs_copilot.state.history import StateHistory
@@ -56,6 +57,7 @@ def run_client_benchmark(
     history = StateHistory()
     detector = FlightPhaseDetector()
     engine = RuleEngine(fa18c_rules())
+    EventManager(engine)
     state = _safe_cruise_state()
     packet_size = len(_packet(0))
 

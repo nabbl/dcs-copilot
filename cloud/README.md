@@ -1,6 +1,7 @@
 # DCS Copilot cloud
 
-Milestones 3 and 4 run the PTT voice and aircraft-tool cascade in the cloud:
+Milestones 3 through 5 run the PTT voice, aircraft-tool, and proactive-speech
+cascade in the cloud:
 
 ```text
 bounded PCM turn -> OpenAI STT -> Pipecat context -> OpenAI Responses
@@ -11,6 +12,11 @@ When the LLM needs live state, Pipecat pauses the response while the gateway
 sends one versioned, narrow `tool.request` to the client. The correlated
 `tool.result` resumes the LLM and TTS stream. Tool calls time out and fail closed
 on disconnect; no raw telemetry stream enters the cloud.
+
+Milestone 5 accepts validated `event.raised` and `event.resolved` controls. The
+gateway speaks the deterministic short event message through the configured
+cloud TTS provider, streams PCM immediately, suppresses advisories while another
+turn is active, and lets PTT or event resolution cancel playback.
 
 STT, LLM, and TTS are selected through provider interfaces and environment
 configuration. The OpenAI key exists only in the cloud process. Copy

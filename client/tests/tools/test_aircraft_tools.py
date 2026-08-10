@@ -81,10 +81,9 @@ def test_executor_exposes_deterministic_issues_phase_and_recent_events(
     assert issues["issues"][0]["rule_id"] == "FA18_MASTER_CAUTION"
     assert phase == {"available": True, "flight_phase": "CRUISE"}
     assert events["available"] is True
-    assert {event["field"] for event in events["events"]} >= {
-        "master_caution",
-        "refueling_probe",
-    }
+    assert len(events["events"]) == 1
+    assert events["events"][0]["rule_id"] == "FA18_MASTER_CAUTION"
+    assert events["events"][0]["status"] == "RAISED"
 
 
 def test_executor_rejects_non_allowlisted_tool_without_executing_it() -> None:

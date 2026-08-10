@@ -17,7 +17,7 @@ from dcs_copilot_protocol import (
     ToolProtocolError,
 )
 
-from dcs_copilot.state.history import StateTransition
+from dcs_copilot.events import ManagedAircraftEvent
 from dcs_copilot.state.models import AircraftState, FlightPhase, TelemetryValue
 from dcs_copilot.state.store import AircraftStateStore
 
@@ -142,26 +142,34 @@ class AircraftToolExecutor:
 
     def _get_recent_events(self, *, seconds: float, limit: int) -> dict[str, Any]:
         state = self._state
-        transitions: tuple[StateTransition, ...]
+        managed_events: tuple[ManagedAircraftEvent, ...]
         if self._store is None:
-            transitions = ()
+            managed_events = ()
         else:
             now = self._clock()
-            transitions = tuple(
-                transition
-                for transition in self._store.history.transitions(since=now - seconds)
-                if transition.field in ALLOWED_AIRCRAFT_STATE_FIELDS
+            managed_events = tuple(
+                managed
+                for managed in self._store.event_manager.history
+                if managed.observed_at >= now - seconds
             )[-limit:]
         return {
             "available": state.connected,
             "events": [
                 {
-                    "field": transition.field,
-                    "old_value": _json_value(transition.old_value),
-                    "new_value": _json_value(transition.new_value),
-                    "seconds_ago": max(0.0, round(self._clock() - transition.timestamp, 3)),
+                    "event_id": managed.event.event_id,
+                    "rule_id": managed.event.rule_id,
+                    "status": managed.event.status,
+                    "severity": managed.event.severity,
+                    "aircraft": managed.event.aircraft,
+                    "flight_phase": managed.event.flight_phase,
+                    "message": managed.event.message,
+                    "data": managed.event.data,
+                    "seconds_ago": max(
+                        0.0,
+                        round(self._clock() - managed.observed_at, 3),
+                    ),
                 }
-                for transition in transitions
+                for managed in managed_events
             ],
         }
 

@@ -4,8 +4,9 @@ import asyncio
 
 from dcs_copilot_cloud.app import create_app
 from dcs_copilot_cloud.config import CloudSettings
-from dcs_copilot_cloud.voice import VoiceTurn, VoiceTurnResult
+from dcs_copilot_cloud.voice import VoiceAnnouncement, VoiceTurn, VoiceTurnResult
 from dcs_copilot_protocol import (
+    AircraftEvent,
     AircraftToolRequest,
     AircraftToolResult,
     AudioFormat,
@@ -104,6 +105,7 @@ def test_health_explicitly_reports_no_ai_pipeline() -> None:
             "protocol_version": 1,
             "ai_inference": False,
             "voice_pipeline": "pipecat",
+            "proactive_events": True,
         }
 
 
@@ -129,6 +131,7 @@ class FakeVoicePipeline:
         self.turn: VoiceTurn | None = None
         self.interrupt_calls = 0
         self.closed = False
+        self.announcements: list[VoiceAnnouncement] = []
         self._release = asyncio.Event()
 
     async def respond(
@@ -139,6 +142,13 @@ class FakeVoicePipeline:
         if self.block:
             await self._release.wait()
         return VoiceTurnResult("Hello?", "Ready.")
+
+    async def announce(self, announcement, on_audio) -> str:
+        self.announcements.append(announcement)
+        await on_audio(b"\x50\x60" * 240)
+        if self.block:
+            await self._release.wait()
+        return announcement.text
 
     async def interrupt(self) -> None:
         self.interrupt_calls += 1
@@ -262,3 +272,89 @@ def test_complete_mocked_voice_tool_result_voice_round_trip() -> None:
         assert response.type == "assistant.text"
         assert response.payload == {"text": "Your refueling probe is still out."}
         assert response.correlation_id is not None
+
+
+def proactive_event(*, status: str = "RAISED") -> AircraftEvent:
+    return AircraftEvent(
+        event_id="event-1",
+        rule_id="FA18_REFUELING_PROBE_LEFT_OUT",
+        status=status,
+        severity="ADVISORY",
+        aircraft="FA-18C_hornet",
+        flight_phase="CRUISE",
+        message="Refueling probe is still out.",
+        data={"flight_phase": "CRUISE"},
+    )
+
+
+def test_semantic_event_streams_proactive_cloud_tts() -> None:
+    pipeline = FakeVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v1/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        request = proactive_event().to_control()
+        websocket.send_text(request.to_json())
+        output = MediaPacket.from_bytes(websocket.receive_bytes())
+        response = receive_control(websocket)
+        websocket.send_text(request.to_json())
+        websocket.send_text(ControlMessage("future.message").to_json())
+        assert receive_control(websocket).payload["code"] == "unsupported_message"
+
+    assert output.kind is MediaKind.AUDIO_OUTPUT
+    assert output.payload == b"\x50\x60" * 240
+    assert response.payload == {
+        "text": "Refueling probe is still out.",
+        "proactive": True,
+        "event_id": "event-1",
+    }
+    assert response.correlation_id == request.message_id
+    assert pipeline.announcements[0].input_format.sample_rate == 16_000
+    assert pipeline.announcements[0].output_format.sample_rate == 24_000
+    assert len(pipeline.announcements) == 1
+
+
+def test_proactive_event_is_suppressed_while_ptt_is_active() -> None:
+    pipeline = FakeVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v1/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_text(proactive_event().to_control().to_json())
+        websocket.send_text(ControlMessage("future.message").to_json())
+        assert receive_control(websocket).payload["code"] == "unsupported_message"
+
+    assert pipeline.announcements == []
+
+
+def test_event_resolution_cancels_in_progress_proactive_speech() -> None:
+    pipeline = FakeVoicePipeline(block=True)
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v1/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        websocket.send_text(proactive_event().to_control().to_json())
+        assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+            MediaKind.AUDIO_OUTPUT
+        )
+        websocket.send_text(proactive_event(status="RESOLVED").to_control().to_json())
+        websocket.send_text(ControlMessage("future.message").to_json())
+        assert receive_control(websocket).payload["code"] == "unsupported_message"
+
+    assert pipeline.interrupt_calls >= 1

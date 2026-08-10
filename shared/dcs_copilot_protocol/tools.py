@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
+from .events import EVENT_SEVERITIES, EVENT_STATUSES
 from .messages import ControlMessage, ProtocolError
 
 AIRCRAFT_TOOL_VERSION = 1
@@ -361,11 +362,33 @@ def validate_tool_result(
                 raise ToolProtocolError("each recent event must be an object")
             _require_exact_keys(
                 event,
-                {"field", "old_value", "new_value", "seconds_ago"},
+                {
+                    "event_id",
+                    "rule_id",
+                    "status",
+                    "severity",
+                    "aircraft",
+                    "flight_phase",
+                    "message",
+                    "data",
+                    "seconds_ago",
+                },
                 "recent event",
             )
-            if event.get("field") not in ALLOWED_AIRCRAFT_STATE_FIELDS:
-                raise ToolAuthorizationError("recent event field is not allowed")
+            for key in ("event_id", "rule_id", "aircraft", "message"):
+                if not isinstance(event.get(key), str) or not event[key]:
+                    raise ToolProtocolError(f"recent event {key} must be a string")
+            if event.get("status") not in EVENT_STATUSES:
+                raise ToolProtocolError("recent event status is invalid")
+            if event.get("severity") not in EVENT_SEVERITIES:
+                raise ToolProtocolError("recent event severity is invalid")
+            phase = event.get("flight_phase")
+            if phase is not None and not isinstance(phase, str):
+                raise ToolProtocolError(
+                    "recent event flight_phase must be a string or null"
+                )
+            if not isinstance(event.get("data"), dict):
+                raise ToolProtocolError("recent event data must be an object")
             seconds_ago = event.get("seconds_ago")
             if (
                 not isinstance(seconds_ago, (int, float))

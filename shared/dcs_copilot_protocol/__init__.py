@@ -1,5 +1,10 @@
 """Versioned transport-neutral protocol shared by client and cloud."""
 
+from .events import (
+    AIRCRAFT_EVENT_VERSION,
+    AircraftEvent,
+    EventProtocolError,
+)
 from .media import AudioFormat, MediaKind, MediaPacket
 from .messages import (
     KNOWN_CONTROL_TYPES,
@@ -20,15 +25,18 @@ from .tools import (
 )
 
 __all__ = [
+    "AIRCRAFT_EVENT_VERSION",
     "AIRCRAFT_TOOL_VERSION",
     "ALLOWED_AIRCRAFT_STATE_FIELDS",
     "KNOWN_CONTROL_TYPES",
     "PROTOCOL_VERSION",
+    "AircraftEvent",
     "AircraftToolName",
     "AircraftToolRequest",
     "AircraftToolResult",
     "AudioFormat",
     "ControlMessage",
+    "EventProtocolError",
     "MediaKind",
     "MediaPacket",
     "ProtocolError",

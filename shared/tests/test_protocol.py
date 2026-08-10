@@ -4,12 +4,15 @@ import json
 
 import pytest
 from dcs_copilot_protocol import (
+    AIRCRAFT_EVENT_VERSION,
     AIRCRAFT_TOOL_VERSION,
+    AircraftEvent,
     AircraftToolName,
     AircraftToolRequest,
     AircraftToolResult,
     AudioFormat,
     ControlMessage,
+    EventProtocolError,
     MediaKind,
     MediaPacket,
     ProtocolError,
@@ -143,3 +146,94 @@ def test_tool_result_rejects_a_value_marked_unavailable() -> None:
                 }
             },
         )
+
+
+def test_semantic_aircraft_event_round_trip_preserves_only_bounded_data() -> None:
+    raised = AircraftEvent(
+        event_id="event-1",
+        rule_id="FA18_REFUELING_PROBE_LEFT_OUT",
+        status="RAISED",
+        severity="ADVISORY",
+        aircraft="FA-18C_hornet",
+        flight_phase="CRUISE",
+        message="Refueling probe is still out.",
+        data={"flight_phase": "CRUISE"},
+    )
+    raised_control = raised.to_control()
+    assert raised_control.type == "event.raised"
+    assert AircraftEvent.from_control(raised_control) == raised
+
+    resolved = AircraftEvent(
+        event_id=raised.event_id,
+        rule_id=raised.rule_id,
+        status="RESOLVED",
+        severity=raised.severity,
+        aircraft=raised.aircraft,
+        flight_phase=raised.flight_phase,
+        message=raised.message,
+        data={},
+    )
+    assert resolved.to_control().type == "event.resolved"
+    assert AircraftEvent.from_control(resolved.to_control()) == resolved
+
+
+def test_semantic_event_rejects_version_mismatch_and_status_spoofing() -> None:
+    payload = {
+        "event_version": AIRCRAFT_EVENT_VERSION + 1,
+        "event_id": "event-1",
+        "rule_id": "FA18_MASTER_CAUTION",
+        "status": "RAISED",
+        "severity": "WARNING",
+        "aircraft": "FA-18C_hornet",
+        "flight_phase": None,
+        "message": "Master Caution is on.",
+        "data": {},
+    }
+    with pytest.raises(EventProtocolError, match="unsupported"):
+        AircraftEvent.from_control(ControlMessage("event.raised", payload))
+
+    payload["event_version"] = AIRCRAFT_EVENT_VERSION
+    payload["status"] = "RESOLVED"
+    with pytest.raises(EventProtocolError, match="does not match"):
+        AircraftEvent.from_control(ControlMessage("event.raised", payload))
+
+
+def test_semantic_event_data_is_strictly_bounded() -> None:
+    with pytest.raises(EventProtocolError, match="4096"):
+        AircraftEvent(
+            event_id="event-1",
+            rule_id="FA18_MASTER_CAUTION",
+            status="RAISED",
+            severity="WARNING",
+            aircraft="FA-18C_hornet",
+            flight_phase=None,
+            message="Master Caution is on.",
+            data={"detail": "x" * 5_000},
+        )
+
+
+def test_recent_events_tool_accepts_only_typed_semantic_rule_events() -> None:
+    request = AircraftToolRequest.create(
+        "get_recent_events",
+        {"seconds": 30, "limit": 5},
+    )
+    result = AircraftToolResult.success(
+        request,
+        {
+            "available": True,
+            "events": [
+                {
+                    "event_id": "event-1",
+                    "rule_id": "FA18_MASTER_CAUTION",
+                    "status": "RAISED",
+                    "severity": "WARNING",
+                    "aircraft": "FA-18C_hornet",
+                    "flight_phase": "CRUISE",
+                    "message": "Master Caution is on.",
+                    "data": {},
+                    "seconds_ago": 1.5,
+                }
+            ],
+        },
+    )
+    assert AircraftToolResult.from_control(result.to_control()) == result

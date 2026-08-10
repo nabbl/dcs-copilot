@@ -22,6 +22,7 @@ def run_replay(path: Path) -> int:
         )
     print(
         f"Replay complete: {result.frame_count} frames, "
-        f"{result.active_issue_count} active issues, phase {result.final_phase}"
+        f"{result.event_count} events, {result.active_issue_count} active issues, "
+        f"phase {result.final_phase}"
     )
     return 0

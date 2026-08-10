@@ -14,6 +14,7 @@ from dcs_copilot.dcs.bios_client import DcsBiosClient
 from dcs_copilot.dcs.bios_protocol import FrameComplete
 from dcs_copilot.dcs.bios_registry import DcsBiosControlRegistry
 from dcs_copilot.dcs.bios_state import DcsBiosState
+from dcs_copilot.events import EventManager, SpeechPolicy
 from dcs_copilot.rules.engine import RuleEngine
 from dcs_copilot.rules.fa18c import fa18c_rules
 
@@ -41,6 +42,8 @@ class AircraftStateStore:
         history: StateHistory | None = None,
         phase_detector: FlightPhaseDetector | None = None,
         rule_engine: RuleEngine | None = None,
+        event_manager: EventManager | None = None,
+        speech_policy: SpeechPolicy | None = None,
         adapters: list[AircraftAdapter] | None = None,
     ) -> None:
         self.registry = registry
@@ -50,6 +53,14 @@ class AircraftStateStore:
         self.history = history or StateHistory()
         self.phase_detector = phase_detector or FlightPhaseDetector()
         self.rule_engine = rule_engine or RuleEngine(fa18c_rules())
+        if event_manager is not None and speech_policy is not None:
+            raise ValueError("pass either event_manager or speech_policy, not both")
+        if event_manager is not None and event_manager.rule_engine is not self.rule_engine:
+            raise ValueError("event_manager must observe this store's rule_engine")
+        self.event_manager = event_manager or EventManager(
+            self.rule_engine,
+            speech_policy=speech_policy,
+        )
         self.generic_adapter = GenericAircraftAdapter(registry)
         selected_adapters = adapters or [FA18CAdapter(registry)]
         self._adapters = {

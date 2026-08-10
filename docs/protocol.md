@@ -27,8 +27,8 @@ closing an otherwise valid session.
 The v1 registry includes `hello`, `authenticate`, `session.start`,
 `session.end`, `ptt.start`, `ptt.end`, `assistant.text`, `assistant.interrupt`,
 `tool.request`, `tool.result`, aircraft/event lifecycle messages,
-`connection.status`, and `error`. Registering a type does not imply that its
-later-milestone behavior is implemented.
+`connection.status`, and `error`. Aircraft tool and semantic event behavior is
+implemented; unrelated future lifecycle types remain forward-compatible.
 
 ## Session sequence
 
@@ -148,7 +148,8 @@ must place that ID in `correlation_id`:
 The allowlist is `get_aircraft_state`, `get_active_issues`,
 `get_recent_events`, and `get_flight_phase`. State requests require explicit
 safe normalized fields and never accept `raw` or a complete snapshot. Recent
-events are capped at 20 records and a 300-second window. Unknown tools,
+deterministic rule events are capped at 20 records and a 300-second window.
+Unknown tools,
 arguments, versions, unsolicited results, and correlation mismatches fail
 closed. The cloud times out pending calls and fails them immediately on client
 disconnect.
@@ -156,3 +157,39 @@ disconnect.
 `get_active_issues` also reports `coverage` and the IDs of rules that could not
 be evaluated with current telemetry. An empty issue list therefore never turns
 missing telemetry into an unsupported “all clear.”
+
+## Proactive semantic events
+
+Milestone 5 uses versioned, bounded `event.raised` and `event.resolved` control
+messages. A raised event contains only deterministic rule output:
+
+```json
+{
+  "protocol_version": 1,
+  "type": "event.raised",
+  "message_id": "message-uuid",
+  "payload": {
+    "event_version": 1,
+    "event_id": "event-uuid",
+    "rule_id": "FA18_REFUELING_PROBE_LEFT_OUT",
+    "status": "RAISED",
+    "severity": "ADVISORY",
+    "aircraft": "FA-18C_hornet",
+    "flight_phase": "CRUISE",
+    "message": "Refueling probe is still out.",
+    "data": {"flight_phase": "CRUISE"}
+  }
+}
+```
+
+The matching `event.resolved` reuses `event_id` and has status `RESOLVED` or
+`DISABLED`. Unknown versions, extra fields, invalid severities, and control-type
+or status mismatches are rejected. No raw addresses, full normalized snapshot,
+enemy/world state, or arbitrary client data is accepted.
+
+An accepted raised event may produce binary `AUDIO_OUTPUT` followed by an
+`assistant.text` carrying `proactive: true` and the event ID. Advisories are
+dropped while another response or PTT turn is active; warnings and critical
+events may replace an active cloud response. `ptt.start`,
+`assistant.interrupt`, or the matching resolution cancels active proactive
+speech. The client does not replay events accumulated during a disconnect.

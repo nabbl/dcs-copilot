@@ -14,6 +14,7 @@ from .audio.portaudio import PortAudioCapture, PortAudioPlayback
 from .cli.status import _load_registry
 from .config import Settings
 from .dcs.bios_client import DcsBiosClient
+from .events import ManagedAircraftEvent, SpeechPolicy
 from .input.controller import PttSessionController
 from .input.ptt import GlobalFunctionKeyPTT, PTTUnavailableError
 from .network.connection import CloudConnectionStatus, CloudSessionConnection
@@ -56,6 +57,7 @@ async def run_client_runtime(settings: Settings, *, stdin_ptt: bool = False) -> 
             registry,
             client=dcs_client,
             value_stale_timeout=settings.value_stale_timeout,
+            speech_policy=SpeechPolicy(settings.speech_mode),
         )
         if registry is not None
         else None
@@ -95,6 +97,35 @@ async def run_client_runtime(settings: Settings, *, stdin_ptt: bool = False) -> 
         on_audio_output=playback.play,
     )
     controller = PttSessionController(connection, capture, playback, on_notice=print)
+    published_event_ids: set[str] = set()
+
+    def proactive_event(managed: ManagedAircraftEvent) -> None:
+        if not managed.publish:
+            return
+        event = managed.event
+        if event.status == "RAISED" and managed.speak and controller.active:
+            LOGGER.info(
+                "proactive event suppressed while PTT is active: %s",
+                event.rule_id,
+            )
+            return
+        if event.status != "RAISED" and event.event_id not in published_event_ids:
+            return
+        if connection.send_message(event.to_control()):
+            if event.status == "RAISED":
+                published_event_ids.add(event.event_id)
+            else:
+                published_event_ids.discard(event.event_id)
+            return
+        published_event_ids.discard(event.event_id)
+        if event.status == "RAISED":
+            LOGGER.info(
+                "proactive event retained locally while cloud is unavailable: %s",
+                event.rule_id,
+            )
+
+    if store is not None:
+        store.event_manager.add_callback(proactive_event)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

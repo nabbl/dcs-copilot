@@ -185,6 +185,7 @@ class RuleEngine:
             rule_id=rule.id,
             severity=rule.severity,
             aircraft=state.aircraft,
+            flight_phase=state.flight_phase,
             activated_at=now,
             observed_at=now,
             message=result.message,

@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from dcs_copilot.events import SpeechMode
+
 
 def _load_dotenv(path: Path) -> None:
     """Load a small, dependency-free subset of dotenv syntax."""
@@ -42,6 +44,7 @@ class Settings:
     access_token: str = field(default="local-dev-token", repr=False)
     device_id: str = "local-development-device"
     copilot_ptt_key: str = "F13"
+    speech_mode: SpeechMode = SpeechMode.NORMAL
     audio_input_device: int | None = None
     audio_output_device: int | None = None
     audio_sample_rate: int = 16_000
@@ -77,6 +80,9 @@ class Settings:
                 "DCS_COPILOT_DEVICE_ID", "local-development-device"
             ).strip(),
             copilot_ptt_key=os.getenv("COPILOT_PTT_KEY", "F13").strip().upper(),
+            speech_mode=SpeechMode(
+                os.getenv("COPILOT_SPEECH_MODE", "NORMAL").strip().upper()
+            ),
             audio_input_device=_optional_int("AUDIO_INPUT_DEVICE"),
             audio_output_device=_optional_int("AUDIO_OUTPUT_DEVICE"),
             audio_sample_rate=int(os.getenv("AUDIO_SAMPLE_RATE", "16000")),

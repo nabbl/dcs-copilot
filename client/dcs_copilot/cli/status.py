@@ -11,6 +11,7 @@ from dcs_copilot.dcs.bios_client import DcsBiosClient
 from dcs_copilot.dcs.bios_registry import DcsBiosControlRegistry
 from dcs_copilot.diagnostics.cloud import CloudProbeResult, probe_cloud
 from dcs_copilot.diagnostics.resources import ResourceSnapshot, format_bytes
+from dcs_copilot.events import SpeechPolicy
 from dcs_copilot.input.ptt import function_key_virtual_code
 from dcs_copilot.state.store import AircraftStateStore
 
@@ -54,6 +55,7 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
             registry,
             client=client,
             value_stale_timeout=settings.value_stale_timeout,
+            speech_policy=SpeechPolicy(settings.speech_mode),
         )
         if registry is not None
         else None
@@ -121,6 +123,8 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         f"Unavailable fields: {normalized.unavailable_field_count if normalized else 0}",
         f"Flight phase: {normalized.flight_phase if normalized else 'UNKNOWN'}",
         f"Active issues: {len(state_store.rule_engine.active_issues) if state_store else 0}",
+        f"Recorded events: {len(state_store.event_manager.history) if state_store else 0}",
+        f"Speech mode: {settings.speech_mode}",
         f"Cloud: {cloud.detail}",
         f"Authenticated: {'yes' if cloud.authenticated else 'no'}",
         f"PTT: {ptt_status}",

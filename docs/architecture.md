@@ -16,11 +16,10 @@ dcs-copilot/
 The governing rule is: **the gaming PC runs DCS; the cloud runs AI**.
 
 The client is a small read-only telemetry and audio peripheral. It owns DCS-BIOS
-ingestion, aircraft normalization, phase detection, deterministic rules, PTT,
-audio capture/playback, and the authenticated cloud connection. It is also the
-future home of Milestone 5 fixed emergency alerts. It does not contain an OpenAI
-credential or run neural STT, TTS, turn detection, embeddings, vector search,
-or an LLM.
+ingestion, aircraft normalization, phase detection, deterministic rules,
+semantic event history, local speech policy, PTT, audio capture/playback, and
+the authenticated cloud connection. It does not contain an OpenAI credential or
+run neural STT, TTS, turn detection, embeddings, vector search, or an LLM.
 
 The cloud owns Pipecat, STT, conversational orchestration, provider-isolated
 LLM and TTS services, account data, memory, usage metering, and subscriptions.
@@ -40,9 +39,10 @@ CUSTOMER GAMING PC                         DCS COPILOT CLOUD
 DCS -> DCS-BIOS -> thin client            authenticated session gateway
                   |- normalized state       -> Pipecat
                   |- phase + rules             |- STT provider
+                  |- semantic events ---------->|- cloud proactive TTS
                   |- PTT audio ---------------->|- LLM provider
                   |- response playback <-------|- TTS provider
-                  `- fixed critical WAV (M5)   `- memory + metering
+                  `- speech policy             `- memory + metering
 ```
 
 Client-to-cloud data is limited by default to intentional PTT audio, requested
@@ -131,9 +131,9 @@ Rust client.
 3. **Cloud Pipecat voice (implemented):** cloud OpenAI STT/LLM/TTS and streamed
    response audio.
 4. **Aircraft tools (implemented):** versioned local requests for selected
-   state, active deterministic issues, recent safe transitions, and flight phase.
-5. **Proactive warnings:** event manager, local fixed critical WAV pack, and
-   bounded cloud advisories.
+   state, active deterministic issues, recent rule events, and flight phase.
+5. **Proactive warnings (implemented, cloud-connected):** bounded semantic
+   events, local speech policy, and interruptible cloud TTS advisories.
 6. **Accounts and memory:** production authentication, PostgreSQL, memories,
    preferences, and flight sessions.
 7. **Habit learning:** deterministic end-of-flight statistics and stored habit
@@ -141,9 +141,9 @@ Rust client.
 8. **Commercial foundation:** metering, entitlements, devices, rate limiting,
    and operations monitoring.
 
-Milestones 3 and 4 preserve the original dependency boundary: Pipecat and every
-AI provider exist only in the cloud package, while telemetry and tool execution
-remain in the thin client.
+Milestones 3 through 5 preserve the original dependency boundary: Pipecat and
+every AI provider exist only in the cloud package, while telemetry and tool
+execution remain in the thin client.
 
 ## Milestone 1 implementation contract
 
@@ -208,3 +208,28 @@ tool data so the LLM can give a concise honest answer. No shell, filesystem,
 Lua, control-writing, enemy/world-state, or arbitrary DCS capability crosses
 this interface. Milestone 4 does not add proactive delivery, local warning
 audio, account memory, or any Milestone 5 behavior.
+
+## Milestone 5 proactive-speech contract
+
+The local `EventManager` converts rule activations, resolutions, and telemetry
+disablement into versioned semantic events with stable event IDs. It retains a
+bounded history and never serializes raw DCS-BIOS or a cockpit snapshot. Replay
+drives the same event manager as live telemetry.
+
+`SpeechPolicy` remains authoritative on the client. `MINIMAL` permits only
+critical activations, `NORMAL` permits warnings plus explicitly relevant
+advisories, and `COACH` permits all cooldown-eligible severities. Resolutions
+are published only for events whose activation policy allowed. PTT suppresses a
+new local announcement and remains the authoritative barge-in signal.
+
+The gateway validates `event.raised` and `event.resolved`. It streams the
+deterministic short rule message through provider-neutral cloud TTS rather than
+asking an LLM to invent safety phrasing. Warnings can replace an active cloud
+response; advisories do not. PTT and a correlated resolution cancel an active
+announcement.
+
+Per the revised product requirement, Milestone 5 does not ship prerecorded
+audio or promise warning speech without a cloud connection. DCS monitoring,
+rules, normalized state, and bounded event history continue locally during a
+disconnect, but speech resumes only for new eligible events after reconnection.
+No Milestone 6 account, memory, or persistence work is included.

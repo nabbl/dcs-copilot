@@ -15,10 +15,28 @@ transition. `RESOLVED` is reserved for a condition that was observed clearing.
 | `FA18_CANOPY_OPEN_MOVING` | WARNING | Canopy not closed and IAS at least 20 kt | Canopy closed or IAS below 10 kt | 1 / 0.5 s | 30 s |
 | `FA18_PARKING_BRAKE_TAXI` | ADVISORY | WOW, parking brake engaged, IAS at least 5 kt | Brake released, airborne, or IAS below 2 kt | 2 / 0.5 s | 45 s |
 | `FA18_EJECTION_SEAT_NOT_ARMED` | WARNING | Seat SAFE during TAXI or an airborne phase | Seat armed; leaving applicable phases disables it | 2 / 0.25 s | 120 s |
+| `FA18_REFUELING_PROBE_LEFT_OUT` | ADVISORY | Probe extended during climb, cruise, combat, approach, or landing | Probe retracted; entering another phase disables it | 2 / 0.25 s | 60 s |
 
-Cooldown controls whether a new activation is eligible for future proactive
-notification; it does not hide a currently active issue. Speech policy and
-acknowledgement are intentionally deferred to Milestone 5.
+Cooldown controls whether a new activation is eligible for proactive
+notification; it does not hide a currently active issue.
+
+## Event and speech policy
+
+Every rule transition enters the bounded local event history. An activation and
+its later resolution or disablement share an event ID. Only semantic fields are
+eligible for publication: rule ID, severity, aircraft, phase, concise message,
+and the rule's bounded data object.
+
+Speech mode is configured with `COPILOT_SPEECH_MODE`:
+
+- `MINIMAL`: cooldown-eligible CRITICAL activations only;
+- `NORMAL`: CRITICAL and WARNING activations plus the parking-brake and
+  refueling-probe advisories;
+- `COACH`: every cooldown-eligible activation, including INFO.
+
+The policy does not play local audio. Eligible activations use cloud TTS; PTT
+suppresses or interrupts them. Event detection and history continue if the
+cloud is unavailable, but offline warning speech is not a requirement.
 
 The 250-knot gear threshold follows the Hornet landing procedure in the Eagle
 Dynamics guide, which calls for gear and flaps down at 250 knots. The cockpit

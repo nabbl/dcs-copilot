@@ -1,17 +1,19 @@
 # DCS Copilot
 
 DCS Copilot is a commercial thin-client/cloud service in development. The
-current build implements the reset Milestones 1 through 4:
+current build implements the reset Milestones 1 through 5:
 
 - passive local DCS-BIOS ingestion, normalized Hornet state, phases and rules;
 - replay, diagnostics and resource instrumentation;
 - a versioned client/cloud protocol;
 - a localhost FastAPI WebSocket gateway with placeholder authentication;
-- F13 PTT-scoped PCM capture, binary audio transport and playback plumbing.
+- F13 PTT-scoped PCM capture, binary audio transport and playback plumbing;
 - a persistent cloud Pipecat cascade with configurable OpenAI STT, Responses
-  LLM, streaming TTS, and PTT barge-in cancellation.
+  LLM, streaming TTS, and PTT barge-in cancellation;
 - four versioned, allowlisted read-only aircraft tools evaluated against local
-  normalized state, deterministic issues, history, and flight phase.
+  normalized state, deterministic issues, history, and flight phase;
+- deterministic semantic event management, local `MINIMAL`/`NORMAL`/`COACH`
+  speech policy, and cloud-streamed proactive warning audio.
 
 There is no Pipecat, STT, LLM, TTS, OpenAI key, or neural model on the customer
 client. All AI inference and its dependencies are isolated in `cloud/`.
@@ -51,9 +53,14 @@ development, `uv run dcs-copilot run --stdin-ptt` uses Enter to start and end a
 turn. The microphone is not opened before PTT and release ends the turn without
 VAD. The cloud transcribes the bounded turn, generates a deliberately concise
 reply, and begins returning 24 kHz PCM while TTS is still streaming.
+
 Questions about live cockpit state cause the cloud LLM to request only the
 needed semantic data over the existing WebSocket; raw DCS-BIOS frames and full
 cockpit snapshots remain local.
+
+Proactive warnings use the same cloud TTS path. If the cloud is unavailable,
+local monitoring and event history continue, but this build does not promise
+offline warning audio.
 
 Other development commands remain available:
 

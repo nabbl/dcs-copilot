@@ -18,6 +18,7 @@ from pipecat.frames.frames import (
     InputAudioRawFrame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
     LLMTextFrame,
     TranscriptionFrame,
     TTSAudioRawFrame,
@@ -61,6 +62,13 @@ class VoiceTurnResult:
     response_text: str
 
 
+@dataclass(frozen=True, slots=True)
+class VoiceAnnouncement:
+    text: str
+    input_format: AudioFormat
+    output_format: AudioFormat
+
+
 class VoicePipeline(Protocol):
     async def respond(
         self,
@@ -68,6 +76,12 @@ class VoicePipeline(Protocol):
         on_audio: AudioCallback,
         request_tool: ToolCallback | None = None,
     ) -> VoiceTurnResult: ...
+
+    async def announce(
+        self,
+        announcement: VoiceAnnouncement,
+        on_audio: AudioCallback,
+    ) -> str: ...
 
     async def interrupt(self) -> None: ...
 
@@ -151,7 +165,7 @@ class PipecatVoicePipeline:
         if turn.output_format.sample_rate != 24_000:
             raise VoicePipelineError("cloud TTS output requires 24000 Hz PCM")
         async with self._turn_lock:
-            await self._ensure_started(turn)
+            await self._ensure_started(turn.input_format, turn.output_format)
             worker = self._worker
             if worker is None:
                 raise VoicePipelineError("Pipecat worker did not start")
@@ -190,6 +204,50 @@ class PipecatVoicePipeline:
                 raise VoicePipelineError("language model returned no spoken response")
             return VoiceTurnResult(transcript, response)
 
+    async def announce(
+        self,
+        announcement: VoiceAnnouncement,
+        on_audio: AudioCallback,
+    ) -> str:
+        text = announcement.text.strip()
+        if not text:
+            raise VoicePipelineError("proactive announcement text cannot be empty")
+        if announcement.output_format.sample_rate != 24_000:
+            raise VoicePipelineError("cloud TTS output requires 24000 Hz PCM")
+        async with self._turn_lock:
+            await self._ensure_started(
+                announcement.input_format,
+                announcement.output_format,
+            )
+            worker = self._worker
+            if worker is None:
+                raise VoicePipelineError("Pipecat worker did not start")
+            self._turn_done.clear()
+            self._turn_error = None
+            self._transcript_parts.clear()
+            self._response_parts.clear()
+            self._audio_callback = on_audio
+            self._tool_callback = None
+            self._turn_active = True
+            try:
+                await worker.queue_frames(
+                    (
+                        LLMFullResponseStartFrame(),
+                        LLMTextFrame(text),
+                        LLMFullResponseEndFrame(),
+                    )
+                )
+                await self._turn_done.wait()
+            finally:
+                self._turn_active = False
+                self._audio_callback = None
+            if self._turn_error:
+                raise VoicePipelineError(self._turn_error)
+            response = "".join(self._response_parts).strip()
+            if not response:
+                raise VoicePipelineError("proactive announcement produced no speech")
+            return response
+
     async def interrupt(self) -> None:
         self._turn_active = False
         self._audio_callback = None
@@ -213,7 +271,11 @@ class PipecatVoicePipeline:
         self._runner = None
         self._runner_task = None
 
-    async def _ensure_started(self, turn: VoiceTurn) -> None:
+    async def _ensure_started(
+        self,
+        input_format: AudioFormat,
+        output_format: AudioFormat,
+    ) -> None:
         if self._worker is not None:
             return
         context = LLMContext(
@@ -246,8 +308,8 @@ class PipecatVoicePipeline:
             enable_turn_tracking=False,
             idle_timeout_secs=None,
             params=PipelineParams(
-                audio_in_sample_rate=turn.input_format.sample_rate,
-                audio_out_sample_rate=turn.output_format.sample_rate,
+                audio_in_sample_rate=input_format.sample_rate,
+                audio_out_sample_rate=output_format.sample_rate,
                 enable_metrics=True,
                 enable_usage_metrics=True,
             ),
@@ -333,8 +395,8 @@ def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
         FunctionSchema(
             name="get_recent_events",
             description=(
-                "Read a bounded recent history of safe normalized own-aircraft "
-                "state transitions."
+                "Read a bounded recent history of deterministic own-aircraft "
+                "rule events."
             ),
             properties={
                 "seconds": {

@@ -62,6 +62,7 @@ class ActiveIssue:
     rule_id: str
     severity: Severity
     aircraft: str
+    flight_phase: FlightPhase
     activated_at: float
     observed_at: float
     message: str
