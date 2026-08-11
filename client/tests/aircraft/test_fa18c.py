@@ -47,6 +47,7 @@ def populate_hornet(
         "EXT_REFUEL_PROBE": 0,
         "EXT_HOOK": 65535,
         "HOOK_LEVER": 1,
+        "LDG_TAXI_SW": 1,
         "EJECTION_SEAT_ARMED": 1,
         "OBOGS_SW": 1,
         "LAUNCH_BAR_SW": 0,
@@ -85,6 +86,7 @@ def test_normalizes_verified_hornet_controls(
     assert result.values["master_arm"].value is MasterArmState.ARM
     assert result.values["fuel_quantity"].value == 12500
     assert result.values["parking_brake"].value is True
+    assert result.values["taxi_light_on"].value is True
     assert result.values["speed_brake"].value == pytest.approx(0.5, abs=0.001)
     assert result.values["refueling_probe"].value is False
     assert result.values["hook_position"].value is True

@@ -136,6 +136,7 @@ def normalization_registry(tmp_path: Path) -> DcsBiosControlRegistry:
         "LAUNCH_BAR_SW",
         "TO_TRIM_BTN",
         "HOOK_LEVER",
+        "LDG_TAXI_SW",
         "MASTER_MODE_AA_LT",
         "MASTER_MODE_AG_LT",
         "MASTER_CAUTION_LT",

@@ -45,6 +45,7 @@ ALLOWED_AIRCRAFT_STATE_FIELDS = frozenset(
         "fuel_quantity",
         "master_caution",
         "parking_brake",
+        "taxi_light_on",
         "speed_brake",
         "refueling_probe",
         "hook_position",

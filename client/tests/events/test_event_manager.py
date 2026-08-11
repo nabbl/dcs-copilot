@@ -61,6 +61,9 @@ def test_speech_policy_modes_are_local_deterministic_and_cooldown_aware() -> Non
     assert coach.allows(_transition(Severity.WARNING, data={"minimum_mode": "COACH"}))
     assert coach.allows(_transition(Severity.INFO))
     assert not coach.allows(_transition(Severity.CRITICAL, eligible=False))
+    assert not coach.allows(
+        _transition(Severity.ADVISORY, data={"proactive": False})
+    )
 
 
 def test_event_manager_correlates_raised_and_resolved_rule_events() -> None:

@@ -158,6 +158,39 @@ class ParkingBrakeTaxiRule(Rule):
         )
 
 
+class TaxiLightOffRule(Rule):
+    id = "FA18_TAXI_LIGHT_OFF"
+    category = "best_practice"
+    minimum_mode = CopilotMode.NORMAL
+    severity = Severity.ADVISORY
+    cooldown_seconds = 120.0
+    required_fields = frozenset(
+        {"taxi_light_on", "indicated_airspeed", "weight_on_wheels"}
+    )
+    aircraft_names = HORNET
+    flight_phases = frozenset({FlightPhase.TAXI})
+    debounce_on_seconds = 5.0
+    debounce_off_seconds = 0.5
+    description = "Remind the pilot to use the taxi light while rolling."
+    source_reference = "DCS-BIOS FA-18C_hornet/LDG_TAXI_SW"
+
+    def evaluate(self, context: RuleContext) -> RuleResult | None:
+        if (
+            not _boolean(context, "weight_on_wheels")
+            or _boolean(context, "taxi_light_on")
+            or _number(context, "indicated_airspeed") < 3.0
+        ):
+            return None
+        return RuleResult(
+            message="Taxi light is off.",
+            explanation=(
+                "The aircraft is rolling in the taxi phase with the landing/taxi "
+                "light switch off."
+            ),
+            data={"ias_knots": round(_number(context, "indicated_airspeed"), 1)},
+        )
+
+
 class EjectionSeatNotArmedRule(Rule):
     id = "FA18_EJECTION_SEAT_NOT_ARMED"
     severity = Severity.WARNING
@@ -417,31 +450,10 @@ def fa18c_rule_definitions(
             activation_delay=1.0,
             resolution_delay=0.25,
             cooldown=45.0,
-            message="Hook.",
+            message="Hook is down outside carrier recovery.",
+            proactive=False,
             explanation="The hook is physically down while airborne outside a detected recovery context.",
             data_fields=frozenset({"hook_position", "carrier_recovery"}),
-        ),
-        RuleDefinition(
-            id="REFUEL_PROBE_LEFT_OUT",
-            aircraft="FA-18C_hornet",
-            severity=Severity.ADVISORY,
-            phases=frozenset(
-                {
-                    FlightPhase.CLIMB,
-                    FlightPhase.CRUISE,
-                    FlightPhase.COMBAT,
-                    FlightPhase.APPROACH,
-                    FlightPhase.LANDING,
-                }
-            ),
-            required_fields=frozenset({"refueling_probe"}),
-            condition={"refueling_probe": True},
-            activation_delay=config.probe_reminder_seconds,
-            resolution_delay=0.25,
-            cooldown=60.0,
-            message="Refueling probe is still out.",
-            explanation="The refueling probe remains extended outside the detected refueling phase.",
-            data_fields=frozenset({"flight_phase", "refueling_probe"}),
         ),
         RuleDefinition(
             id="MASTER_ARM_SAFE_IN_COMBAT_MODE",
@@ -484,6 +496,15 @@ def fa18c_rule_definitions(
             id="HOOK_COMMANDED_DOWN_BUT_NOT_EXTENDED",
             aircraft="FA-18C_hornet",
             severity=Severity.WARNING,
+            phases=frozenset(
+                {
+                    FlightPhase.TAKEOFF,
+                    FlightPhase.CLIMB,
+                    FlightPhase.CRUISE,
+                    FlightPhase.COMBAT,
+                    FlightPhase.REFUELING,
+                }
+            ),
             required_fields=frozenset({"hook_commanded_down", "hook_position"}),
             condition={
                 "all": [
@@ -494,7 +515,7 @@ def fa18c_rule_definitions(
             activation_delay=config.configuration_timeout_seconds,
             resolution_delay=0.25,
             cooldown=45.0,
-            message="Hook isn't down.",
+            message="Hook lever is down, but the hook has not extended.",
             minimum_mode=CopilotMode.MINIMAL,
             explanation="The hook lever is down but the external hook position has not reached down.",
             data_fields=frozenset({"hook_position", "hook_commanded_down"}),
@@ -517,7 +538,7 @@ def fa18c_rule_definitions(
             activation_delay=config.configuration_timeout_seconds,
             resolution_delay=0.25,
             cooldown=45.0,
-            message="Hook.",
+            message="Hook is not down for carrier recovery.",
             minimum_mode=CopilotMode.MINIMAL,
             explanation="Carrier recovery is detected with landing gear down and the hook is not physically down.",
             data_fields=frozenset({"gear_position", "hook_position"}),
@@ -560,6 +581,7 @@ def fa18c_rules() -> tuple[Rule, ...]:
         GearOverspeedRule(),
         CanopyOpenWhileMovingRule(),
         ParkingBrakeTaxiRule(),
+        TaxiLightOffRule(),
         EjectionSeatNotArmedRule(),
         RefuelingProbeLeftOutRule(),
     )
@@ -573,6 +595,7 @@ __all__ = [
     "GearOverspeedRule",
     "MasterCautionRule",
     "ParkingBrakeTaxiRule",
+    "TaxiLightOffRule",
     "RefuelingProbeLeftOutRule",
     "declarative_fa18c_rules",
     "fa18c_rule_definitions",

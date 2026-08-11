@@ -106,6 +106,7 @@ class AircraftState:
     warning_lights: dict[str, TelemetryValue[bool]] = field(default_factory=dict)
 
     parking_brake: TelemetryValue[bool] = field(default_factory=unavailable)
+    taxi_light_on: TelemetryValue[bool] = field(default_factory=unavailable)
     speed_brake: TelemetryValue[float] = field(default_factory=unavailable)
     refueling_probe: TelemetryValue[bool] = field(default_factory=unavailable)
     hook_position: TelemetryValue[bool] = field(default_factory=unavailable)
