@@ -99,12 +99,12 @@ class AircraftStateStore:
         if not connected or self.bios_state is None:
             self.flight_stats.observe(AircraftState(aircraft=aircraft, connected=False))
             self.current = AircraftState(aircraft=aircraft, connected=False)
-            self.history.clear()
-            self.phase_detector.reset()
-            self.rule_engine.reset(now=timestamp)
+            self._reset_cockpit_context(timestamp)
             self._emit_changes(previous, self.current)
             return self.current
 
+        if previous.aircraft != aircraft:
+            self._reset_cockpit_context(timestamp)
         state = AircraftState(aircraft=aircraft, connected=True)
         adapter = self._adapters.get(aircraft or "", self.generic_adapter)
         partial = adapter.normalize(
@@ -192,6 +192,13 @@ class AircraftStateStore:
             )
             for callback in tuple(self._callbacks):
                 callback(change)
+
+    def _reset_cockpit_context(self, timestamp: float) -> None:
+        self.history.clear()
+        self.phase_detector.reset()
+        self.rule_engine.reset(now=timestamp)
+        self.checklist_engine.stop()
+        self.event_manager.reset(clear_history=True)
 
     @staticmethod
     def _derive_context_fields(state: AircraftState, timestamp: float) -> None:

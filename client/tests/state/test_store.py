@@ -3,7 +3,7 @@ from __future__ import annotations
 from conftest import set_control
 from dcs_copilot.dcs.bios_registry import DcsBiosControlRegistry
 from dcs_copilot.dcs.bios_state import DcsBiosState
-from dcs_copilot.state.models import FlightPhase
+from dcs_copilot.state.models import AircraftState, FlightPhase, TelemetryValue
 from dcs_copilot.state.phase_detector import FlightPhaseDetector, PhaseDetectorConfig
 from dcs_copilot.state.store import AircraftStateStore
 
@@ -123,3 +123,24 @@ def test_store_drives_rule_engine_from_normalized_live_path(
     store.update(connected=True, aircraft="FA-18C_hornet", now=11.5)
     assert store.rule_engine.active_issues == ()
     assert [item.type for item in transitions] == ["ACTIVATED", "RESOLVED"]
+
+
+def test_aircraft_change_resets_cockpit_context(
+    normalization_registry: DcsBiosControlRegistry,
+) -> None:
+    store = AircraftStateStore(normalization_registry, bios_state=DcsBiosState())
+    previous = AircraftState(
+        aircraft="FA-18C_hornet",
+        connected=True,
+        obogs_on=TelemetryValue(True, available=True, updated_at=1.0),
+    )
+    store.current = previous
+    store.history.record(previous, timestamp=1.0)
+    store.checklist_engine.start("fa18c_startup", "before-taxi")
+    store.checklist_engine.confirm_manual_item("helmet")
+
+    store.update(connected=True, aircraft="OtherAircraft", now=2.0)
+
+    assert store.history.transitions() == ()
+    assert store.checklist_engine.session.checklist_id is None
+    assert store.checklist_engine.session.confirmed_manual_items == set()

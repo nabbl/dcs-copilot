@@ -83,6 +83,14 @@ class PttSessionController:
             self._notice("PTT released" if sent else "Copilot cloud unavailable")
             return sent
 
+    async def reset(self) -> None:
+        async with self._lock:
+            if self._active:
+                await self.capture.stop()
+            self._active = False
+            self._session_generation = None
+            await self.playback.interrupt()
+
     def _notice(self, message: str) -> None:
         if self._on_notice is not None:
             self._on_notice(message)

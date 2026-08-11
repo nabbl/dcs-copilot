@@ -85,3 +85,26 @@ def test_reconnect_during_ptt_does_not_leak_audio_into_new_session() -> None:
         ("ptt.start", {}),
         ("audio", b"pcm"),
     ]
+
+
+def test_reset_stops_capture_and_playback_without_completing_turn() -> None:
+    connection = FakeConnection()
+    capture = FakeCapture()
+    playback = FakePlayback()
+    controller = PttSessionController(  # type: ignore[arg-type]
+        connection, capture, playback
+    )
+
+    async def scenario() -> None:
+        assert await controller.press()
+        await controller.reset()
+        assert not controller.active
+
+    asyncio.run(scenario())
+    assert capture.events == ["capture.start", "capture.stop"]
+    assert playback.events == ["playback.interrupt", "playback.interrupt"]
+    assert [item[0] for item in connection.sent] == [
+        "assistant.interrupt",
+        "ptt.start",
+        "audio",
+    ]

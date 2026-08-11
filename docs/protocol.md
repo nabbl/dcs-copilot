@@ -222,7 +222,10 @@ client may send this bounded semantic message:
 Only `metadata_version` and the nullable, 64-character aircraft identifier are
 accepted. Extra fields—including raw cockpit or telemetry data—are rejected.
 The cloud attaches the identifier to the authenticated user's current semantic
-flight session and closes the session on `session.end` or disconnect.
+flight session. Every accepted aircraft transition also interrupts and closes
+the current MARA voice pipeline; the next PTT turn starts with a fresh
+conversation context. Explicit account memories and preferences are not erased.
+The flight session closes on `session.end` or disconnect.
 
 Cloud memory and preference tools are internal Pipecat functions. They do not
 produce `tool.request` messages and never cross into the client. This keeps

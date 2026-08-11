@@ -210,6 +210,8 @@ class RealtimeSession:
             aircraft = AircraftChanged.from_control(message).aircraft
         except ProtocolError:
             return SessionResult((self._error(message, "invalid_aircraft"),))
+        self.ptt_active = False
+        self._reset_utterance()
         return SessionResult(
             lifecycle=SessionLifecycle(
                 "aircraft_changed",

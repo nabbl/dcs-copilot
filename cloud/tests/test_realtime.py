@@ -6,6 +6,7 @@ from dcs_copilot_cloud.app import create_app
 from dcs_copilot_cloud.config import CloudSettings
 from dcs_copilot_cloud.voice import VoiceAnnouncement, VoiceTurn, VoiceTurnResult
 from dcs_copilot_protocol import (
+    AircraftChanged,
     AircraftEvent,
     AircraftToolRequest,
     AircraftToolResult,
@@ -208,6 +209,62 @@ def test_ptt_turn_streams_cloud_voice_audio_and_text() -> None:
     assert pipeline.turn.input_format.sample_rate == 16_000
     assert pipeline.turn.output_format.sample_rate == 24_000
     assert pipeline.closed
+
+
+def test_aircraft_change_recreates_voice_pipeline_with_clean_context() -> None:
+    pipelines: list[FakeVoicePipeline] = []
+
+    def pipeline_factory(_settings: CloudSettings) -> FakeVoicePipeline:
+        pipeline = FakeVoicePipeline()
+        pipelines.append(pipeline)
+        return pipeline
+
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=pipeline_factory,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v1/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_bytes(
+            MediaPacket(MediaKind.AUDIO_INPUT, 0, 1, b"\x01\x02" * 320).to_bytes()
+        )
+        websocket.send_text(ControlMessage("ptt.end").to_json())
+        assert receive_control(websocket).payload["event_type"] == "utterance.received"
+        assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+            MediaKind.AUDIO_OUTPUT
+        )
+        assert receive_control(websocket).type == "pilot.text"
+        assert receive_control(websocket).type == "assistant.text"
+        assert len(pipelines) == 1
+
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_bytes(
+            MediaPacket(MediaKind.AUDIO_INPUT, 1, 2, b"\x05\x06" * 320).to_bytes()
+        )
+        websocket.send_text(AircraftChanged(None).to_control().to_json())
+        websocket.send_text(ControlMessage("future.message").to_json())
+        assert receive_control(websocket).payload["code"] == "unsupported_message"
+        assert pipelines[0].closed
+
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_bytes(
+            MediaPacket(MediaKind.AUDIO_INPUT, 2, 3, b"\x03\x04" * 320).to_bytes()
+        )
+        websocket.send_text(ControlMessage("ptt.end").to_json())
+        receipt = receive_control(websocket)
+        assert receipt.payload["event_type"] == "utterance.received"
+        assert receipt.payload["audio_bytes"] == 640
+        assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+            MediaKind.AUDIO_OUTPUT
+        )
+        assert receive_control(websocket).type == "pilot.text"
+        assert receive_control(websocket).type == "assistant.text"
+        assert len(pipelines) == 2
+        assert pipelines[1] is not pipelines[0]
 
 
 def test_ptt_barge_in_interrupts_active_cloud_response() -> None:

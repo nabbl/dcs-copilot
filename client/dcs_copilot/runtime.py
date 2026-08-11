@@ -191,6 +191,9 @@ async def run_client_runtime(
 
         def state_changed(change: NormalizedStateChange) -> None:
             if change.field == "aircraft":
+                published_event_ids.clear()
+                conversation_activity.reset()
+                schedule(controller.reset())
                 connection.send_message(AircraftChanged(change.new_value).to_control())
 
         store.add_change_callback(state_changed)

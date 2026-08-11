@@ -189,6 +189,15 @@ def create_app(
             response_task = None
             response_event_id = None
 
+        async def reset_assistant() -> None:
+            nonlocal voice
+            await interrupt_response()
+            active_event_ids.clear()
+            if voice is not None:
+                previous_voice = voice
+                voice = None
+                await previous_voice.close()
+
         async def stream_audio(payload: bytes) -> None:
             nonlocal output_sequence
             packet = MediaPacket(
@@ -437,6 +446,11 @@ def create_app(
                             if message.type in {"assistant.interrupt", "ptt.start"}:
                                 await interrupt_response()
                             result = session.handle_control(message)
+                            if (
+                                result.lifecycle is not None
+                                and result.lifecycle.action == "aircraft_changed"
+                            ):
+                                await reset_assistant()
                     elif incoming.get("bytes") is not None:
                         packet = MediaPacket.from_bytes(incoming["bytes"])
                         result = session.handle_media(packet)

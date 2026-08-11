@@ -193,6 +193,14 @@ and `TTSProvider` isolate the initial OpenAI implementations. Pressing PTT while
 the assistant speaks stops local playback, sends `assistant.interrupt`, cancels
 the active gateway task, and injects a Pipecat interruption frame.
 
+The pipeline persists only for the current cockpit slot. When DCS-BIOS reports
+that the aircraft was lost or changed during a reslot or respawn, the client
+clears local history, rule, event, phase, and guided-checklist state. The cloud
+interrupts and closes MARA's pipeline, so the next PTT turn creates a clean
+conversation context while explicit account memories remain available. Any
+in-progress PTT capture and buffered playback are cancelled rather than carried
+into the new slot.
+
 ## Milestone 4 aircraft-tool contract
 
 The LLM can advertise only `get_aircraft_state`, `get_active_issues`,
