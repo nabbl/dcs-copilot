@@ -14,6 +14,7 @@ transition. `RESOLVED` is reserved for a condition that was observed clearing.
 | `FA18_GEAR_OVERSPEED` | WARNING | Airborne, gear down or in transit, IAS at least 250 kt | On ground, gear up, or IAS below 240 kt | 1 / 1 s | 30 s |
 | `FA18_CANOPY_OPEN_MOVING` | WARNING | Canopy not closed and IAS at least 20 kt | Canopy closed or IAS below 10 kt | 1 / 0.5 s | 30 s |
 | `FA18_PARKING_BRAKE_TAXI` | ADVISORY | WOW, parking brake engaged, IAS at least 5 kt | Brake released, airborne, or IAS below 2 kt | 2 / 0.5 s | 45 s |
+| `FA18_TAXI_LIGHT_OFF` | ADVISORY | TAXI phase, WOW, taxi light off, IAS at least 3 kt | Light on, stopped, airborne, or leaving TAXI | 5 / 0.5 s | 120 s |
 | `FA18_EJECTION_SEAT_NOT_ARMED` | WARNING | Seat SAFE during TAXI or an airborne phase | Seat armed; leaving applicable phases disables it | 2 / 0.25 s | 120 s |
 | `FA18_REFUELING_PROBE_LEFT_OUT` | ADVISORY | Probe extended during climb, cruise, combat, approach, or landing | Probe retracted; entering another phase disables it | 2 / 0.25 s | 60 s |
 
@@ -29,19 +30,23 @@ and the rule's bounded data object.
 
 Speech mode is configured with `COPILOT_SPEECH_MODE`:
 
-- `MINIMAL`: cooldown-eligible CRITICAL activations only;
-- `NORMAL`: CRITICAL and WARNING activations plus the parking-brake and
-  refueling-probe advisories;
+- `MINIMAL`: only rules explicitly marked for minimal speech, generally
+  time-critical launch, gear, oxygen, seat, and hook warnings;
+- `NORMAL`: rules marked for normal speech, including the taxi-light,
+  parking-brake, and refueling-probe advisories;
 - `COACH`: every cooldown-eligible activation, including INFO.
 
-The policy does not play local audio. Eligible activations use cloud TTS; PTT
+Rules explicitly marked non-proactive remain available in local issue/history
+diagnostics but are never spoken. The policy does not play local audio.
+Eligible activations use cloud TTS; PTT
 suppresses or interrupts them. Event detection and history continue if the
 cloud is unavailable, but offline warning speech is not a requirement.
 
 The 250-knot gear threshold follows the Hornet landing procedure in the Eagle
 Dynamics guide, which calls for gear and flaps down at 250 knots. The cockpit
 signals are the adapter's verified `MASTER_CAUTION_LT`, gear lights and lever,
-`CANOPY_POS`, `EMERGENCY_PARKING_BRAKE_ROTATE`, and `EJECTION_SEAT_ARMED`
+`CANOPY_POS`, `EMERGENCY_PARKING_BRAKE_ROTATE`, `LDG_TAXI_SW`, and
+`EJECTION_SEAT_ARMED`
 exports. Live behavior still requires the validation matrix in
 `docs/multiplayer-validation.md`; automated fixtures are not evidence of
 multiplayer or Integrity Check compatibility.

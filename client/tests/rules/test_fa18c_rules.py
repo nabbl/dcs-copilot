@@ -14,7 +14,9 @@ from dcs_copilot.rules.fa18c import (
     MasterCautionRule,
     ParkingBrakeTaxiRule,
     RefuelingProbeLeftOutRule,
+    TaxiLightOffRule,
     declarative_fa18c_rules,
+    fa18c_rules,
 )
 from dcs_copilot.state.history import StateHistory
 from dcs_copilot.state.models import (
@@ -42,6 +44,7 @@ def state(**changes) -> AircraftState:
         canopy_state=tv(CanopyState.CLOSED),
         master_caution=tv(False),
         parking_brake=tv(False),
+        taxi_light_on=tv(True),
         refueling_probe=tv(False),
         ejection_seat_armed=tv(True),
         weight_on_wheels=tv(False),
@@ -199,6 +202,41 @@ def test_parking_brake_requires_weight_on_wheels_and_taxi_motion() -> None:
     assert (
         evaluate(engine, history, released, 4.5)[0].type is RuleTransitionType.RESOLVED
     )
+
+
+def test_taxi_light_rule_waits_for_sustained_taxi_and_resolves() -> None:
+    engine, history = engine_for([TaxiLightOffRule()])
+    taxi = state(
+        flight_phase=FlightPhase.TAXI,
+        indicated_airspeed=7.0,
+        taxi_light_on=False,
+        weight_on_wheels=True,
+    )
+    assert evaluate(engine, history, taxi, 0.0) == ()
+    assert evaluate(engine, history, taxi, 4.9) == ()
+    activated = evaluate(engine, history, taxi, 5.0)
+    assert activated[0].issue.message == "Taxi light is off."
+
+    light_on = state(
+        flight_phase=FlightPhase.TAXI,
+        indicated_airspeed=7.0,
+        taxi_light_on=True,
+        weight_on_wheels=True,
+    )
+    assert evaluate(engine, history, light_on, 6.0) == ()
+    assert evaluate(engine, history, light_on, 6.5)[0].type is RuleTransitionType.RESOLVED
+
+
+def test_taxi_light_rule_does_not_chatter_while_stopped() -> None:
+    engine, history = engine_for([TaxiLightOffRule()])
+    stopped = state(
+        flight_phase=FlightPhase.STARTUP,
+        indicated_airspeed=0.0,
+        taxi_light_on=False,
+        weight_on_wheels=True,
+    )
+    assert evaluate(engine, history, stopped, 0.0) == ()
+    assert evaluate(engine, history, stopped, 10.0) == ()
 
 
 def test_ejection_seat_rule_is_phase_restricted() -> None:
@@ -366,19 +404,6 @@ def test_cooldown_suppresses_notification_not_active_issue() -> None:
             },
         ),
         (
-            "REFUEL_PROBE_LEFT_OUT",
-            {
-                "flight_phase": FlightPhase.CRUISE,
-                "refueling_probe": True,
-                "carrier_launch_sequence": False,
-            },
-            {
-                "flight_phase": FlightPhase.CRUISE,
-                "refueling_probe": False,
-                "carrier_launch_sequence": False,
-            },
-        ),
-        (
             "MASTER_ARM_SAFE_IN_COMBAT_MODE",
             {
                 "master_mode_combat": True,
@@ -501,3 +526,22 @@ def test_phase_sensitive_declarative_rule_avoids_false_warning() -> None:
     )
     assert evaluate(engine, history, cruise, 0.0) == ()
     assert engine.active_issues == ()
+
+
+def test_hook_extension_mismatch_is_silent_during_ground_start() -> None:
+    rule = rule_by_id("HOOK_COMMANDED_DOWN_BUT_NOT_EXTENDED")
+    engine, history = engine_for([rule])
+    startup = rich_state(
+        flight_phase=FlightPhase.STARTUP,
+        hook_commanded_down=True,
+        hook_position=False,
+        carrier_launch_sequence=False,
+    )
+    assert evaluate(engine, history, startup, 0.0) == ()
+    assert evaluate(engine, history, startup, 10.0) == ()
+
+
+def test_runtime_registers_only_one_refueling_probe_reminder() -> None:
+    assert [
+        rule.id for rule in fa18c_rules() if "REFUEL" in rule.id and "PROBE" in rule.id
+    ] == ["FA18_REFUELING_PROBE_LEFT_OUT"]

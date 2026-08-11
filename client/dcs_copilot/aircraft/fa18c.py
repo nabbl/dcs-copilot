@@ -139,6 +139,8 @@ class FA18CAdapter:
 
         parking_raw = read_int("EMERGENCY_PARKING_BRAKE_ROTATE")
         parking = self._map_bool(parking_raw, lambda value: value != 2)
+        taxi_light_raw = read_int("LDG_TAXI_SW")
+        taxi_light = self._map_bool(taxi_light_raw, bool)
 
         speed_brake = reader.fraction(MODULE, "EXT_SPEED_BRAKE")
         raw["EXT_SPEED_BRAKE"] = speed_brake
@@ -211,6 +213,7 @@ class FA18CAdapter:
                 "fuel_quantity": fuel,
                 "master_caution": master_caution,
                 "parking_brake": parking,
+                "taxi_light_on": taxi_light,
                 "speed_brake": speed_brake,
                 "refueling_probe": probe,
                 "hook_position": hook,

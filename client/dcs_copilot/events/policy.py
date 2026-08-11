@@ -24,6 +24,8 @@ class SpeechPolicy:
             return False
         if not transition.notification_eligible:
             return False
+        if transition.issue.data.get("proactive") is False:
+            return False
         minimum_mode_raw = transition.issue.data.get("minimum_mode")
         if isinstance(minimum_mode_raw, str):
             try:
