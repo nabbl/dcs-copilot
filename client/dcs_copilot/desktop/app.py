@@ -38,7 +38,12 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped]
 )
 
 from dcs_copilot.cli.run import run_client
-from dcs_copilot.input.ptt import JoystickDevice, discover_joysticks
+from dcs_copilot.input.ptt import (
+    JoystickButtonSelection,
+    JoystickDevice,
+    detect_joystick_button,
+    discover_joysticks,
+)
 from dcs_copilot.logging import configure_logging
 
 from .auth import AuthError, StoredAuthSession, TokenPair
@@ -195,6 +200,7 @@ class DashboardPage(QWidget):
     run_requested = Signal()
     stop_requested = Signal()
     logout_requested = Signal()
+    learn_ptt_requested = Signal()
 
     def __init__(self, config: DesktopConfig) -> None:
         super().__init__()
@@ -279,8 +285,14 @@ class DashboardPage(QWidget):
         self.ptt_control = QComboBox()
         refresh_ptt = QPushButton("Refresh")
         refresh_ptt.clicked.connect(self._refresh_ptt_devices)
+        self.learn_ptt = QPushButton("Detect button…")
+        self.learn_ptt.clicked.connect(self.learn_ptt_requested)
         ptt_device_row.addWidget(self.ptt_device)
         ptt_device_row.addWidget(refresh_ptt)
+        ptt_device_row.addWidget(self.learn_ptt)
+        self.ptt_hint = QLabel("Tip: click Detect button, then press your HOTAS/PTT button.")
+        self.ptt_hint.setObjectName("muted")
+        self.ptt_hint.setWordWrap(True)
         self._ptt_devices: dict[int, JoystickDevice] = {}
         self._refresh_ptt_devices()
         self.ptt_device.currentIndexChanged.connect(self._update_ptt_controls)
@@ -293,6 +305,7 @@ class DashboardPage(QWidget):
         form.addRow("Service URL", self.cloud_url)
         form.addRow("PTT input device", ptt_device_row)
         form.addRow("PTT key / button", self.ptt_control)
+        form.addRow("", self.ptt_hint)
         form.addRow("Speech mode", self.speech)
         form.addRow("", self.launch_login)
         save = QPushButton("Save settings")
@@ -384,6 +397,32 @@ class DashboardPage(QWidget):
         index = self.ptt_control.findData(desired)
         self.ptt_control.setCurrentIndex(max(0, index))
 
+    def begin_ptt_learning(self) -> None:
+        self.learn_ptt.setEnabled(False)
+        self.ptt_hint.setText("Listening for a joystick/HOTAS button press…")
+
+    def finish_ptt_learning(
+        self, selection: JoystickButtonSelection | None = None, error: str | None = None
+    ) -> None:
+        self.learn_ptt.setEnabled(True)
+        if selection is None:
+            self.ptt_hint.setText(error or "No joystick/HOTAS button was detected.")
+            return
+        self._ptt_devices[selection.device.device_id] = selection.device
+        if self.ptt_device.findData(selection.device.device_id) < 0:
+            self.ptt_device.addItem(
+                f"{selection.device.name} ({selection.device.button_count} buttons)",
+                selection.device.device_id,
+            )
+        self.ptt_device.setCurrentIndex(
+            max(0, self.ptt_device.findData(selection.device.device_id))
+        )
+        self._update_ptt_controls()
+        self.ptt_control.setCurrentIndex(max(0, self.ptt_control.findData(selection.button)))
+        self.ptt_hint.setText(
+            f"Detected {selection.device.name}, button {selection.button}."
+        )
+
     def update_config(self) -> None:
         self.config.dcs_saved_games_path = self.dcs_path.text().strip()
         self.config.cloud_url = self.cloud_url.text().strip()
@@ -452,6 +491,7 @@ class MainWindow(QMainWindow):
         self.dashboard.run_requested.connect(self._start_runtime)
         self.dashboard.stop_requested.connect(self._stop_runtime)
         self.dashboard.logout_requested.connect(self._logout)
+        self.dashboard.learn_ptt_requested.connect(self._learn_ptt_button)
         self._restore_session()
 
     def _worker(
@@ -524,6 +564,23 @@ class MainWindow(QMainWindow):
         self.dashboard.install.setEnabled(True)
         self.dashboard.refresh_setup_status()
         QMessageBox.critical(self, APP_NAME, error)
+
+    def _learn_ptt_button(self) -> None:
+        self.dashboard.begin_ptt_learning()
+        self._worker(
+            lambda: detect_joystick_button(timeout=10.0),
+            self._ptt_button_learned,
+            self._ptt_button_learning_failed,
+        )
+
+    def _ptt_button_learned(self, result: object) -> None:
+        if not isinstance(result, JoystickButtonSelection):
+            self.dashboard.finish_ptt_learning(error="Unexpected PTT detection result.")
+            return
+        self.dashboard.finish_ptt_learning(result)
+
+    def _ptt_button_learning_failed(self, error: str) -> None:
+        self.dashboard.finish_ptt_learning(error=error)
 
     def _save_settings(self) -> None:
         try:

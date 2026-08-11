@@ -8,6 +8,7 @@ from dcs_copilot.input.ptt import (
     GlobalJoystickButtonPTT,
     JoystickDevice,
     PTTUnavailableError,
+    detect_joystick_button,
     discover_joysticks,
     function_key_virtual_code,
 )
@@ -82,6 +83,17 @@ class FakeJoystickBackend:
         return self.state
 
 
+class PressAfterBaselineBackend(FakeJoystickBackend):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    def buttons(self, device_id: int) -> int | None:
+        self.calls += 1
+        assert device_id == 2
+        return 0 if self.calls == 1 else 1 << 4
+
+
 def test_joystick_button_ptt_is_edge_triggered() -> None:
     events: list[str] = []
     backend = FakeJoystickBackend()
@@ -110,6 +122,30 @@ def test_joystick_discovery_and_validation() -> None:
     assert discover_joysticks(platform="darwin", backend=backend) == []
     with pytest.raises(ValueError, match="1 through 32"):
         GlobalJoystickButtonPTT(2, 33, on_press=lambda: None, on_release=lambda: None)
+
+
+def test_detect_joystick_button_identifies_new_press() -> None:
+    selection = detect_joystick_button(
+        platform="win32",
+        backend=PressAfterBaselineBackend(),
+        timeout=1.0,
+        poll_interval=0.001,
+        sleep=lambda _seconds: None,
+    )
+    assert selection.device == JoystickDevice(2, "Throttle", 12)
+    assert selection.button == 5
+
+
+def test_detect_joystick_button_requires_windows_and_connected_device() -> None:
+    with pytest.raises(PTTUnavailableError, match="requires Windows"):
+        detect_joystick_button(platform="darwin")
+
+    class EmptyBackend:
+        def devices(self) -> list[JoystickDevice]:
+            return []
+
+    with pytest.raises(PTTUnavailableError, match="no joystick"):
+        detect_joystick_button(platform="win32", backend=EmptyBackend())
 
 
 def _wait_until(predicate, timeout: float = 0.2) -> bool:

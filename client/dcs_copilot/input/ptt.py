@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import sys
 import threading
+import time
 from collections.abc import Callable
 from ctypes import Structure, byref, c_uint, c_ulong, c_ushort, c_wchar
 from dataclasses import dataclass
@@ -22,6 +23,12 @@ class JoystickDevice:
     device_id: int
     name: str
     button_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class JoystickButtonSelection:
+    device: JoystickDevice
+    button: int
 
 
 class _JoyCaps(Structure):
@@ -105,7 +112,9 @@ class WinMMJoystickBackend:
             devices.append(
                 JoystickDevice(
                     device_id,
-                    caps.szPname or f"Controller {device_id}",
+                    _friendly_joystick_name(caps.szRegKey)
+                    or caps.szPname
+                    or f"Controller {device_id}",
                     int(caps.wNumButtons),
                 )
             )
@@ -133,6 +142,74 @@ def discover_joysticks(
     if platform != "win32":
         return []
     return list((backend or WinMMJoystickBackend()).devices())
+
+
+def detect_joystick_button(
+    *,
+    timeout: float = 10.0,
+    poll_interval: float = 0.02,
+    platform: str = sys.platform,
+    backend: Any | None = None,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> JoystickButtonSelection:
+    """Wait for the next newly pressed joystick button and identify it."""
+
+    if platform != "win32":
+        raise PTTUnavailableError("joystick/HOTAS PTT detection requires Windows")
+    if timeout <= 0:
+        raise ValueError("PTT detection timeout must be greater than zero")
+    if poll_interval <= 0:
+        raise ValueError("PTT detection poll interval must be greater than zero")
+    joystick_backend = backend or WinMMJoystickBackend()
+    devices = joystick_backend.devices()
+    if not devices:
+        raise PTTUnavailableError("no joystick/HOTAS controllers are connected")
+    baseline = {
+        device.device_id: joystick_backend.buttons(device.device_id) or 0
+        for device in devices
+    }
+    deadline = clock() + timeout
+    while clock() <= deadline:
+        for device in devices:
+            current = joystick_backend.buttons(device.device_id)
+            if current is None:
+                continue
+            newly_pressed = current & ~baseline.get(device.device_id, 0)
+            if newly_pressed:
+                return JoystickButtonSelection(
+                    device=device,
+                    button=_first_pressed_button(newly_pressed),
+                )
+        sleep(poll_interval)
+    raise PTTUnavailableError("no joystick/HOTAS button press was detected")
+
+
+def _first_pressed_button(button_mask: int) -> int:
+    return (button_mask & -button_mask).bit_length()
+
+
+def _friendly_joystick_name(registry_key: str) -> str | None:
+    if sys.platform != "win32" or not registry_key:
+        return None
+    try:
+        import winreg
+
+        subkey = (
+            r"System\CurrentControlSet\Control\MediaProperties"
+            rf"\PrivateProperties\Joystick\OEM\{registry_key}"
+        )
+        for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(root, subkey) as key:
+                    value, _kind = winreg.QueryValueEx(key, "OEMName")
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            except FileNotFoundError:
+                continue
+    except OSError:
+        return None
+    return None
 
 
 def function_key_virtual_code(key_name: str) -> int:
