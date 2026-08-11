@@ -1,0 +1,51 @@
+name: Windows client release bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Installer version
+        default: "0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Test
+        run: uv run --all-packages pytest -q
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build installer
+        shell: pwsh
+        run: >-
+          ./packaging/windows/build.ps1
+          -Version "${{ inputs.version }}"
+          -ServiceUrl "${{ vars.DCS_COPILOT_SERVICE_URL || 'ws://127.0.0.1:8000/v1/realtime' }}"
+      - name: Upload installer to development release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "windows-dev-${{ inputs.version }}"
+          $installer = Get-ChildItem "dist/windows/DCS-Copilot-Setup-*.exe" | Select-Object -First 1
+          if (-not $installer) {
+            throw "Installer was not produced."
+          }
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag `
+              --target $env:GITHUB_SHA `
+              --title "Windows development bundle ${{ inputs.version }}" `
+              --notes "Unsigned Windows development installer built from $env:GITHUB_SHA." `
+              --latest=false
+          }
+          gh release upload $tag $installer.FullName --clobber
