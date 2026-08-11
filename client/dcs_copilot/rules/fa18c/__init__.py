@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-from dcs_copilot.state.models import CanopyState, FlightPhase, GearState
+from dataclasses import dataclass
 
-from ..base import Rule, RuleContext, RuleResult, Severity
+from dcs_copilot.state.models import (
+    CanopyState,
+    FlapState,
+    FlightPhase,
+    GearState,
+    MasterArmState,
+)
+
+from ..base import CopilotMode, Rule, RuleContext, RuleResult, Severity
+from ..declarative import DeclarativeRule, RuleDefinition
 
 HORNET = frozenset({"FA-18C_hornet"})
 AIRBORNE_PHASES = frozenset(
@@ -18,6 +27,15 @@ AIRBORNE_PHASES = frozenset(
         FlightPhase.LANDING,
     }
 )
+
+
+@dataclass(frozen=True, slots=True)
+class FA18CRuleThresholds:
+    after_liftoff_grace_seconds: float = 5.0
+    configuration_timeout_seconds: float = 3.0
+    probe_reminder_seconds: float = 2.0
+    combat_config_seconds: float = 2.0
+    speedbrake_extended_threshold: float = 0.05
 
 
 def _number(context: RuleContext, field: str) -> float:
@@ -194,8 +212,350 @@ class RefuelingProbeLeftOutRule(Rule):
         )
 
 
+def fa18c_rule_definitions(
+    thresholds: FA18CRuleThresholds | None = None,
+) -> tuple[RuleDefinition, ...]:
+    config = thresholds or FA18CRuleThresholds()
+    takeoff_phases = frozenset({FlightPhase.TAXI, FlightPhase.TAKEOFF})
+    return (
+        RuleDefinition(
+            id="CARRIER_FLAPS_NOT_HALF",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            phases=takeoff_phases,
+            required_fields=frozenset({"carrier_launch_sequence", "flap_position"}),
+            condition={
+                "all": [
+                    {"carrier_launch_sequence": True},
+                    {"flap_position": {"not_equals": FlapState.HALF}},
+                ]
+            },
+            activation_delay=0.25,
+            resolution_delay=0.25,
+            cooldown=30.0,
+            message="Flaps — HALF.",
+            explanation="The jet is in a carrier launch sequence and the flap switch is not HALF.",
+            data_fields=frozenset({"flap_position"}),
+        ),
+        RuleDefinition(
+            id="TAKEOFF_TRIM_NOT_CONFIRMED",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            phases=takeoff_phases,
+            required_fields=frozenset(
+                {"carrier_launch_sequence", "takeoff_trim_confirmed"}
+            ),
+            condition={
+                "all": [
+                    {"carrier_launch_sequence": True},
+                    {"takeoff_trim_confirmed": False},
+                ]
+            },
+            activation_delay=0.25,
+            resolution_delay=0.25,
+            cooldown=30.0,
+            message="Takeoff trim not confirmed.",
+            explanation=(
+                "The T/O TRIM button has not been observed since startup or the last "
+                "landing. Actual stabilator trim verification is unsupported unless "
+                "reliable IC-safe telemetry is available."
+            ),
+            data_fields=frozenset({"takeoff_trim_confirmed"}),
+        ),
+        RuleDefinition(
+            id="WINGS_NOT_SPREAD_FOR_LAUNCH",
+            aircraft="FA-18C_hornet",
+            severity=Severity.CRITICAL,
+            phases=takeoff_phases,
+            required_fields=frozenset({"carrier_launch_sequence", "wing_fold_spread"}),
+            condition={
+                "all": [
+                    {"carrier_launch_sequence": True},
+                    {"wing_fold_spread": False},
+                ]
+            },
+            activation_delay=0.25,
+            resolution_delay=0.25,
+            cooldown=30.0,
+            message="Wings.",
+            minimum_mode=CopilotMode.MINIMAL,
+            explanation="The external wing-fold position is not fully spread for launch.",
+            data_fields=frozenset({"wing_fold_spread"}),
+        ),
+        RuleDefinition(
+            id="SPEEDBRAKE_EXTENDED_FOR_LAUNCH",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            phases=takeoff_phases,
+            required_fields=frozenset({"carrier_launch_sequence", "speed_brake"}),
+            condition={
+                "all": [
+                    {"carrier_launch_sequence": True},
+                    {
+                        "speed_brake": {
+                            "greater_than": config.speedbrake_extended_threshold
+                        }
+                    },
+                ]
+            },
+            activation_delay=0.25,
+            resolution_delay=0.25,
+            cooldown=30.0,
+            message="Speedbrake.",
+            explanation="The speedbrake is extended during the carrier launch sequence.",
+            data_fields=frozenset({"speed_brake"}),
+        ),
+        RuleDefinition(
+            id="EJECTION_SEAT_SAFE_FOR_LAUNCH",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            phases=takeoff_phases,
+            required_fields=frozenset({"takeoff_sequence", "ejection_seat_armed"}),
+            condition={
+                "all": [
+                    {"takeoff_sequence": True},
+                    {"ejection_seat_armed": False},
+                ]
+            },
+            activation_delay=0.5,
+            resolution_delay=0.25,
+            cooldown=60.0,
+            message="Seat.",
+            minimum_mode=CopilotMode.MINIMAL,
+            explanation="The ejection seat is SAFE during the takeoff sequence.",
+            data_fields=frozenset({"ejection_seat_armed"}),
+        ),
+        RuleDefinition(
+            id="OBOGS_OFF_FOR_TAKEOFF",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            phases=takeoff_phases,
+            required_fields=frozenset({"takeoff_sequence", "obogs_on"}),
+            condition={
+                "all": [
+                    {"takeoff_sequence": True},
+                    {"obogs_on": False},
+                ]
+            },
+            activation_delay=0.5,
+            resolution_delay=0.25,
+            cooldown=60.0,
+            message="Oxygen.",
+            minimum_mode=CopilotMode.MINIMAL,
+            explanation="OBOGS is off during the takeoff sequence.",
+            data_fields=frozenset({"obogs_on"}),
+        ),
+        RuleDefinition(
+            id="LAUNCH_BAR_DOWN_AIRBORNE",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            required_fields=frozenset({"airborne", "launch_bar_deployed"}),
+            condition={
+                "all": [
+                    {"airborne": True},
+                    {"launch_bar_deployed": True},
+                ]
+            },
+            activation_delay=config.after_liftoff_grace_seconds,
+            resolution_delay=0.25,
+            cooldown=45.0,
+            message="Launch bar.",
+            explanation="The launch bar is still commanded down after liftoff.",
+            data_fields=frozenset({"launch_bar_deployed"}),
+        ),
+        RuleDefinition(
+            id="FLAPS_NOT_AUTO_AFTER_TAKEOFF",
+            aircraft="FA-18C_hornet",
+            severity=Severity.ADVISORY,
+            phases=frozenset({FlightPhase.CLIMB}),
+            required_fields=frozenset({"airborne", "flap_position"}),
+            condition={
+                "all": [
+                    {"airborne": True},
+                    {"flap_position": {"not_equals": FlapState.AUTO}},
+                ]
+            },
+            activation_delay=config.after_liftoff_grace_seconds,
+            resolution_delay=0.25,
+            cooldown=45.0,
+            message="Flaps.",
+            explanation="The aircraft is climbing and the flap switch is not AUTO.",
+            data_fields=frozenset({"flap_position"}),
+        ),
+        RuleDefinition(
+            id="GEAR_STILL_DOWN_AFTER_TAKEOFF",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            phases=frozenset({FlightPhase.TAKEOFF, FlightPhase.CLIMB}),
+            required_fields=frozenset({"airborne", "gear_position"}),
+            condition={
+                "all": [
+                    {"airborne": True},
+                    {"gear_position": {"not_equals": GearState.UP}},
+                ]
+            },
+            activation_delay=config.after_liftoff_grace_seconds,
+            resolution_delay=0.25,
+            cooldown=45.0,
+            message="Gear.",
+            minimum_mode=CopilotMode.MINIMAL,
+            explanation="The aircraft is airborne and the gear is not up after the liftoff grace period.",
+            data_fields=frozenset({"gear_position"}),
+        ),
+        RuleDefinition(
+            id="HOOK_DOWN_OUTSIDE_RECOVERY",
+            aircraft="FA-18C_hornet",
+            severity=Severity.ADVISORY,
+            required_fields=frozenset({"airborne", "carrier_recovery", "hook_position"}),
+            condition={
+                "all": [
+                    {"airborne": True},
+                    {"carrier_recovery": False},
+                    {"hook_position": True},
+                ]
+            },
+            activation_delay=1.0,
+            resolution_delay=0.25,
+            cooldown=45.0,
+            message="Hook.",
+            explanation="The hook is physically down while airborne outside a detected recovery context.",
+            data_fields=frozenset({"hook_position", "carrier_recovery"}),
+        ),
+        RuleDefinition(
+            id="REFUEL_PROBE_LEFT_OUT",
+            aircraft="FA-18C_hornet",
+            severity=Severity.ADVISORY,
+            phases=frozenset(
+                {
+                    FlightPhase.CLIMB,
+                    FlightPhase.CRUISE,
+                    FlightPhase.COMBAT,
+                    FlightPhase.APPROACH,
+                    FlightPhase.LANDING,
+                }
+            ),
+            required_fields=frozenset({"refueling_probe"}),
+            condition={"refueling_probe": True},
+            activation_delay=config.probe_reminder_seconds,
+            resolution_delay=0.25,
+            cooldown=60.0,
+            message="Refueling probe is still out.",
+            explanation="The refueling probe remains extended outside the detected refueling phase.",
+            data_fields=frozenset({"flight_phase", "refueling_probe"}),
+        ),
+        RuleDefinition(
+            id="MASTER_ARM_SAFE_IN_COMBAT_MODE",
+            aircraft="FA-18C_hornet",
+            severity=Severity.ADVISORY,
+            required_fields=frozenset({"master_mode_combat", "master_arm"}),
+            condition={
+                "all": [
+                    {"master_mode_combat": True},
+                    {"master_arm": MasterArmState.SAFE},
+                ]
+            },
+            activation_delay=config.combat_config_seconds,
+            resolution_delay=0.25,
+            cooldown=45.0,
+            message="Master Arm is safe.",
+            explanation="A/A or A/G master mode is selected while Master Arm is SAFE.",
+            data_fields=frozenset({"master_arm", "master_mode_combat"}),
+        ),
+        RuleDefinition(
+            id="GEAR_COMMANDED_DOWN_BUT_NOT_SAFE",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            required_fields=frozenset({"gear_commanded_down", "gear_position"}),
+            condition={
+                "all": [
+                    {"gear_commanded_down": True},
+                    {"gear_position": {"not_equals": GearState.DOWN}},
+                ]
+            },
+            activation_delay=config.configuration_timeout_seconds,
+            resolution_delay=0.25,
+            cooldown=45.0,
+            message="Gear isn't showing safe.",
+            minimum_mode=CopilotMode.MINIMAL,
+            explanation="The gear lever is down but the three gear-safe lights do not indicate down and locked.",
+            data_fields=frozenset({"gear_position", "gear_commanded_down"}),
+        ),
+        RuleDefinition(
+            id="HOOK_COMMANDED_DOWN_BUT_NOT_EXTENDED",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            required_fields=frozenset({"hook_commanded_down", "hook_position"}),
+            condition={
+                "all": [
+                    {"hook_commanded_down": True},
+                    {"hook_position": False},
+                ]
+            },
+            activation_delay=config.configuration_timeout_seconds,
+            resolution_delay=0.25,
+            cooldown=45.0,
+            message="Hook isn't down.",
+            minimum_mode=CopilotMode.MINIMAL,
+            explanation="The hook lever is down but the external hook position has not reached down.",
+            data_fields=frozenset({"hook_position", "hook_commanded_down"}),
+        ),
+        RuleDefinition(
+            id="CARRIER_HOOK_NOT_DOWN",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            phases=frozenset({FlightPhase.APPROACH, FlightPhase.LANDING}),
+            required_fields=frozenset(
+                {"carrier_recovery", "gear_position", "hook_position"}
+            ),
+            condition={
+                "all": [
+                    {"carrier_recovery": True},
+                    {"gear_position": GearState.DOWN},
+                    {"hook_position": False},
+                ]
+            },
+            activation_delay=config.configuration_timeout_seconds,
+            resolution_delay=0.25,
+            cooldown=45.0,
+            message="Hook.",
+            minimum_mode=CopilotMode.MINIMAL,
+            explanation="Carrier recovery is detected with landing gear down and the hook is not physically down.",
+            data_fields=frozenset({"gear_position", "hook_position"}),
+        ),
+        RuleDefinition(
+            id="FLAPS_NOT_FULL_ON_CARRIER_RECOVERY",
+            aircraft="FA-18C_hornet",
+            severity=Severity.WARNING,
+            phases=frozenset({FlightPhase.APPROACH, FlightPhase.LANDING}),
+            required_fields=frozenset(
+                {"carrier_recovery", "gear_position", "flap_position"}
+            ),
+            condition={
+                "all": [
+                    {"carrier_recovery": True},
+                    {"gear_position": GearState.DOWN},
+                    {"flap_position": {"not_equals": FlapState.FULL}},
+                ]
+            },
+            activation_delay=config.configuration_timeout_seconds,
+            resolution_delay=0.25,
+            cooldown=45.0,
+            message="Flaps — FULL.",
+            explanation="Carrier recovery is detected with gear down and flaps not FULL.",
+            data_fields=frozenset({"gear_position", "flap_position"}),
+        ),
+    )
+
+
+def declarative_fa18c_rules(
+    thresholds: FA18CRuleThresholds | None = None,
+) -> tuple[DeclarativeRule, ...]:
+    return tuple(DeclarativeRule(definition) for definition in fa18c_rule_definitions(thresholds))
+
+
 def fa18c_rules() -> tuple[Rule, ...]:
     return (
+        *declarative_fa18c_rules(),
         MasterCautionRule(),
         GearOverspeedRule(),
         CanopyOpenWhileMovingRule(),
@@ -206,11 +566,15 @@ def fa18c_rules() -> tuple[Rule, ...]:
 
 
 __all__ = [
+    "FA18CRuleThresholds",
     "CanopyOpenWhileMovingRule",
+    "DeclarativeRule",
     "EjectionSeatNotArmedRule",
     "GearOverspeedRule",
     "MasterCautionRule",
     "ParkingBrakeTaxiRule",
     "RefuelingProbeLeftOutRule",
+    "declarative_fa18c_rules",
+    "fa18c_rule_definitions",
     "fa18c_rules",
 ]

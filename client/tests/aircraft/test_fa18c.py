@@ -46,7 +46,14 @@ def populate_hornet(
         "EXT_SPEED_BRAKE": 32768,
         "EXT_REFUEL_PROBE": 0,
         "EXT_HOOK": 65535,
+        "HOOK_LEVER": 1,
         "EJECTION_SEAT_ARMED": 1,
+        "OBOGS_SW": 1,
+        "LAUNCH_BAR_SW": 0,
+        "TO_TRIM_BTN": 0,
+        "MASTER_MODE_AA_LT": 0,
+        "MASTER_MODE_AG_LT": 0,
+        "EXT_WING_FOLDING": 0,
         "IFEI_RPM_L": " 70",
         "IFEI_RPM_R": " 71",
         "INT_THROTTLE_LEFT": 32768,
@@ -81,9 +88,15 @@ def test_normalizes_verified_hornet_controls(
     assert result.values["speed_brake"].value == pytest.approx(0.5, abs=0.001)
     assert result.values["refueling_probe"].value is False
     assert result.values["hook_position"].value is True
+    assert result.values["hook_commanded_down"].value is True
     assert result.values["ejection_seat_armed"].value is True
+    assert result.values["obogs_on"].value is True
     assert result.values["engine_rpm_left"].value == 70
     assert result.values["throttle_right"].value == 1.0
+    assert result.values["launch_bar_deployed"].value is False
+    assert result.values["wing_fold_spread"].value is True
+    assert result.values["takeoff_trim_confirmed"].value is False
+    assert result.values["master_mode_combat"].value is False
     assert result.values["master_caution"].value is True
     assert result.warning_lights["fuel_low"].value is True
 

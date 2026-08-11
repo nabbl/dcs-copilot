@@ -40,6 +40,8 @@ class FA18CAdapter:
         self.generic = GenericAircraftAdapter(registry)
         self.gear_up_dwell_seconds = 3.0
         self._gear_up_candidate_since: float | None = None
+        self._previous_wow: bool | None = None
+        self._takeoff_trim_confirmed = False
 
     def normalize(
         self,
@@ -86,6 +88,8 @@ class FA18CAdapter:
             else None,
             "DCS-BIOS:FA-18C_hornet/WOW-composite",
         )
+        airborne = self._map_bool(wow, lambda value: not value)
+        gear_commanded_down = self._map_bool(gear_lever, bool)
 
         flap = reader.read(
             MODULE,
@@ -106,6 +110,15 @@ class FA18CAdapter:
             output_type="integer",
         )
         raw["MASTER_ARM_SW"] = master_arm
+        aa_mode_raw = read_int("MASTER_MODE_AA_LT")
+        ag_mode_raw = read_int("MASTER_MODE_AG_LT")
+        master_mode_combat = combine_values(
+            [aa_mode_raw, ag_mode_raw],
+            bool(aa_mode_raw.value) or bool(ag_mode_raw.value)
+            if aa_mode_raw.usable and ag_mode_raw.usable
+            else None,
+            "DCS-BIOS:FA-18C_hornet/master-mode-composite",
+        )
 
         fuel_upper = reader.read(
             MODULE, "IFEI_FUEL_UP", parse_number, output_type="string"
@@ -135,9 +148,24 @@ class FA18CAdapter:
         hook_raw = reader.fraction(MODULE, "EXT_HOOK")
         raw["EXT_HOOK"] = hook_raw
         hook = self._map_bool(hook_raw, lambda value: value > 0.5)
+        hook_command_raw = read_int("HOOK_LEVER")
+        hook_commanded_down = self._map_bool(hook_command_raw, bool)
 
         seat_raw = read_int("EJECTION_SEAT_ARMED")
         seat = self._map_bool(seat_raw, bool)
+        obogs_raw = read_int("OBOGS_SW")
+        obogs = self._map_bool(obogs_raw, bool)
+        launch_bar_raw = read_int("LAUNCH_BAR_SW")
+        launch_bar = self._map_bool(launch_bar_raw, bool)
+        wing_fold_raw = reader.fraction(MODULE, "EXT_WING_FOLDING")
+        raw["EXT_WING_FOLDING"] = wing_fold_raw
+        wing_fold_spread = self._map_bool(wing_fold_raw, lambda value: value <= 0.05)
+        takeoff_trim_raw = read_int("TO_TRIM_BTN")
+        takeoff_trim_pressed = self._map_bool(takeoff_trim_raw, bool)
+        takeoff_trim_confirmed = self._update_takeoff_trim_confirmed(
+            takeoff_trim_pressed,
+            wow,
+        )
 
         rpm_left = reader.read(MODULE, "IFEI_RPM_L", parse_number, output_type="string")
         rpm_right = reader.read(
@@ -155,6 +183,24 @@ class FA18CAdapter:
         warning_lights: dict[str, TelemetryValue[bool]] = {}
         for semantic_name, identifier in WARNING_LIGHTS.items():
             warning_lights[semantic_name] = self._map_bool(read_int(identifier), bool)
+        ias = result.values.get("indicated_airspeed")
+        carrier_launch_sequence = combine_values(
+            [wow, launch_bar],
+            bool(wow.value) and bool(launch_bar.value)
+            if wow.usable and launch_bar.usable
+            else None,
+            "DCS-BIOS:FA-18C_hornet/carrier-launch-derived",
+        )
+        takeoff_sequence = combine_values(
+            [wow, launch_bar, ias] if ias is not None else [wow, launch_bar],
+            (
+                bool(carrier_launch_sequence.value)
+                or (bool(wow.value) and ias is not None and ias.usable and float(ias.value) >= 80)
+            )
+            if wow.usable and launch_bar.usable and ias is not None and ias.usable
+            else None,
+            "DCS-BIOS:FA-18C_hornet/takeoff-sequence-derived",
+        )
 
         result.values.update(
             {
@@ -168,17 +214,52 @@ class FA18CAdapter:
                 "speed_brake": speed_brake,
                 "refueling_probe": probe,
                 "hook_position": hook,
+                "hook_commanded_down": hook_commanded_down,
                 "ejection_seat_armed": seat,
+                "obogs_on": obogs,
                 "weight_on_wheels": wow,
                 "engine_rpm_left": rpm_left,
                 "engine_rpm_right": rpm_right,
                 "throttle_left": throttle_left,
                 "throttle_right": throttle_right,
+                "gear_commanded_down": gear_commanded_down,
+                "launch_bar_deployed": launch_bar,
+                "wing_fold_spread": wing_fold_spread,
+                "takeoff_trim_pressed": takeoff_trim_pressed,
+                "takeoff_trim_confirmed": takeoff_trim_confirmed,
+                "master_mode_combat": master_mode_combat,
+                "airborne": airborne,
+                "takeoff_sequence": takeoff_sequence,
+                "carrier_launch_sequence": carrier_launch_sequence,
             }
         )
         result.warning_lights.update(warning_lights)
         result.raw.update(raw)
         return result
+
+    def _update_takeoff_trim_confirmed(
+        self,
+        takeoff_trim_pressed: TelemetryValue[bool],
+        wow: TelemetryValue[bool],
+    ) -> TelemetryValue[bool]:
+        if wow.usable:
+            current_wow = bool(wow.value)
+            if self._previous_wow is False and current_wow:
+                self._takeoff_trim_confirmed = False
+            self._previous_wow = current_wow
+        else:
+            self._previous_wow = None
+        if takeoff_trim_pressed.usable and takeoff_trim_pressed.value:
+            self._takeoff_trim_confirmed = True
+        return TelemetryValue(
+            value=self._takeoff_trim_confirmed
+            if takeoff_trim_pressed.available
+            else None,
+            available=takeoff_trim_pressed.available,
+            updated_at=takeoff_trim_pressed.updated_at,
+            source="DCS-BIOS:FA-18C_hornet/takeoff-trim-confirmed",
+            stale=takeoff_trim_pressed.stale,
+        )
 
     def _gear_state(
         self,

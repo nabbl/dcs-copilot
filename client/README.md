@@ -34,3 +34,25 @@ deterministic rules. On flight end it sends only an allowlisted rule/count map
 with explicit telemetry coverage. Unavailable rules are omitted, never guessed
 clear. Summaries remain bounded and pending until a correlated cloud ack; no
 raw or complete normalized state is uploaded.
+
+The F/A-18C rule engine supports declarative deterministic `RuleDefinition`
+entries for configuration, phase, transition, and command-vs-actual mismatch
+checks. The first carrier-launch, post-launch, combat-mode, probe, and recovery
+rules use normalized semantic fields such as `carrier_launch_sequence`,
+`takeoff_trim_confirmed`, `wing_fold_spread`, and `carrier_recovery`; missing
+DCS-BIOS controls disable affected rules instead of guessing. Actual stabilator
+trim magnitude remains unsupported unless an IC-safe read-only export is added.
+Each rule also declares catalogue metadata: category, minimum chatter mode,
+severity, feasibility, false-positive risk, required fields, timing, description,
+and source reference. `SpeechPolicy` uses the deterministic rule's
+`minimum_mode` so `MINIMAL`, `NORMAL`, and `COACH` remain cumulative without
+letting the cloud model decide whether a cockpit condition exists.
+
+Useful diagnostics:
+
+```text
+dcs-copilot rules
+dcs-copilot rules --active
+dcs-copilot rule explain HOOK_DOWN_OUTSIDE_RECOVERY
+dcs-copilot check carrier-launch
+```

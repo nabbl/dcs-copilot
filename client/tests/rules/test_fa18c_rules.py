@@ -2,22 +2,28 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+import pytest
+
 from dcs_copilot.rules.base import Rule, RuleTransition, RuleTransitionType
 from dcs_copilot.rules.engine import RuleEngine
 from dcs_copilot.rules.fa18c import (
+    FA18CRuleThresholds,
     CanopyOpenWhileMovingRule,
     EjectionSeatNotArmedRule,
     GearOverspeedRule,
     MasterCautionRule,
     ParkingBrakeTaxiRule,
     RefuelingProbeLeftOutRule,
+    declarative_fa18c_rules,
 )
 from dcs_copilot.state.history import StateHistory
 from dcs_copilot.state.models import (
     AircraftState,
     CanopyState,
+    FlapState,
     FlightPhase,
     GearState,
+    MasterArmState,
     TelemetryValue,
 )
 
@@ -43,6 +49,54 @@ def state(**changes) -> AircraftState:
     for name, value in changes.items():
         setattr(result, name, tv(value) if name != "flight_phase" else value)
     return result
+
+
+def rich_state(**changes) -> AircraftState:
+    result = state(
+        flight_phase=FlightPhase.TAKEOFF,
+        indicated_airspeed=100.0,
+        gear_position=GearState.DOWN,
+        flap_position=FlapState.HALF,
+        master_arm=MasterArmState.ARM,
+        speed_brake=0.0,
+        hook_position=False,
+        hook_commanded_down=False,
+        obogs_on=True,
+        launch_bar_deployed=True,
+        wing_fold_spread=True,
+        takeoff_trim_confirmed=True,
+        master_mode_combat=False,
+        airborne=False,
+        takeoff_sequence=True,
+        carrier_launch_sequence=True,
+        carrier_recovery=False,
+        gear_commanded_down=True,
+        refueling_probe=False,
+    )
+    result.canopy_state = tv(CanopyState.CLOSED)
+    for name, value in changes.items():
+        setattr(result, name, tv(value) if name != "flight_phase" else value)
+    return result
+
+
+def rule_by_id(rule_id: str):
+    rules = declarative_fa18c_rules(
+        FA18CRuleThresholds(
+            after_liftoff_grace_seconds=0.0,
+            configuration_timeout_seconds=0.0,
+            probe_reminder_seconds=0.0,
+            combat_config_seconds=0.0,
+        )
+    )
+    return next(rule for rule in rules if rule.id == rule_id)
+
+
+def activate_rule(rule_id: str, current: AircraftState):
+    engine, history = engine_for([rule_by_id(rule_id)])
+    evaluate(engine, history, current, 0.0)
+    transitions = evaluate(engine, history, current, 10.0)
+    assert transitions
+    return engine, history, transitions[0]
 
 
 def evaluate(
@@ -218,3 +272,232 @@ def test_cooldown_suppresses_notification_not_active_issue() -> None:
     second = evaluate(engine, history, caution, 2.25)[0]
     assert not second.notification_eligible
     assert len(engine.active_issues) == 1
+
+
+@pytest.mark.parametrize(
+    ("rule_id", "invalid_changes", "valid_changes"),
+    [
+        (
+            "CARRIER_FLAPS_NOT_HALF",
+            {"flap_position": FlapState.AUTO},
+            {"flap_position": FlapState.HALF},
+        ),
+        (
+            "TAKEOFF_TRIM_NOT_CONFIRMED",
+            {"takeoff_trim_confirmed": False},
+            {"takeoff_trim_confirmed": True},
+        ),
+        (
+            "WINGS_NOT_SPREAD_FOR_LAUNCH",
+            {"wing_fold_spread": False},
+            {"wing_fold_spread": True},
+        ),
+        (
+            "SPEEDBRAKE_EXTENDED_FOR_LAUNCH",
+            {"speed_brake": 0.5},
+            {"speed_brake": 0.0},
+        ),
+        (
+            "EJECTION_SEAT_SAFE_FOR_LAUNCH",
+            {"ejection_seat_armed": False},
+            {"ejection_seat_armed": True},
+        ),
+        ("OBOGS_OFF_FOR_TAKEOFF", {"obogs_on": False}, {"obogs_on": True}),
+        (
+            "LAUNCH_BAR_DOWN_AIRBORNE",
+            {
+                "flight_phase": FlightPhase.CLIMB,
+                "airborne": True,
+                "launch_bar_deployed": True,
+                "carrier_launch_sequence": False,
+            },
+            {
+                "flight_phase": FlightPhase.CLIMB,
+                "airborne": True,
+                "launch_bar_deployed": False,
+                "carrier_launch_sequence": False,
+            },
+        ),
+        (
+            "FLAPS_NOT_AUTO_AFTER_TAKEOFF",
+            {
+                "flight_phase": FlightPhase.CLIMB,
+                "airborne": True,
+                "flap_position": FlapState.HALF,
+                "carrier_launch_sequence": False,
+            },
+            {
+                "flight_phase": FlightPhase.CLIMB,
+                "airborne": True,
+                "flap_position": FlapState.AUTO,
+                "carrier_launch_sequence": False,
+            },
+        ),
+        (
+            "GEAR_STILL_DOWN_AFTER_TAKEOFF",
+            {
+                "flight_phase": FlightPhase.CLIMB,
+                "airborne": True,
+                "gear_position": GearState.DOWN,
+                "carrier_launch_sequence": False,
+            },
+            {
+                "flight_phase": FlightPhase.CLIMB,
+                "airborne": True,
+                "gear_position": GearState.UP,
+                "carrier_launch_sequence": False,
+            },
+        ),
+        (
+            "HOOK_DOWN_OUTSIDE_RECOVERY",
+            {
+                "flight_phase": FlightPhase.CRUISE,
+                "airborne": True,
+                "hook_position": True,
+                "carrier_recovery": False,
+                "carrier_launch_sequence": False,
+            },
+            {
+                "flight_phase": FlightPhase.CRUISE,
+                "airborne": True,
+                "hook_position": False,
+                "carrier_recovery": False,
+                "carrier_launch_sequence": False,
+            },
+        ),
+        (
+            "REFUEL_PROBE_LEFT_OUT",
+            {
+                "flight_phase": FlightPhase.CRUISE,
+                "refueling_probe": True,
+                "carrier_launch_sequence": False,
+            },
+            {
+                "flight_phase": FlightPhase.CRUISE,
+                "refueling_probe": False,
+                "carrier_launch_sequence": False,
+            },
+        ),
+        (
+            "MASTER_ARM_SAFE_IN_COMBAT_MODE",
+            {
+                "master_mode_combat": True,
+                "master_arm": MasterArmState.SAFE,
+            },
+            {
+                "master_mode_combat": True,
+                "master_arm": MasterArmState.ARM,
+            },
+        ),
+        (
+            "GEAR_COMMANDED_DOWN_BUT_NOT_SAFE",
+            {"gear_commanded_down": True, "gear_position": GearState.TRANSIT},
+            {"gear_commanded_down": True, "gear_position": GearState.DOWN},
+        ),
+        (
+            "HOOK_COMMANDED_DOWN_BUT_NOT_EXTENDED",
+            {"hook_commanded_down": True, "hook_position": False},
+            {"hook_commanded_down": True, "hook_position": True},
+        ),
+        (
+            "CARRIER_HOOK_NOT_DOWN",
+            {
+                "flight_phase": FlightPhase.APPROACH,
+                "carrier_recovery": True,
+                "gear_position": GearState.DOWN,
+                "hook_position": False,
+                "carrier_launch_sequence": False,
+            },
+            {
+                "flight_phase": FlightPhase.APPROACH,
+                "carrier_recovery": True,
+                "gear_position": GearState.DOWN,
+                "hook_position": True,
+                "carrier_launch_sequence": False,
+            },
+        ),
+        (
+            "FLAPS_NOT_FULL_ON_CARRIER_RECOVERY",
+            {
+                "flight_phase": FlightPhase.APPROACH,
+                "carrier_recovery": True,
+                "gear_position": GearState.DOWN,
+                "flap_position": FlapState.HALF,
+                "carrier_launch_sequence": False,
+            },
+            {
+                "flight_phase": FlightPhase.APPROACH,
+                "carrier_recovery": True,
+                "gear_position": GearState.DOWN,
+                "flap_position": FlapState.FULL,
+                "carrier_launch_sequence": False,
+            },
+        ),
+    ],
+)
+def test_priority_declarative_rules_trigger_only_for_invalid_configuration(
+    rule_id: str,
+    invalid_changes: dict[str, object],
+    valid_changes: dict[str, object],
+) -> None:
+    engine, history = engine_for([rule_by_id(rule_id)])
+    assert evaluate(engine, history, rich_state(**valid_changes), 0.0) == ()
+
+    invalid = rich_state(**invalid_changes)
+    transitions = evaluate(engine, history, invalid, 1.0) + evaluate(
+        engine, history, invalid, 11.0
+    )
+    activated = next(
+        item for item in transitions if item.type is RuleTransitionType.ACTIVATED
+    )
+    assert activated.issue.rule_id == rule_id
+
+
+def test_declarative_rule_respects_unavailable_telemetry_and_resolves() -> None:
+    engine, history, activated = activate_rule(
+        "CARRIER_FLAPS_NOT_HALF",
+        rich_state(flap_position=FlapState.AUTO),
+    )
+    assert activated.notification_eligible
+
+    unavailable = rich_state(flap_position=FlapState.AUTO)
+    unavailable.flap_position = TelemetryValue.unavailable("test")
+    disabled = evaluate(engine, history, unavailable, 11.1)
+    assert disabled[0].type is RuleTransitionType.DISABLED
+
+    engine, history, _ = activate_rule(
+        "CARRIER_FLAPS_NOT_HALF",
+        rich_state(flap_position=FlapState.AUTO),
+    )
+    corrected = rich_state(flap_position=FlapState.HALF)
+    evaluate(engine, history, corrected, 12.0)
+    resolved = evaluate(engine, history, corrected, 13.0)
+    assert resolved[0].type is RuleTransitionType.RESOLVED
+
+
+def test_declarative_rule_cooldown_suppresses_repeat_notification() -> None:
+    engine, history, first = activate_rule(
+        "CARRIER_FLAPS_NOT_HALF",
+        rich_state(flap_position=FlapState.AUTO),
+    )
+    assert first.notification_eligible
+    corrected = rich_state(flap_position=FlapState.HALF)
+    evaluate(engine, history, corrected, 12.0)
+    evaluate(engine, history, corrected, 13.0)
+    invalid = rich_state(flap_position=FlapState.AUTO)
+    evaluate(engine, history, invalid, 14.0)
+    second = evaluate(engine, history, invalid, 15.0)[0]
+    assert not second.notification_eligible
+
+
+def test_phase_sensitive_declarative_rule_avoids_false_warning() -> None:
+    rule = rule_by_id("FLAPS_NOT_AUTO_AFTER_TAKEOFF")
+    engine, history = engine_for([rule])
+    cruise = rich_state(
+        flight_phase=FlightPhase.CRUISE,
+        airborne=True,
+        flap_position=FlapState.HALF,
+        carrier_launch_sequence=False,
+    )
+    assert evaluate(engine, history, cruise, 0.0) == ()
+    assert engine.active_issues == ()

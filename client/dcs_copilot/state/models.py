@@ -109,13 +109,27 @@ class AircraftState:
     speed_brake: TelemetryValue[float] = field(default_factory=unavailable)
     refueling_probe: TelemetryValue[bool] = field(default_factory=unavailable)
     hook_position: TelemetryValue[bool] = field(default_factory=unavailable)
+    hook_commanded_down: TelemetryValue[bool] = field(default_factory=unavailable)
     ejection_seat_armed: TelemetryValue[bool] = field(default_factory=unavailable)
+    obogs_on: TelemetryValue[bool] = field(default_factory=unavailable)
 
     weight_on_wheels: TelemetryValue[bool] = field(default_factory=unavailable)
     engine_rpm_left: TelemetryValue[float] = field(default_factory=unavailable)
     engine_rpm_right: TelemetryValue[float] = field(default_factory=unavailable)
     throttle_left: TelemetryValue[float] = field(default_factory=unavailable)
     throttle_right: TelemetryValue[float] = field(default_factory=unavailable)
+
+    gear_commanded_down: TelemetryValue[bool] = field(default_factory=unavailable)
+    launch_bar_deployed: TelemetryValue[bool] = field(default_factory=unavailable)
+    wing_fold_spread: TelemetryValue[bool] = field(default_factory=unavailable)
+    takeoff_trim_pressed: TelemetryValue[bool] = field(default_factory=unavailable)
+    takeoff_trim_confirmed: TelemetryValue[bool] = field(default_factory=unavailable)
+    master_mode_combat: TelemetryValue[bool] = field(default_factory=unavailable)
+
+    airborne: TelemetryValue[bool] = field(default_factory=unavailable)
+    takeoff_sequence: TelemetryValue[bool] = field(default_factory=unavailable)
+    carrier_launch_sequence: TelemetryValue[bool] = field(default_factory=unavailable)
+    carrier_recovery: TelemetryValue[bool] = field(default_factory=unavailable)
 
     raw: dict[str, TelemetryValue[Any]] = field(default_factory=dict)
 

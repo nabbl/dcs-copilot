@@ -31,6 +31,14 @@ class _RuleRuntime:
     last_notification_at: float | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RuleDiagnostic:
+    rule_id: str
+    status: str
+    reason: str
+    metadata: dict[str, str]
+
+
 class RuleEngine:
     def __init__(self, rules: Iterable[Rule]) -> None:
         rule_list = tuple(rules)
@@ -60,6 +68,78 @@ class RuleEngine:
         """Return rules whose allowlisted local inputs are usable right now."""
 
         return frozenset(rule.id for rule in self.rules if self._applicable(rule, state))
+
+    def diagnostics(
+        self,
+        state: AircraftState,
+        history: StateHistory,
+        *,
+        now: float,
+    ) -> tuple[RuleDiagnostic, ...]:
+        diagnostics: list[RuleDiagnostic] = []
+        telemetry = state.telemetry()
+        for rule in self.rules:
+            runtime = self._runtime[rule.id]
+            if not state.connected:
+                diagnostics.append(
+                    RuleDiagnostic(rule.id, "disabled", "not connected", rule.metadata())
+                )
+                continue
+            if rule.aircraft_names is not None and state.aircraft not in rule.aircraft_names:
+                diagnostics.append(
+                    RuleDiagnostic(rule.id, "disabled", "wrong aircraft", rule.metadata())
+                )
+                continue
+            if rule.flight_phases is not None and state.flight_phase not in rule.flight_phases:
+                diagnostics.append(
+                    RuleDiagnostic(
+                        rule.id,
+                        "disabled",
+                        f"phase={state.flight_phase.value}",
+                        rule.metadata(),
+                    )
+                )
+                continue
+            missing = [
+                field
+                for field in sorted(rule.required_fields)
+                if field not in telemetry or not telemetry[field].usable
+            ]
+            if missing:
+                diagnostics.append(
+                    RuleDiagnostic(
+                        rule.id,
+                        "disabled",
+                        f"missing {', '.join(missing)}",
+                        rule.metadata(),
+                    )
+                )
+                continue
+            if runtime.issue is not None:
+                diagnostics.append(
+                    RuleDiagnostic(
+                        rule.id,
+                        "ACTIVE",
+                        runtime.issue.message,
+                        rule.metadata(),
+                    )
+                )
+                continue
+            result = rule.evaluate(
+                RuleContext(state=state, history=history, now=now, active=False)
+            )
+            diagnostics.append(
+                RuleDiagnostic(
+                    rule.id,
+                    "pending" if result is not None else "inactive",
+                    result.message if result is not None else "condition clear",
+                    rule.metadata(),
+                )
+            )
+        return tuple(diagnostics)
+
+    def rule_by_id(self, rule_id: str) -> Rule | None:
+        return next((rule for rule in self.rules if rule.id == rule_id), None)
 
     def evaluate(
         self,
@@ -186,6 +266,7 @@ class RuleEngine:
         now: float,
     ) -> RuleTransition:
         assert state.aircraft is not None
+        data = {**result.data, **rule.metadata()}
         issue = ActiveIssue(
             rule_id=rule.id,
             severity=rule.severity,
@@ -195,7 +276,7 @@ class RuleEngine:
             observed_at=now,
             message=result.message,
             explanation=result.explanation,
-            data=result.data,
+            data=data,
         )
         runtime.issue = issue
         eligible = (

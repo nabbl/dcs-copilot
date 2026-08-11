@@ -18,6 +18,24 @@ class Severity(StrEnum):
     CRITICAL = "CRITICAL"
 
 
+class CopilotMode(StrEnum):
+    MINIMAL = "MINIMAL"
+    NORMAL = "NORMAL"
+    COACH = "COACH"
+
+
+class RuleFeasibility(StrEnum):
+    A = "A"
+    B = "B"
+    C = "C"
+
+
+class FalsePositiveRisk(StrEnum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
 class RuleTransitionType(StrEnum):
     ACTIVATED = "ACTIVATED"
     RESOLVED = "RESOLVED"
@@ -44,7 +62,13 @@ class RuleContext:
 
 class Rule(ABC):
     id: str
+    category: str = "general"
+    minimum_mode: CopilotMode = CopilotMode.NORMAL
     severity: Severity
+    feasibility: RuleFeasibility = RuleFeasibility.A
+    false_positive_risk: FalsePositiveRisk = FalsePositiveRisk.LOW
+    description: str = ""
+    source_reference: str = "DCS-BIOS normalized telemetry"
     cooldown_seconds: float
     required_fields: frozenset[str]
     aircraft_names: frozenset[str] | None = None
@@ -55,6 +79,16 @@ class Rule(ABC):
     @abstractmethod
     def evaluate(self, context: RuleContext) -> RuleResult | None:
         """Return the current violation, or None when the condition is clear."""
+
+    def metadata(self) -> dict[str, str]:
+        return {
+            "category": self.category,
+            "minimum_mode": self.minimum_mode.value,
+            "feasibility": self.feasibility.value,
+            "false_positive_risk": self.false_positive_risk.value,
+            "description": self.description,
+            "source_reference": self.source_reference,
+        }
 
 
 @dataclass(frozen=True, slots=True)

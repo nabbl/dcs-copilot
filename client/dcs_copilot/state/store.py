@@ -20,7 +20,7 @@ from dcs_copilot.rules.engine import RuleEngine
 from dcs_copilot.rules.fa18c import fa18c_rules
 
 from .history import StateHistory
-from .models import AircraftState, TelemetryStatus
+from .models import AircraftState, FlightPhase, TelemetryStatus, TelemetryValue
 from .phase_detector import FlightPhaseDetector
 
 
@@ -114,6 +114,8 @@ class AircraftStateStore:
         state.flight_phase = self.phase_detector.update(
             state, self.history, now=timestamp
         )
+        self._derive_context_fields(state, timestamp)
+        self.history.record(state, timestamp=timestamp)
         self.current = state
         self.flight_stats.observe(state)
         self.rule_engine.evaluate(state, self.history, now=timestamp)
@@ -187,3 +189,62 @@ class AircraftStateStore:
             )
             for callback in tuple(self._callbacks):
                 callback(change)
+
+    @staticmethod
+    def _derive_context_fields(state: AircraftState, timestamp: float) -> None:
+        if state.aircraft != "FA-18C_hornet":
+            return
+        if not state.weight_on_wheels.usable:
+            return
+        airborne = not bool(state.weight_on_wheels.value)
+        state.airborne = TelemetryValue(
+            value=airborne,
+            available=True,
+            updated_at=state.weight_on_wheels.updated_at,
+            source="derived:weight_on_wheels",
+            stale=state.weight_on_wheels.stale,
+        )
+        carrier_launch_available = (
+            state.weight_on_wheels.usable and state.launch_bar_deployed.usable
+        )
+        state.carrier_launch_sequence = TelemetryValue(
+            value=bool(state.weight_on_wheels.value)
+            and bool(state.launch_bar_deployed.value)
+            if carrier_launch_available
+            else None,
+            available=carrier_launch_available,
+            updated_at=timestamp,
+            source="derived:carrier_launch_sequence",
+        )
+        takeoff_available = state.indicated_airspeed.usable or carrier_launch_available
+        state.takeoff_sequence = TelemetryValue(
+            value=(
+                bool(state.carrier_launch_sequence.value)
+                if state.carrier_launch_sequence.usable
+                else False
+            )
+            or (
+                bool(state.weight_on_wheels.value)
+                and state.indicated_airspeed.usable
+                and float(state.indicated_airspeed.value) >= 80
+            ),
+            available=takeoff_available,
+            updated_at=timestamp,
+            source="derived:takeoff_sequence",
+        )
+        recovery_signal_available = (
+            state.hook_commanded_down.usable or state.hook_position.usable
+        )
+        recovery_phase = state.flight_phase in {FlightPhase.APPROACH, FlightPhase.LANDING}
+        state.carrier_recovery = TelemetryValue(
+            value=recovery_phase
+            and (
+                (state.hook_commanded_down.usable and bool(state.hook_commanded_down.value))
+                or (state.hook_position.usable and bool(state.hook_position.value))
+            )
+            if recovery_signal_available
+            else None,
+            available=recovery_signal_available,
+            updated_at=timestamp,
+            source="derived:carrier_recovery",
+        )

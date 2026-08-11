@@ -8,6 +8,7 @@ from pathlib import Path
 from .cli.benchmark import run_benchmark
 from .cli.replay import run_replay
 from .cli.run import run_client
+from .cli.rules import run_carrier_launch_check, run_rule_explain, run_rules
 from .cli.status import run_status
 from .cli.watch import run_watch
 from .config import Settings
@@ -56,6 +57,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay.add_argument("recording", type=Path, help="normalized JSONL recording")
 
+    rules = subparsers.add_parser("rules", help="show deterministic rule diagnostics")
+    rules.add_argument(
+        "--wait",
+        type=float,
+        default=2.0,
+        help="seconds to listen for DCS-BIOS frames (default: 2)",
+    )
+    rules.add_argument(
+        "--active",
+        action="store_true",
+        help="show only active deterministic rules",
+    )
+
+    rule = subparsers.add_parser("rule", help="inspect one deterministic rule")
+    rule_subparsers = rule.add_subparsers(dest="rule_command", required=True)
+    explain = rule_subparsers.add_parser("explain", help="explain one rule")
+    explain.add_argument("rule_id", help="rule identifier to explain")
+    explain.add_argument(
+        "--wait",
+        type=float,
+        default=2.0,
+        help="seconds to listen for DCS-BIOS frames (default: 2)",
+    )
+
+    check = subparsers.add_parser("check", help="run deterministic configuration checks")
+    check_subparsers = check.add_subparsers(dest="check_name", required=True)
+    carrier_launch = check_subparsers.add_parser(
+        "carrier-launch", help="check F/A-18C carrier launch configuration"
+    )
+    carrier_launch.add_argument(
+        "--wait",
+        type=float,
+        default=2.0,
+        help="seconds to listen for DCS-BIOS frames (default: 2)",
+    )
+
     benchmark = subparsers.add_parser(
         "benchmark", help="measure the dependency-free client workload"
     )
@@ -100,6 +137,16 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "replay":
         return run_replay(args.recording)
+    if args.command == "rules":
+        return run_rules(settings, max(0.0, args.wait), active_only=args.active)
+    if args.command == "rule":
+        if args.rule_command == "explain":
+            return run_rule_explain(settings, max(0.0, args.wait), args.rule_id)
+        raise AssertionError(f"unhandled rule command: {args.rule_command}")
+    if args.command == "check":
+        if args.check_name == "carrier-launch":
+            return run_carrier_launch_check(settings, max(0.0, args.wait))
+        raise AssertionError(f"unhandled check: {args.check_name}")
     if args.command == "benchmark":
         return run_benchmark(
             updates=args.updates,

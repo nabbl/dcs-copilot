@@ -18,6 +18,7 @@ def _transition(
     *,
     rule_id: str = "TEST_RULE",
     eligible: bool = True,
+    data: dict[str, object] | None = None,
 ) -> RuleTransition:
     issue = ActiveIssue(
         rule_id=rule_id,
@@ -28,7 +29,7 @@ def _transition(
         observed_at=1.0,
         message="Check configuration.",
         explanation="Test issue.",
-        data={},
+        data=data or {},
     )
     return RuleTransition(
         RuleTransitionType.ACTIVATED,
@@ -50,9 +51,14 @@ def test_speech_policy_modes_are_local_deterministic_and_cooldown_aware() -> Non
         _transition(
             Severity.ADVISORY,
             rule_id="FA18_REFUELING_PROBE_LEFT_OUT",
+            data={"minimum_mode": "NORMAL"},
         )
     )
     assert not normal.allows(_transition(Severity.ADVISORY))
+    assert not normal.allows(
+        _transition(Severity.WARNING, data={"minimum_mode": "COACH"})
+    )
+    assert coach.allows(_transition(Severity.WARNING, data={"minimum_mode": "COACH"}))
     assert coach.allows(_transition(Severity.INFO))
     assert not coach.allows(_transition(Severity.CRITICAL, eligible=False))
 
