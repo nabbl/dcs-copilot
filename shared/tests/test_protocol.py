@@ -243,6 +243,79 @@ def test_recent_events_tool_accepts_only_typed_semantic_rule_events() -> None:
     assert AircraftToolResult.from_control(result.to_control()) == result
 
 
+def test_checklist_tools_round_trip_and_validate_bounded_results() -> None:
+    request = AircraftToolRequest.create(
+        "get_checklist_status",
+        {
+            "checklist_id": "fa18c_startup",
+            "stage": "before-taxi",
+            "include_complete": True,
+        },
+        request_id="checklist-request",
+    )
+    assert AircraftToolRequest.from_control(request.to_control()) == request
+    result = AircraftToolResult.success(
+        request,
+        {
+            "available": True,
+            "checklist_id": "fa18c_startup",
+            "aircraft": "FA-18C_hornet",
+            "stage": "before-taxi",
+            "complete": False,
+            "items": [
+                {
+                    "id": "obogs_on",
+                    "label": "OBOGS",
+                    "status": "incomplete",
+                    "expected": True,
+                    "actual": False,
+                    "reason": "obogs_on is False, expected True",
+                    "verification_type": "state",
+                    "observed_at": 1.0,
+                }
+            ],
+        },
+    )
+    assert AircraftToolResult.from_control(result.to_control()) == result
+
+    with pytest.raises(ToolProtocolError, match="status"):
+        AircraftToolResult.success(
+            request,
+            {
+                "available": True,
+                "checklist_id": "fa18c_startup",
+                "aircraft": "FA-18C_hornet",
+                "stage": "before-taxi",
+                "complete": False,
+                "items": [
+                    {
+                        "id": "obogs_on",
+                        "label": "OBOGS",
+                        "status": "wrong",
+                        "expected": True,
+                        "actual": False,
+                        "reason": "bad",
+                        "verification_type": "state",
+                        "observed_at": 1.0,
+                    }
+                ],
+            },
+        )
+
+
+def test_guided_checklist_tools_validate_arguments() -> None:
+    assert AircraftToolRequest.create(
+        "start_guided_checklist",
+        {"checklist_id": "fa18c_startup", "stage": "before-taxi"},
+    ).arguments == {"checklist_id": "fa18c_startup", "stage": "before-taxi"}
+    assert AircraftToolRequest.create(
+        "confirm_manual_checklist_item",
+        {"item_id": "helmet"},
+    ).arguments == {"item_id": "helmet"}
+    with pytest.raises(ToolProtocolError, match="item_id"):
+        AircraftToolRequest.create("confirm_manual_checklist_item", {"item_id": ""})
+
+
 def test_aircraft_changed_is_versioned_and_semantic_only() -> None:
     message = AircraftChanged("F/A-18C").to_control()
     assert message.payload == {"metadata_version": 1, "aircraft": "F/A-18C"}

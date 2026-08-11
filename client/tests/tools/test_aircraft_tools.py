@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+from dcs_copilot.checklists import (
+    ChecklistDefinition,
+    ChecklistItem,
+    ChecklistStage,
+    VerificationType,
+)
 from dcs_copilot.dcs.bios_registry import DcsBiosControlRegistry
 from dcs_copilot.dcs.bios_state import DcsBiosState
 from dcs_copilot.state.models import (
     AircraftState,
+    CanopyState,
     FlightPhase,
     TelemetryValue,
 )
@@ -118,3 +125,138 @@ def test_executor_reports_disconnected_state_as_unavailable() -> None:
         "unavailable_rule_ids": [],
         "issues": [],
     }
+
+
+def test_executor_exposes_checklist_status_and_missing_items(
+    normalization_registry: DcsBiosControlRegistry,
+) -> None:
+    store = AircraftStateStore(normalization_registry, bios_state=DcsBiosState())
+    current = AircraftState(
+        aircraft="FA-18C_hornet",
+        connected=True,
+        obogs_on=TelemetryValue(False, available=True, updated_at=1.0),
+        ejection_seat_armed=TelemetryValue(False, available=True, updated_at=1.0),
+        canopy_state=TelemetryValue(CanopyState.CLOSED, available=True, updated_at=1.0),
+        takeoff_trim_pressed=TelemetryValue(False, available=True, updated_at=1.0),
+        master_caution=TelemetryValue(False, available=True, updated_at=1.0),
+    )
+    store.current = current
+    store.history.record(current, timestamp=1.0)
+    executor = AircraftToolExecutor(store, clock=lambda: 2.0)
+
+    status = executor.execute(
+        AircraftToolRequest.create(
+            "get_checklist_status",
+            {
+                "checklist_id": "fa18c_startup",
+                "stage": "before-taxi",
+                "include_complete": False,
+            },
+        )
+    )
+    missing = executor.execute(
+        AircraftToolRequest.create(
+            "get_missing_checklist_items",
+            {"checklist_id": "fa18c_startup", "stage": "before-taxi"},
+        )
+    )
+
+    assert status["complete"] is False
+    assert {item["id"] for item in status["items"]} == {
+        "obogs_on",
+        "ejection_seat_armed",
+        "takeoff_trim",
+    }
+    assert [item["status"] for item in missing["items"]] == [
+        "incomplete",
+        "incomplete",
+        "unconfirmed",
+    ]
+
+
+def test_executor_missing_checklist_items_excludes_not_applicable(
+    normalization_registry: DcsBiosControlRegistry,
+) -> None:
+    store = AircraftStateStore(normalization_registry, bios_state=DcsBiosState())
+    store.current = AircraftState(
+        aircraft="FA-18C_hornet",
+        connected=True,
+        obogs_on=TelemetryValue(False, available=True, updated_at=1.0),
+        airborne=TelemetryValue(False, available=True, updated_at=1.0),
+    )
+    store.checklist_engine.definitions["test"] = ChecklistDefinition(
+        id="test",
+        aircraft="FA-18C_hornet",
+        label="Test",
+        stages=(
+            ChecklistStage(
+                id="stage",
+                label="Stage",
+                items=(
+                    ChecklistItem(
+                        "obogs_on",
+                        "OBOGS",
+                        VerificationType.STATE,
+                        expected={"field": "obogs_on", "equals": True},
+                    ),
+                    ChecklistItem(
+                        "probe_stowed",
+                        "Probe",
+                        VerificationType.STATE,
+                        expected={"field": "refueling_probe", "equals": False},
+                        applicable_if={"airborne": True},
+                    ),
+                ),
+            ),
+        ),
+    )
+    executor = AircraftToolExecutor(store)
+
+    status = executor.execute(
+        AircraftToolRequest.create(
+            "get_checklist_status",
+            {"checklist_id": "test", "stage": "stage"},
+        )
+    )
+    missing = executor.execute(
+        AircraftToolRequest.create(
+            "get_missing_checklist_items",
+            {"checklist_id": "test", "stage": "stage"},
+        )
+    )
+
+    assert [item["status"] for item in status["items"]] == [
+        "incomplete",
+        "not_applicable",
+    ]
+    assert [item["id"] for item in missing["items"]] == ["obogs_on"]
+
+
+def test_executor_supports_guided_manual_checklist_items(
+    normalization_registry: DcsBiosControlRegistry,
+) -> None:
+    store = AircraftStateStore(normalization_registry, bios_state=DcsBiosState())
+    store.current = AircraftState(aircraft="FA-18C_hornet", connected=True)
+    executor = AircraftToolExecutor(store)
+
+    started = executor.execute(
+        AircraftToolRequest.create(
+            "start_guided_checklist",
+            {"checklist_id": "fa18c_startup", "stage": "before-taxi"},
+        )
+    )
+    confirmed = executor.execute(
+        AircraftToolRequest.create(
+            "confirm_manual_checklist_item",
+            {"item_id": "helmet"},
+        )
+    )
+    stopped = executor.execute(AircraftToolRequest.create("stop_guided_checklist", {}))
+
+    assert started == {
+        "started": True,
+        "checklist_id": "fa18c_startup",
+        "stage": "before-taxi",
+    }
+    assert confirmed == {"confirmed": True, "item_id": "helmet"}
+    assert stopped == {"stopped": True}

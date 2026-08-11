@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from .cli.benchmark import run_benchmark
+from .cli.checklist import run_checklist_explain, run_checklist_status
 from .cli.replay import run_replay
 from .cli.run import run_client
 from .cli.rules import run_carrier_launch_check, run_rule_explain, run_rules
@@ -93,6 +94,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds to listen for DCS-BIOS frames (default: 2)",
     )
 
+    checklist = subparsers.add_parser("checklist", help="inspect deterministic checklists")
+    checklist_subparsers = checklist.add_subparsers(
+        dest="checklist_command", required=True
+    )
+    checklist_status = checklist_subparsers.add_parser(
+        "status", help="show checklist status"
+    )
+    checklist_status.add_argument("stage", nargs="?", help="checklist stage")
+    checklist_status.add_argument(
+        "--wait",
+        type=float,
+        default=2.0,
+        help="seconds to listen for DCS-BIOS frames (default: 2)",
+    )
+    checklist_explain = checklist_subparsers.add_parser(
+        "explain", help="explain one checklist item"
+    )
+    checklist_explain.add_argument("item_id", help="checklist item id")
+    checklist_explain.add_argument("--stage", help="checklist stage")
+    checklist_explain.add_argument(
+        "--wait",
+        type=float,
+        default=2.0,
+        help="seconds to listen for DCS-BIOS frames (default: 2)",
+    )
+
     benchmark = subparsers.add_parser(
         "benchmark", help="measure the dependency-free client workload"
     )
@@ -147,6 +174,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.check_name == "carrier-launch":
             return run_carrier_launch_check(settings, max(0.0, args.wait))
         raise AssertionError(f"unhandled check: {args.check_name}")
+    if args.command == "checklist":
+        if args.checklist_command == "status":
+            return run_checklist_status(settings, max(0.0, args.wait), args.stage)
+        if args.checklist_command == "explain":
+            return run_checklist_explain(
+                settings,
+                max(0.0, args.wait),
+                args.item_id,
+                args.stage,
+            )
+        raise AssertionError(f"unhandled checklist command: {args.checklist_command}")
     if args.command == "benchmark":
         return run_benchmark(
             updates=args.updates,

@@ -55,4 +55,12 @@ dcs-copilot rules
 dcs-copilot rules --active
 dcs-copilot rule explain HOOK_DOWN_OUTSIDE_RECOVERY
 dcs-copilot check carrier-launch
+dcs-copilot checklist status before-taxi
+dcs-copilot checklist explain seat-armed --stage before-taxi
 ```
+
+The checklist engine is also deterministic and local-only. It evaluates
+data-driven checklist items against normalized aircraft state, recent state
+history transitions, derived rule conditions, and explicitly confirmed manual
+items. Checklist tool calls expose only checklist IDs, item labels, local status,
+and reasons; they do not upload raw cockpit state.

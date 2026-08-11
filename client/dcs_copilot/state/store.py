@@ -15,6 +15,7 @@ from dcs_copilot.dcs.bios_protocol import FrameComplete
 from dcs_copilot.dcs.bios_registry import DcsBiosControlRegistry
 from dcs_copilot.dcs.bios_state import DcsBiosState
 from dcs_copilot.events import EventManager, SpeechPolicy
+from dcs_copilot.checklists import ChecklistEngine, fa18c_checklists
 from dcs_copilot.habits import FlightStatsManager
 from dcs_copilot.rules.engine import RuleEngine
 from dcs_copilot.rules.fa18c import fa18c_rules
@@ -43,6 +44,7 @@ class AircraftStateStore:
         history: StateHistory | None = None,
         phase_detector: FlightPhaseDetector | None = None,
         rule_engine: RuleEngine | None = None,
+        checklist_engine: ChecklistEngine | None = None,
         event_manager: EventManager | None = None,
         flight_stats: FlightStatsManager | None = None,
         speech_policy: SpeechPolicy | None = None,
@@ -55,6 +57,7 @@ class AircraftStateStore:
         self.history = history or StateHistory()
         self.phase_detector = phase_detector or FlightPhaseDetector()
         self.rule_engine = rule_engine or RuleEngine(fa18c_rules())
+        self.checklist_engine = checklist_engine or ChecklistEngine(fa18c_checklists())
         if event_manager is not None and speech_policy is not None:
             raise ValueError("pass either event_manager or speech_policy, not both")
         if event_manager is not None and event_manager.rule_engine is not self.rule_engine:

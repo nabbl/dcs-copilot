@@ -14,6 +14,7 @@ AIRCRAFT_TOOL_VERSION = 1
 MAX_STATE_FIELDS = 16
 MAX_RECENT_EVENTS = 20
 MAX_RECENT_EVENT_SECONDS = 300.0
+MAX_CHECKLIST_ITEMS = 64
 
 
 class AircraftToolName(StrEnum):
@@ -21,6 +22,12 @@ class AircraftToolName(StrEnum):
     GET_ACTIVE_ISSUES = "get_active_issues"
     GET_RECENT_EVENTS = "get_recent_events"
     GET_FLIGHT_PHASE = "get_flight_phase"
+    GET_CHECKLIST_STATUS = "get_checklist_status"
+    GET_MISSING_CHECKLIST_ITEMS = "get_missing_checklist_items"
+    START_GUIDED_CHECKLIST = "start_guided_checklist"
+    GET_NEXT_CHECKLIST_ITEM = "get_next_checklist_item"
+    CONFIRM_MANUAL_CHECKLIST_ITEM = "confirm_manual_checklist_item"
+    STOP_GUIDED_CHECKLIST = "stop_guided_checklist"
 
 
 ALLOWED_AIRCRAFT_STATE_FIELDS = frozenset(
@@ -282,6 +289,60 @@ def validate_tool_arguments(
             )
         return {"seconds": float(seconds), "limit": limit}
 
+    if tool in {
+        AircraftToolName.GET_CHECKLIST_STATUS,
+        AircraftToolName.GET_MISSING_CHECKLIST_ITEMS,
+    }:
+        _require_exact_keys(
+            arguments,
+            {"checklist_id", "stage", "include_complete"},
+            f"{tool.value} arguments",
+            optional={"checklist_id", "stage", "include_complete"},
+        )
+        checklist_id = _optional_string(arguments.get("checklist_id"), "checklist_id")
+        stage = _optional_string(arguments.get("stage"), "stage")
+        include_complete = arguments.get("include_complete", False)
+        if not isinstance(include_complete, bool):
+            raise ToolProtocolError("include_complete must be a boolean")
+        return {
+            "checklist_id": checklist_id,
+            "stage": stage,
+            "include_complete": include_complete,
+        }
+
+    if tool is AircraftToolName.START_GUIDED_CHECKLIST:
+        _require_exact_keys(
+            arguments,
+            {"checklist_id", "stage"},
+            "start_guided_checklist arguments",
+            optional={"stage"},
+        )
+        checklist_id = arguments.get("checklist_id")
+        if not isinstance(checklist_id, str) or not checklist_id.strip():
+            raise ToolProtocolError("checklist_id must be a non-empty string")
+        return {
+            "checklist_id": checklist_id.strip(),
+            "stage": _optional_string(arguments.get("stage"), "stage"),
+        }
+
+    if tool is AircraftToolName.CONFIRM_MANUAL_CHECKLIST_ITEM:
+        _require_exact_keys(
+            arguments,
+            {"item_id"},
+            "confirm_manual_checklist_item arguments",
+        )
+        item_id = arguments.get("item_id")
+        if not isinstance(item_id, str) or not item_id.strip():
+            raise ToolProtocolError("item_id must be a non-empty string")
+        return {"item_id": item_id.strip()}
+
+    if tool in {
+        AircraftToolName.GET_NEXT_CHECKLIST_ITEM,
+        AircraftToolName.STOP_GUIDED_CHECKLIST,
+    }:
+        _require_exact_keys(arguments, set(), f"{tool.value} arguments")
+        return {}
+
     raise ToolAuthorizationError(f"aircraft tool is not allowed: {tool}")
 
 
@@ -359,6 +420,40 @@ def validate_tool_result(
                 raise ToolProtocolError("active issue severity is invalid")
             if not isinstance(issue.get("data"), dict):
                 raise ToolProtocolError("active issue data must be an object")
+        return result.copy()
+
+    if tool in {
+        AircraftToolName.GET_CHECKLIST_STATUS,
+        AircraftToolName.GET_MISSING_CHECKLIST_ITEMS,
+    }:
+        _validate_checklist_result(result, require_complete=tool is AircraftToolName.GET_CHECKLIST_STATUS)
+        return result.copy()
+
+    if tool is AircraftToolName.START_GUIDED_CHECKLIST:
+        _require_exact_keys(
+            result, {"started", "checklist_id", "stage"}, "start_guided_checklist result"
+        )
+        _require_boolean(result.get("started"), "checklist started")
+        _require_string(result.get("checklist_id"), "checklist_id")
+        _require_string(result.get("stage"), "stage")
+        return result.copy()
+
+    if tool is AircraftToolName.GET_NEXT_CHECKLIST_ITEM:
+        _require_exact_keys(result, {"item"}, "get_next_checklist_item result")
+        item = result.get("item")
+        if item is not None:
+            _validate_checklist_item(item)
+        return result.copy()
+
+    if tool is AircraftToolName.CONFIRM_MANUAL_CHECKLIST_ITEM:
+        _require_exact_keys(result, {"confirmed", "item_id"}, "confirm_manual_checklist_item result")
+        _require_boolean(result.get("confirmed"), "manual item confirmed")
+        _require_string(result.get("item_id"), "item_id")
+        return result.copy()
+
+    if tool is AircraftToolName.STOP_GUIDED_CHECKLIST:
+        _require_exact_keys(result, {"stopped"}, "stop_guided_checklist result")
+        _require_boolean(result.get("stopped"), "checklist stopped")
         return result.copy()
 
     if tool is AircraftToolName.GET_RECENT_EVENTS:
@@ -447,6 +542,81 @@ def _require_tool_version(value: object) -> None:
 def _require_boolean(value: object, label: str) -> None:
     if not isinstance(value, bool):
         raise ToolProtocolError(f"{label} must be a boolean")
+
+
+def _require_string(value: object, label: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise ToolProtocolError(f"{label} must be a non-empty string")
+
+
+def _optional_string(value: object, label: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ToolProtocolError(f"{label} must be a non-empty string")
+    return value.strip()
+
+
+def _validate_checklist_result(result: dict[str, Any], *, require_complete: bool) -> None:
+    required = {
+        "available",
+        "checklist_id",
+        "aircraft",
+        "stage",
+        "complete",
+        "items",
+    }
+    _require_exact_keys(result, required, "checklist result")
+    _require_boolean(result.get("available"), "checklist available")
+    _require_string(result.get("checklist_id"), "checklist_id")
+    _require_string(result.get("aircraft"), "aircraft")
+    _require_string(result.get("stage"), "stage")
+    _require_boolean(result.get("complete"), "checklist complete")
+    items = result.get("items")
+    if not isinstance(items, list) or len(items) > MAX_CHECKLIST_ITEMS:
+        raise ToolProtocolError(
+            f"checklist result items must be a list of at most {MAX_CHECKLIST_ITEMS}"
+        )
+    if require_complete and not items:
+        raise ToolProtocolError("checklist status result must include items")
+    for item in items:
+        _validate_checklist_item(item)
+
+
+def _validate_checklist_item(item: object) -> None:
+    if not isinstance(item, dict):
+        raise ToolProtocolError("checklist item must be an object")
+    _require_exact_keys(
+        item,
+        {
+            "id",
+            "label",
+            "status",
+            "expected",
+            "actual",
+            "reason",
+            "verification_type",
+            "observed_at",
+        },
+        "checklist item",
+    )
+    _require_string(item.get("id"), "checklist item id")
+    _require_string(item.get("label"), "checklist item label")
+    if item.get("status") not in {
+        "complete",
+        "incomplete",
+        "unconfirmed",
+        "not_applicable",
+    }:
+        raise ToolProtocolError("checklist item status is invalid")
+    if item.get("verification_type") not in {"state", "action", "derived", "manual"}:
+        raise ToolProtocolError("checklist item verification_type is invalid")
+    _require_string(item.get("reason"), "checklist item reason")
+    observed_at = item.get("observed_at")
+    if observed_at is not None and (
+        not isinstance(observed_at, (int, float)) or isinstance(observed_at, bool)
+    ):
+        raise ToolProtocolError("checklist item observed_at is invalid")
 
 
 def _require_exact_keys(

@@ -15,6 +15,7 @@ def test_cli_exposes_thin_client_commands() -> None:
     run = parser.parse_args(["run", "--stdin-ptt"])
     rules = parser.parse_args(["rules", "--active", "--wait", "0"])
     rule = parser.parse_args(["rule", "explain", "HOOK_DOWN_OUTSIDE_RECOVERY"])
+    checklist = parser.parse_args(["checklist", "status", "before-taxi", "--wait", "0"])
     assert status.command == "status"
     assert status.wait == 0
     assert watch.command == "watch"
@@ -30,3 +31,6 @@ def test_cli_exposes_thin_client_commands() -> None:
     assert rule.command == "rule"
     assert rule.rule_command == "explain"
     assert rule.rule_id == "HOOK_DOWN_OUTSIDE_RECOVERY"
+    assert checklist.command == "checklist"
+    assert checklist.checklist_command == "status"
+    assert checklist.stage == "before-taxi"

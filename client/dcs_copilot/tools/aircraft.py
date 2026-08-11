@@ -7,6 +7,7 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
+from dcs_copilot.checklists import ChecklistItemResult, ChecklistResult
 from dcs_copilot_protocol import (
     ALLOWED_AIRCRAFT_STATE_FIELDS,
     AircraftToolName,
@@ -66,6 +67,28 @@ class AircraftToolExecutor:
             )
         if request.tool is AircraftToolName.GET_FLIGHT_PHASE:
             return self._get_flight_phase()
+        if request.tool is AircraftToolName.GET_CHECKLIST_STATUS:
+            return self._get_checklist_status(
+                checklist_id=request.arguments["checklist_id"],
+                stage=request.arguments["stage"],
+                include_complete=request.arguments["include_complete"],
+            )
+        if request.tool is AircraftToolName.GET_MISSING_CHECKLIST_ITEMS:
+            return self._get_missing_checklist_items(
+                checklist_id=request.arguments["checklist_id"],
+                stage=request.arguments["stage"],
+            )
+        if request.tool is AircraftToolName.START_GUIDED_CHECKLIST:
+            return self._start_guided_checklist(
+                request.arguments["checklist_id"],
+                request.arguments["stage"],
+            )
+        if request.tool is AircraftToolName.GET_NEXT_CHECKLIST_ITEM:
+            return self._get_next_checklist_item()
+        if request.tool is AircraftToolName.CONFIRM_MANUAL_CHECKLIST_ITEM:
+            return self._confirm_manual_checklist_item(request.arguments["item_id"])
+        if request.tool is AircraftToolName.STOP_GUIDED_CHECKLIST:
+            return self._stop_guided_checklist()
         raise ToolAuthorizationError(f"aircraft tool is not allowed: {request.tool}")
 
     @property
@@ -181,6 +204,77 @@ class AircraftToolExecutor:
             "flight_phase": state.flight_phase.value if available else None,
         }
 
+    def _get_checklist_status(
+        self,
+        *,
+        checklist_id: str | None,
+        stage: str | None,
+        include_complete: bool,
+    ) -> dict[str, Any]:
+        if self._store is None or not self._state.connected:
+            return _empty_checklist_result()
+        result = self._store.checklist_engine.evaluate(
+            self._state,
+            self._store.history,
+            now=self._clock(),
+            checklist_id=checklist_id,
+            stage_id=stage,
+        )
+        return _checklist_result(result, include_complete=include_complete)
+
+    def _get_missing_checklist_items(
+        self,
+        *,
+        checklist_id: str | None,
+        stage: str | None,
+    ) -> dict[str, Any]:
+        if self._store is None or not self._state.connected:
+            return _empty_checklist_result()
+        result = self._store.checklist_engine.evaluate(
+            self._state,
+            self._store.history,
+            now=self._clock(),
+            checklist_id=checklist_id,
+            stage_id=stage,
+        )
+        return _checklist_result(
+            result,
+            include_complete=False,
+            include_not_applicable=False,
+        )
+
+    def _start_guided_checklist(
+        self, checklist_id: str, stage: str | None
+    ) -> dict[str, Any]:
+        if self._store is None:
+            raise ToolAuthorizationError("checklist engine is unavailable")
+        self._store.checklist_engine.start(checklist_id, stage)
+        active_stage = stage or self._store.checklist_engine.definitions[
+            checklist_id
+        ].stages[0].id
+        return {"started": True, "checklist_id": checklist_id, "stage": active_stage}
+
+    def _get_next_checklist_item(self) -> dict[str, Any]:
+        if self._store is None or not self._state.connected:
+            return {"item": None}
+        item = self._store.checklist_engine.next_item(
+            self._state,
+            self._store.history,
+            now=self._clock(),
+        )
+        return {"item": _checklist_item(item) if item is not None else None}
+
+    def _confirm_manual_checklist_item(self, item_id: str) -> dict[str, Any]:
+        if self._store is None:
+            raise ToolAuthorizationError("checklist engine is unavailable")
+        self._store.checklist_engine.confirm_manual_item(item_id)
+        return {"confirmed": True, "item_id": item_id}
+
+    def _stop_guided_checklist(self) -> dict[str, Any]:
+        if self._store is not None:
+            self._store.checklist_engine.stop()
+        return {"stopped": True}
+
 
 def _telemetry_value(telemetry: TelemetryValue[Any]) -> dict[str, Any]:
     available = telemetry.available
@@ -211,3 +305,51 @@ def _json_value(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
+
+
+def _empty_checklist_result() -> dict[str, Any]:
+    return {
+        "available": False,
+        "checklist_id": "unavailable",
+        "aircraft": "unavailable",
+        "stage": "unavailable",
+        "complete": False,
+        "items": [],
+    }
+
+
+def _checklist_result(
+    result: ChecklistResult,
+    *,
+    include_complete: bool,
+    include_not_applicable: bool = True,
+) -> dict[str, Any]:
+    items: list[ChecklistItemResult] = [
+        *result.incomplete_items,
+        *result.unconfirmed_items,
+    ]
+    if include_not_applicable:
+        items = [*items, *result.not_applicable_items]
+    if include_complete:
+        items = [*result.complete_items, *items]
+    return {
+        "available": True,
+        "checklist_id": result.checklist_id,
+        "aircraft": result.aircraft,
+        "stage": result.stage,
+        "complete": result.complete,
+        "items": [_checklist_item(item) for item in items],
+    }
+
+
+def _checklist_item(item: ChecklistItemResult) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "label": item.label,
+        "status": item.status.value,
+        "expected": _json_value(item.expected),
+        "actual": _json_value(item.actual),
+        "reason": item.reason,
+        "verification_type": item.verification_type.value,
+        "observed_at": item.observed_at,
+    }
