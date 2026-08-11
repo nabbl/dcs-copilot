@@ -132,7 +132,10 @@ def test_semantic_summaries_survive_restart_and_drive_exact_voice_response(
             assert MediaPacket.from_bytes(websocket.receive_bytes()).payload == (
                 b"\x44\x55" * 240
             )
-            assert receive_control(websocket).payload["text"] == (
+            assert receive_control(websocket).type == "pilot.text"
+            response = receive_control(websocket)
+            assert response.type == "assistant.text"
+            assert response.payload["text"] == (
                 "You've left the refueling probe out in three of your last five "
                 "Hornet flights."
             )

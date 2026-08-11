@@ -120,6 +120,12 @@ class PortAudioPlayback:
         self._audio: Any = None
         self._stream: Any = None
         self._lock = threading.Lock()
+        self._muted = False
+
+    @property
+    def muted(self) -> bool:
+        with self._lock:
+            return self._muted
 
     async def play(self, audio: bytes) -> None:
         if not audio:
@@ -133,39 +139,75 @@ class PortAudioPlayback:
     async def interrupt(self) -> None:
         await asyncio.to_thread(self._close_sync)
 
+    async def toggle_muted(
+        self,
+        *,
+        muted_feedback: bytes = b"",
+        unmuted_feedback: bytes = b"",
+    ) -> bool:
+        return await asyncio.to_thread(
+            self._toggle_muted_sync,
+            muted_feedback,
+            unmuted_feedback,
+        )
+
     async def close(self) -> None:
         await self.interrupt()
 
     def _play_sync(self, payload: bytes) -> None:
-        import pyaudio
-
         with self._lock:
-            if self._stream is None:
-                audio = pyaudio.PyAudio()
-                try:
-                    stream = audio.open(
-                        format=pyaudio.paInt16,
-                        channels=self.audio_format.channels,
-                        rate=self.audio_format.sample_rate,
-                        output=True,
-                        output_device_index=self.device_index,
-                    )
-                except Exception:
-                    audio.terminate()
-                    raise
-                self._audio = audio
-                self._stream = stream
-            self._stream.write(payload, exception_on_underflow=False)
+            if self._muted:
+                return
+            self._write_locked(payload)
 
     def _close_sync(self) -> None:
         with self._lock:
-            stream = self._stream
-            audio = self._audio
-            self._stream = None
-            self._audio = None
-            if stream is not None:
-                if stream.is_active():
-                    stream.stop_stream()
-                stream.close()
-            if audio is not None:
+            self._close_locked()
+
+    def _toggle_muted_sync(
+        self,
+        muted_feedback: bytes,
+        unmuted_feedback: bytes,
+    ) -> bool:
+        with self._lock:
+            self._muted = not self._muted
+            if self._muted:
+                self._close_locked()
+            feedback = muted_feedback if self._muted else unmuted_feedback
+            if feedback:
+                self._write_locked(feedback)
+            if self._muted:
+                self._close_locked()
+            return self._muted
+
+    def _write_locked(self, payload: bytes) -> None:
+        import pyaudio
+
+        if self._stream is None:
+            audio = pyaudio.PyAudio()
+            try:
+                stream = audio.open(
+                    format=pyaudio.paInt16,
+                    channels=self.audio_format.channels,
+                    rate=self.audio_format.sample_rate,
+                    output=True,
+                    output_device_index=self.device_index,
+                )
+            except Exception:
                 audio.terminate()
+                raise
+            self._audio = audio
+            self._stream = stream
+        self._stream.write(payload, exception_on_underflow=False)
+
+    def _close_locked(self) -> None:
+        stream = self._stream
+        audio = self._audio
+        self._stream = None
+        self._audio = None
+        if stream is not None:
+            if stream.is_active():
+                stream.stop_stream()
+            stream.close()
+        if audio is not None:
+            audio.terminate()

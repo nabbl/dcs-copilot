@@ -36,6 +36,7 @@ def test_status_reports_thin_client_resource_and_ai_boundary(monkeypatch) -> Non
     assert "Authenticated: no" in lines
     assert "Recorded events: 0" in lines
     assert "Speech mode: NORMAL" in lines
+    assert "Mute: F14 (Windows only)" in lines
     assert "Microphone: Test Mic (not opened)" in lines
     assert "Output: Test Headset (not opened)" in lines
     assert "AI inference running locally: NO" in lines

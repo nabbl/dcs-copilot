@@ -46,6 +46,7 @@ from dcs_copilot.input.ptt import (
 )
 from dcs_copilot.logging import configure_logging
 
+from .activity import ActivityOutputFilter
 from .auth import AuthError, StoredAuthSession, TokenPair
 from .config_store import DesktopConfig, configure_launch_at_login
 from .dcs_setup import inspect_installation, install_dcs_bios
@@ -109,9 +110,10 @@ class LoginPage(QWidget):
         brand = QVBoxLayout()
         mark = QLabel("DCS // COPILOT")
         mark.setObjectName("brand")
-        heading = QLabel("A second set of eyes\nfor every sortie.")
+        heading = QLabel("MARA")
         heading.setObjectName("hero")
         copy = QLabel(
+            "Mission-Aware Realtime Assistant\n\n"
             "Real-time cockpit awareness, concise voice guidance, and habits "
             "that improve with every flight."
         )
@@ -201,6 +203,7 @@ class DashboardPage(QWidget):
     stop_requested = Signal()
     logout_requested = Signal()
     learn_ptt_requested = Signal()
+    learn_mute_requested = Signal()
 
     def __init__(self, config: DesktopConfig) -> None:
         super().__init__()
@@ -208,7 +211,7 @@ class DashboardPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(32, 24, 32, 28)
         header = QHBoxLayout()
-        brand = QLabel("DCS // COPILOT")
+        brand = QLabel("MARA // DCS COPILOT")
         brand.setObjectName("brand")
         self.account = QLabel("")
         self.account.setObjectName("muted")
@@ -231,23 +234,24 @@ class DashboardPage(QWidget):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(8, 28, 8, 8)
-        title = QLabel("Ready for startup")
+        title = QLabel("MARA")
         title.setObjectName("heroSmall")
         subtitle = QLabel(
-            "Complete the checks below, then launch DCS Copilot before entering the cockpit."
+            "Mission-Aware Realtime Assistant — complete the checks below, "
+            "then launch MARA before entering the cockpit."
         )
         subtitle.setObjectName("muted")
         cards = QHBoxLayout()
         self.account_card = StatusCard("Account")
         self.dcs_card = StatusCard("DCS-BIOS")
-        self.runtime_card = StatusCard("Copilot")
+        self.runtime_card = StatusCard("MARA")
         cards.addWidget(self.account_card)
         cards.addWidget(self.dcs_card)
         cards.addWidget(self.runtime_card)
         actions = QHBoxLayout()
         self.install = QPushButton("Install / repair DCS-BIOS")
         self.install.clicked.connect(self.install_requested)
-        self.run = QPushButton("Start Copilot")
+        self.run = QPushButton("Start MARA")
         self.run.setObjectName("primary")
         self.run.clicked.connect(self.run_requested)
         self.stop = QPushButton("Stop")
@@ -296,6 +300,24 @@ class DashboardPage(QWidget):
         self._ptt_devices: dict[int, JoystickDevice] = {}
         self._refresh_ptt_devices()
         self.ptt_device.currentIndexChanged.connect(self._update_ptt_controls)
+        mute_device_row = QHBoxLayout()
+        self.mute_device = QComboBox()
+        self.mute_control = QComboBox()
+        refresh_mute = QPushButton("Refresh")
+        refresh_mute.clicked.connect(self._refresh_mute_devices)
+        self.learn_mute = QPushButton("Detect button…")
+        self.learn_mute.clicked.connect(self.learn_mute_requested)
+        mute_device_row.addWidget(self.mute_device)
+        mute_device_row.addWidget(refresh_mute)
+        mute_device_row.addWidget(self.learn_mute)
+        self.mute_hint = QLabel(
+            "Tip: click Detect button, then press your HOTAS MARA mute button."
+        )
+        self.mute_hint.setObjectName("muted")
+        self.mute_hint.setWordWrap(True)
+        self._mute_devices: dict[int, JoystickDevice] = {}
+        self._refresh_mute_devices()
+        self.mute_device.currentIndexChanged.connect(self._update_mute_controls)
         self.speech = QComboBox()
         self.speech.addItems(["MINIMAL", "NORMAL", "COACH"])
         self.speech.setCurrentText(self.config.speech_mode)
@@ -306,6 +328,9 @@ class DashboardPage(QWidget):
         form.addRow("PTT input device", ptt_device_row)
         form.addRow("PTT key / button", self.ptt_control)
         form.addRow("", self.ptt_hint)
+        form.addRow("MARA mute input device", mute_device_row)
+        form.addRow("MARA mute key / button", self.mute_control)
+        form.addRow("", self.mute_hint)
         form.addRow("Speech mode", self.speech)
         form.addRow("", self.launch_login)
         save = QPushButton("Save settings")
@@ -325,7 +350,7 @@ class DashboardPage(QWidget):
         layout.setContentsMargins(8, 28, 8, 8)
         self.logs = QPlainTextEdit()
         self.logs.setReadOnly(True)
-        self.logs.setPlaceholderText("Runtime events will appear here.")
+        self.logs.setPlaceholderText("Pilot and MARA activity will appear here.")
         layout.addWidget(self.logs)
         return tab
 
@@ -423,6 +448,95 @@ class DashboardPage(QWidget):
             f"Detected {selection.device.name}, button {selection.button}."
         )
 
+    def _refresh_mute_devices(self) -> None:
+        selected = (
+            self.mute_device.currentData()
+            if self.mute_device.count()
+            else self.config.assistant_mute_device_id
+        )
+        devices = discover_joysticks()
+        self._mute_devices = {device.device_id: device for device in devices}
+        self.mute_device.blockSignals(True)
+        self.mute_device.clear()
+        self.mute_device.addItem("Keyboard", None)
+        for device in devices:
+            self.mute_device.addItem(
+                f"{device.name} ({device.button_count} buttons)", device.device_id
+            )
+        if selected is not None and selected not in self._mute_devices:
+            self.mute_device.addItem(f"Controller {selected} (not connected)", selected)
+        index = self.mute_device.findData(selected)
+        self.mute_device.setCurrentIndex(max(0, index))
+        self.mute_device.blockSignals(False)
+        self._update_mute_controls()
+
+    def _update_mute_controls(self) -> None:
+        selected_control = (
+            self.mute_control.currentData()
+            if self.mute_control.count()
+            else (
+                self.config.assistant_mute_key
+                if self.config.assistant_mute_device_id is None
+                else self.config.assistant_mute_button
+            )
+        )
+        device_id = self.mute_device.currentData()
+        self.mute_control.clear()
+        desired: object
+        if device_id is None:
+            for number in range(1, 25):
+                key = f"F{number}"
+                self.mute_control.addItem(key, key)
+            desired = (
+                selected_control
+                if isinstance(selected_control, str)
+                else self.config.assistant_mute_key
+            )
+        else:
+            device = self._mute_devices.get(device_id)
+            button_count = (
+                device.button_count
+                if device
+                else max(self.config.assistant_mute_button or 1, 1)
+            )
+            for button in range(1, min(button_count, 32) + 1):
+                self.mute_control.addItem(f"Button {button}", button)
+            desired = (
+                selected_control
+                if isinstance(selected_control, int)
+                else self.config.assistant_mute_button
+            )
+        index = self.mute_control.findData(desired)
+        self.mute_control.setCurrentIndex(max(0, index))
+
+    def begin_mute_learning(self) -> None:
+        self.learn_mute.setEnabled(False)
+        self.mute_hint.setText("Listening for a joystick/HOTAS button press…")
+
+    def finish_mute_learning(
+        self, selection: JoystickButtonSelection | None = None, error: str | None = None
+    ) -> None:
+        self.learn_mute.setEnabled(True)
+        if selection is None:
+            self.mute_hint.setText(error or "No joystick/HOTAS button was detected.")
+            return
+        self._mute_devices[selection.device.device_id] = selection.device
+        if self.mute_device.findData(selection.device.device_id) < 0:
+            self.mute_device.addItem(
+                f"{selection.device.name} ({selection.device.button_count} buttons)",
+                selection.device.device_id,
+            )
+        self.mute_device.setCurrentIndex(
+            max(0, self.mute_device.findData(selection.device.device_id))
+        )
+        self._update_mute_controls()
+        self.mute_control.setCurrentIndex(
+            max(0, self.mute_control.findData(selection.button))
+        )
+        self.mute_hint.setText(
+            f"Detected {selection.device.name}, button {selection.button}."
+        )
+
     def update_config(self) -> None:
         self.config.dcs_saved_games_path = self.dcs_path.text().strip()
         self.config.cloud_url = self.cloud_url.text().strip()
@@ -433,6 +547,25 @@ class DashboardPage(QWidget):
             self.config.ptt_button = None
         else:
             self.config.ptt_button = int(self.ptt_control.currentData())
+        mute_device_id = self.mute_device.currentData()
+        self.config.assistant_mute_device_id = mute_device_id
+        if mute_device_id is None:
+            self.config.assistant_mute_key = str(self.mute_control.currentData())
+            self.config.assistant_mute_button = None
+        else:
+            self.config.assistant_mute_button = int(self.mute_control.currentData())
+        if (
+            device_id is None
+            and mute_device_id is None
+            and self.config.ptt_key == self.config.assistant_mute_key
+        ):
+            raise ValueError("Mute / unmute key cannot be the same as keyboard PTT.")
+        if (
+            device_id is not None
+            and device_id == mute_device_id
+            and self.config.ptt_button == self.config.assistant_mute_button
+        ):
+            raise ValueError("Mute / unmute button cannot be the same as PTT.")
         self.config.speech_mode = self.speech.currentText()
         self.config.launch_at_login = self.launch_login.isChecked()
 
@@ -455,7 +588,7 @@ class DashboardPage(QWidget):
             "Running" if running else "Stopped",
             "Monitoring DCS and connected to the voice service."
             if running
-            else "Start Copilot before your flight.",
+            else "Start MARA before your flight.",
             good=running,
         )
 
@@ -474,13 +607,14 @@ class MainWindow(QMainWindow):
         self.pool = QThreadPool.globalInstance()
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self._activity_filter = ActivityOutputFilter()
 
         self.stack = QStackedWidget()
         self.login = LoginPage()
         self.dashboard = DashboardPage(self.config)
         self.process.readyReadStandardOutput.connect(self._runtime_output)
         self.process.started.connect(lambda: self.dashboard.set_running(True))
-        self.process.finished.connect(lambda *_: self.dashboard.set_running(False))
+        self.process.finished.connect(self._runtime_finished)
         self.stack.addWidget(self.login)
         self.stack.addWidget(self.dashboard)
         self.setCentralWidget(self.stack)
@@ -492,6 +626,7 @@ class MainWindow(QMainWindow):
         self.dashboard.stop_requested.connect(self._stop_runtime)
         self.dashboard.logout_requested.connect(self._logout)
         self.dashboard.learn_ptt_requested.connect(self._learn_ptt_button)
+        self.dashboard.learn_mute_requested.connect(self._learn_mute_button)
         self._restore_session()
 
     def _worker(
@@ -582,6 +717,25 @@ class MainWindow(QMainWindow):
     def _ptt_button_learning_failed(self, error: str) -> None:
         self.dashboard.finish_ptt_learning(error=error)
 
+    def _learn_mute_button(self) -> None:
+        self.dashboard.begin_mute_learning()
+        self._worker(
+            lambda: detect_joystick_button(timeout=10.0),
+            self._mute_button_learned,
+            self._mute_button_learning_failed,
+        )
+
+    def _mute_button_learned(self, result: object) -> None:
+        if not isinstance(result, JoystickButtonSelection):
+            self.dashboard.finish_mute_learning(
+                error="Unexpected mute-button detection result."
+            )
+            return
+        self.dashboard.finish_mute_learning(result)
+
+    def _mute_button_learning_failed(self, error: str) -> None:
+        self.dashboard.finish_mute_learning(error=error)
+
     def _save_settings(self) -> None:
         try:
             unchanged_account = self._save_settings_silently()
@@ -617,6 +771,7 @@ class MainWindow(QMainWindow):
         environment.insert("DCS_COPILOT_CLOUD_URL", self.config.cloud_url)
         environment.insert("DCS_COPILOT_DEVICE_ID", self.config.device_id)
         environment.insert("COPILOT_PTT_KEY", self.config.ptt_key)
+        environment.insert("COPILOT_MUTE_KEY", self.config.assistant_mute_key)
         environment.insert(
             "COPILOT_PTT_DEVICE",
             "" if self.config.ptt_device_id is None else str(self.config.ptt_device_id),
@@ -625,12 +780,26 @@ class MainWindow(QMainWindow):
             "COPILOT_PTT_BUTTON",
             "" if self.config.ptt_button is None else str(self.config.ptt_button),
         )
+        environment.insert(
+            "COPILOT_MUTE_DEVICE",
+            ""
+            if self.config.assistant_mute_device_id is None
+            else str(self.config.assistant_mute_device_id),
+        )
+        environment.insert(
+            "COPILOT_MUTE_BUTTON",
+            ""
+            if self.config.assistant_mute_button is None
+            else str(self.config.assistant_mute_button),
+        )
         environment.insert("COPILOT_SPEECH_MODE", self.config.speech_mode)
         if self.config.dcs_path is not None:
             environment.insert(
                 "DCS_BIOS_PATH", str(self.config.dcs_path / "Scripts" / "DCS-BIOS")
             )
         self.process.setProcessEnvironment(environment)
+        self._activity_filter.reset()
+        self.dashboard.logs.clear()
         if getattr(sys, "frozen", False):
             self.process.start(sys.executable, ["--runtime"])
         else:
@@ -649,7 +818,14 @@ class MainWindow(QMainWindow):
         output = bytes(self.process.readAllStandardOutput().data()).decode(
             errors="replace"
         )
-        self.dashboard.logs.appendPlainText(output.rstrip())
+        for line in self._activity_filter.feed(output):
+            self.dashboard.logs.appendPlainText(line)
+
+    def _runtime_finished(self, *_args: object) -> None:
+        self._runtime_output()
+        for line in self._activity_filter.flush():
+            self.dashboard.logs.appendPlainText(line)
+        self.dashboard.set_running(False)
 
     def _save_settings_silently(self) -> bool:
         self.dashboard.update_config()
@@ -671,7 +847,7 @@ class MainWindow(QMainWindow):
         try:
             self.auth.logout()
         except AuthError as exc:
-            self.dashboard.logs.appendPlainText(f"Logout warning: {exc}")
+            QMessageBox.warning(self, APP_NAME, f"Logout warning: {exc}")
         self.token = None
         self.stack.setCurrentWidget(self.login)
 

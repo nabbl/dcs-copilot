@@ -46,6 +46,9 @@ class Settings:
     copilot_ptt_key: str = "F13"
     copilot_ptt_device: int | None = None
     copilot_ptt_button: int | None = None
+    assistant_mute_key: str = "F14"
+    assistant_mute_device: int | None = None
+    assistant_mute_button: int | None = None
     speech_mode: SpeechMode = SpeechMode.NORMAL
     audio_input_device: int | None = None
     audio_output_device: int | None = None
@@ -84,6 +87,9 @@ class Settings:
             copilot_ptt_key=os.getenv("COPILOT_PTT_KEY", "F13").strip().upper(),
             copilot_ptt_device=_optional_int("COPILOT_PTT_DEVICE"),
             copilot_ptt_button=_optional_int("COPILOT_PTT_BUTTON"),
+            assistant_mute_key=os.getenv("COPILOT_MUTE_KEY", "F14").strip().upper(),
+            assistant_mute_device=_optional_int("COPILOT_MUTE_DEVICE"),
+            assistant_mute_button=_optional_int("COPILOT_MUTE_BUTTON"),
             speech_mode=SpeechMode(
                 os.getenv("COPILOT_SPEECH_MODE", "NORMAL").strip().upper()
             ),

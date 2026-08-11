@@ -197,6 +197,9 @@ def test_ptt_turn_streams_cloud_voice_audio_and_text() -> None:
         output = MediaPacket.from_bytes(websocket.receive_bytes())
         assert output.kind is MediaKind.AUDIO_OUTPUT
         assert output.payload == b"\x10\x20" * 240
+        transcript = receive_control(websocket)
+        assert transcript.type == "pilot.text"
+        assert transcript.payload == {"text": "Hello?"}
         response = receive_control(websocket)
         assert response.type == "assistant.text"
         assert response.payload == {"text": "Ready."}
@@ -289,6 +292,9 @@ def test_complete_mocked_voice_tool_result_voice_round_trip() -> None:
         output = MediaPacket.from_bytes(websocket.receive_bytes())
         assert output.kind is MediaKind.AUDIO_OUTPUT
         assert output.payload == b"\x30\x40" * 240
+        transcript = receive_control(websocket)
+        assert transcript.type == "pilot.text"
+        assert transcript.payload == {"text": "What did I forget?"}
         response = receive_control(websocket)
         assert response.type == "assistant.text"
         assert response.payload == {"text": "Your refueling probe is still out."}

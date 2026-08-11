@@ -128,6 +128,9 @@ class DesktopConfig:
     ptt_key: str = "F13"
     ptt_device_id: int | None = None
     ptt_button: int | None = None
+    assistant_mute_key: str = "F14"
+    assistant_mute_device_id: int | None = None
+    assistant_mute_button: int | None = None
     speech_mode: str = "NORMAL"
     launch_at_login: bool = False
 
@@ -168,6 +171,13 @@ class DesktopConfig:
             ptt_key=text_value("ptt_key", defaults.ptt_key),
             ptt_device_id=optional_int_value("ptt_device_id"),
             ptt_button=optional_int_value("ptt_button"),
+            assistant_mute_key=text_value(
+                "assistant_mute_key", defaults.assistant_mute_key
+            ),
+            assistant_mute_device_id=optional_int_value(
+                "assistant_mute_device_id"
+            ),
+            assistant_mute_button=optional_int_value("assistant_mute_button"),
             speech_mode=text_value("speech_mode", defaults.speech_mode),
             launch_at_login=(
                 launch_value
@@ -216,5 +226,8 @@ class DesktopConfig:
             copilot_ptt_key=self.ptt_key.strip().upper(),
             copilot_ptt_device=self.ptt_device_id,
             copilot_ptt_button=self.ptt_button,
+            assistant_mute_key=self.assistant_mute_key.strip().upper(),
+            assistant_mute_device=self.assistant_mute_device_id,
+            assistant_mute_button=self.assistant_mute_button,
             speech_mode=SpeechMode(self.speech_mode.strip().upper()),
         )

@@ -217,6 +217,13 @@ def create_app(
                 )
                 await send_control(
                     ControlMessage(
+                        "pilot.text",
+                        {"text": result.transcript},
+                        correlation_id=utterance.correlation_id,
+                    )
+                )
+                await send_control(
+                    ControlMessage(
                         "assistant.text",
                         {"text": result.response_text},
                         correlation_id=utterance.correlation_id,

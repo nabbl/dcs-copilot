@@ -1,5 +1,8 @@
 # DCS Copilot
 
+DCS Copilot's in-cockpit assistant is **MARA — Mission-Aware Realtime
+Assistant**.
+
 DCS Copilot is a commercial thin-client/cloud service in development. The
 current build implements the reset Milestones 1 through 7:
 
@@ -8,8 +11,8 @@ current build implements the reset Milestones 1 through 7:
 - a versioned client/cloud protocol;
 - a FastAPI gateway with signed account authentication and a local dev-token
   escape hatch;
-- keyboard or Windows USB joystick/HOTAS PTT-scoped PCM capture, binary audio
-  transport and playback plumbing;
+- keyboard or Windows USB joystick/HOTAS PTT-scoped PCM capture, configurable
+  assistant mute input, binary audio transport, and playback plumbing;
 - a persistent cloud Pipecat cascade with configurable OpenAI STT, Responses
   LLM, streaming TTS, and PTT barge-in cancellation;
 - four versioned, allowlisted read-only aircraft tools evaluated against local
@@ -70,11 +73,19 @@ uv run dcs-copilot-desktop
 
 On Windows, `run` listens globally for the configured keyboard key or USB
 joystick/HOTAS button while DCS has focus. The desktop Settings page detects
-connected Windows game controllers and their buttons. For POSIX local
+connected Windows game controllers and can learn separate PTT and assistant
+mute buttons from a physical button press. Muting immediately stops current
+playback and suppresses later assistant audio until the same button is pressed
+again. A short descending local tone confirms mute; an ascending tone confirms
+unmute. For POSIX local
 development, `uv run dcs-copilot run --stdin-ptt` uses Enter to start and end a
 turn. The microphone is not opened before PTT and release ends the turn without
 VAD. The cloud transcribes the bounded turn, generates a deliberately concise
 reply, and begins returning 24 kHz PCM while TTS is still streaming.
+
+The desktop Activity tab is conversation-only: it shows the recognized pilot
+utterance and the resulting MARA response, not runtime, connection, PTT, or
+telemetry logs.
 
 Questions about live cockpit state cause the cloud LLM to request only the
 needed semantic data over the existing WebSocket; raw DCS-BIOS frames and full

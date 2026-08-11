@@ -18,6 +18,7 @@ KNOWN_CONTROL_TYPES = frozenset(
         "ptt.start",
         "audio.input",
         "ptt.end",
+        "pilot.text",
         "assistant.text",
         "audio.output",
         "assistant.interrupt",

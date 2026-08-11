@@ -98,15 +98,16 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         if resource_sample_seconds >= 0.05
         else "unavailable (use --wait 0.1 or longer)"
     )
-    try:
-        function_key_virtual_code(settings.copilot_ptt_key)
-        ptt_status = (
-            settings.copilot_ptt_key
-            if sys.platform == "win32"
-            else f"{settings.copilot_ptt_key} (Windows only)"
-        )
-    except ValueError as exc:
-        ptt_status = f"invalid ({exc})"
+    ptt_status = _input_binding_status(
+        settings.copilot_ptt_key,
+        settings.copilot_ptt_device,
+        settings.copilot_ptt_button,
+    )
+    mute_status = _input_binding_status(
+        settings.assistant_mute_key,
+        settings.assistant_mute_device,
+        settings.assistant_mute_button,
+    )
     audio_devices = inspect_audio_devices(
         settings.audio_input_device, settings.audio_output_device
     )
@@ -128,6 +129,7 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         f"Cloud: {cloud.detail}",
         f"Authenticated: {'yes' if cloud.authenticated else 'no'}",
         f"PTT: {ptt_status}",
+        f"Mute: {mute_status}",
         f"Microphone: {audio_devices.input_detail} (not opened)",
         f"Output: {audio_devices.output_detail} (not opened)",
         f"Client CPU during sample: {cpu_status}",
@@ -135,6 +137,23 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         "AI inference running locally: NO",
     ]
     return lines, 0 if not socket_error else 1
+
+
+def _input_binding_status(
+    key: str,
+    device: int | None,
+    button: int | None,
+) -> str:
+    if (device is None) != (button is None):
+        return "invalid (controller device and button must both be configured)"
+    if device is not None and button is not None:
+        binding = f"controller {device}, button {button}"
+        return binding if sys.platform == "win32" else f"{binding} (Windows only)"
+    try:
+        function_key_virtual_code(key)
+    except ValueError as exc:
+        return f"invalid ({exc})"
+    return key if sys.platform == "win32" else f"{key} (Windows only)"
 
 
 def run_status(settings: Settings, wait: float) -> int:

@@ -215,10 +215,10 @@ def _friendly_joystick_name(registry_key: str) -> str | None:
 def function_key_virtual_code(key_name: str) -> int:
     normalized = key_name.strip().upper()
     if not normalized.startswith("F") or not normalized[1:].isdigit():
-        raise ValueError("COPILOT_PTT_KEY must be a function key from F1 through F24")
+        raise ValueError("key must be a function key from F1 through F24")
     number = int(normalized[1:])
     if not 1 <= number <= 24:
-        raise ValueError("COPILOT_PTT_KEY must be a function key from F1 through F24")
+        raise ValueError("key must be a function key from F1 through F24")
     return 0x70 + number - 1
 
 
@@ -244,7 +244,7 @@ class GlobalFunctionKeyPTT:
     def start(self) -> None:
         if self._platform != "win32":
             raise PTTUnavailableError(
-                "global F-key PTT requires Windows; use --stdin-ptt for local development"
+                "global F-key input requires Windows; use --stdin-ptt for local development"
             )
         factory = self._listener_factory
         if factory is None:
@@ -275,6 +275,26 @@ class GlobalFunctionKeyPTT:
         if _virtual_key(key) == self.virtual_key and self._pressed:
             self._pressed = False
             self._on_released()
+
+
+class GlobalFunctionKeyHotkey(GlobalFunctionKeyPTT):
+    """Emit one callback per global function-key press."""
+
+    def __init__(
+        self,
+        key_name: str,
+        *,
+        on_press: Callable[[], None],
+        platform: str = sys.platform,
+        listener_factory: Callable[..., Any] | None = None,
+    ) -> None:
+        super().__init__(
+            key_name,
+            on_press=on_press,
+            on_release=lambda: None,
+            platform=platform,
+            listener_factory=listener_factory,
+        )
 
 
 class GlobalJoystickButtonPTT:
@@ -352,6 +372,30 @@ class GlobalJoystickButtonPTT:
                 self._pressed = pressed
                 (self._on_pressed if pressed else self._on_released)()
             self._stop_event.wait(self._poll_interval)
+
+
+class GlobalJoystickButtonHotkey(GlobalJoystickButtonPTT):
+    """Emit one callback per joystick/HOTAS button press."""
+
+    def __init__(
+        self,
+        device_id: int,
+        button: int,
+        *,
+        on_press: Callable[[], None],
+        platform: str = sys.platform,
+        backend: Any | None = None,
+        poll_interval: float = 0.01,
+    ) -> None:
+        super().__init__(
+            device_id,
+            button,
+            on_press=on_press,
+            on_release=lambda: None,
+            platform=platform,
+            backend=backend,
+            poll_interval=poll_interval,
+        )
 
 
 def _virtual_key(key: object) -> int | None:

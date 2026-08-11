@@ -88,7 +88,10 @@ def voice_turn(websocket) -> str:
     assert (
         MediaPacket.from_bytes(websocket.receive_bytes()).kind is MediaKind.AUDIO_OUTPUT
     )
-    return receive_control(websocket).payload["text"]
+    assert receive_control(websocket).type == "pilot.text"
+    response = receive_control(websocket)
+    assert response.type == "assistant.text"
+    return response.payload["text"]
 
 
 def end_session(websocket, session_id: str) -> None:

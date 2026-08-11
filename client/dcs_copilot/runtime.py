@@ -15,14 +15,18 @@ from dcs_copilot_protocol import (
     FlightSummary,
 )
 
+from .audio.feedback import mute_tone, unmute_tone
 from .audio.portaudio import PortAudioCapture, PortAudioPlayback
 from .cli.status import _load_registry
 from .config import Settings
 from .dcs.bios_client import DcsBiosClient
+from .desktop.activity import ConversationActivity
 from .events import ManagedAircraftEvent, SpeechPolicy
 from .input.controller import PttSessionController
 from .input.ptt import (
+    GlobalFunctionKeyHotkey,
     GlobalFunctionKeyPTT,
+    GlobalJoystickButtonHotkey,
     GlobalJoystickButtonPTT,
     PTTUnavailableError,
 )
@@ -55,6 +59,8 @@ async def run_client_runtime(
     playback = PortAudioPlayback(
         output_audio_format, device_index=settings.audio_output_device
     )
+    muted_feedback = mute_tone(output_audio_format)
+    unmuted_feedback = unmute_tone(output_audio_format)
 
     registry, registry_error = _load_registry(settings)
     if registry is None:
@@ -78,6 +84,7 @@ async def run_client_runtime(
     )
     aircraft_tools = AircraftToolExecutor(store)
     summary_requests: dict[str, str] = {}
+    conversation_activity = ConversationActivity()
 
     def send_flight_summary(summary: FlightSummary) -> bool:
         message = summary.to_control()
@@ -90,6 +97,7 @@ async def run_client_runtime(
         print(f"Cloud: {status.detail}")
         if not status.connected:
             summary_requests.clear()
+            conversation_activity.reset()
         if status.session_active and store is not None:
             connection.send_message(
                 AircraftChanged(store.current.aircraft).to_control()
@@ -126,10 +134,9 @@ async def run_client_runtime(
                 for request_id, pending_id in tuple(summary_requests.items()):
                     if pending_id == summary_id:
                         del summary_requests[request_id]
-        elif message.type == "assistant.text":
-            text = message.payload.get("text")
-            if isinstance(text, str):
-                print(f"Copilot: {text}")
+        else:
+            for line in conversation_activity.accept(message):
+                print(line, flush=True)
 
     connection = CloudSessionConnection(
         url=settings.cloud_url,
@@ -199,7 +206,7 @@ async def run_client_runtime(
                 return
             exception = task.exception()
             if exception is not None:
-                LOGGER.error("PTT action failed: %s", exception)
+                LOGGER.error("input action failed: %s", exception)
 
         def create() -> None:
             task = asyncio.create_task(coroutine)
@@ -209,6 +216,7 @@ async def run_client_runtime(
         loop.call_soon_threadsafe(create)
 
     ptt_input: GlobalFunctionKeyPTT | GlobalJoystickButtonPTT | None = None
+    mute_input: GlobalFunctionKeyHotkey | GlobalJoystickButtonHotkey | None = None
     ptt_task: asyncio.Task[None] | None = None
     if stdin_ptt:
         if sys.platform == "win32":
@@ -225,6 +233,30 @@ async def run_client_runtime(
         def ptt_released() -> None:
             schedule(controller.release())
 
+        async def toggle_assistant_mute() -> None:
+            muted = await playback.toggle_muted(
+                muted_feedback=muted_feedback,
+                unmuted_feedback=unmuted_feedback,
+            )
+            print(f"Assistant audio {'muted' if muted else 'unmuted'}.")
+
+        def mute_pressed() -> None:
+            schedule(toggle_assistant_mute())
+
+        if (
+            settings.copilot_ptt_device is None
+            and settings.assistant_mute_device is None
+            and settings.copilot_ptt_key == settings.assistant_mute_key
+        ):
+            print("Mute hotkey unavailable: it cannot be the same as keyboard PTT.")
+            return 2
+        if (
+            settings.copilot_ptt_device is not None
+            and settings.assistant_mute_device == settings.copilot_ptt_device
+            and settings.assistant_mute_button == settings.copilot_ptt_button
+        ):
+            print("Mute button unavailable: it cannot be the same as PTT.")
+            return 2
         if (
             settings.copilot_ptt_device is not None
             and settings.copilot_ptt_button is not None
@@ -246,18 +278,47 @@ async def run_client_runtime(
         except (PTTUnavailableError, ValueError) as exc:
             print(f"PTT unavailable: {exc}")
             return 2
+        if (
+            settings.assistant_mute_device is not None
+            and settings.assistant_mute_button is not None
+        ):
+            mute_input = GlobalJoystickButtonHotkey(
+                settings.assistant_mute_device,
+                settings.assistant_mute_button,
+                on_press=mute_pressed,
+            )
+        else:
+            mute_input = GlobalFunctionKeyHotkey(
+                settings.assistant_mute_key,
+                on_press=mute_pressed,
+            )
+        try:
+            mute_input.start()
+        except (PTTUnavailableError, ValueError) as exc:
+            ptt_input.stop()
+            print(f"Mute hotkey unavailable: {exc}")
+            return 2
 
     telemetry_task = asyncio.create_task(
         dcs_client.run(stop), name="dcs-bios-telemetry"
     )
     cloud_task = asyncio.create_task(connection.run(stop), name="cloud-session")
-    print("Copilot voice is AI-generated.")
+    print("MARA voice is AI-generated.")
     ptt_label = (
         f"controller {settings.copilot_ptt_device}, button {settings.copilot_ptt_button}"
         if settings.copilot_ptt_device is not None
         else settings.copilot_ptt_key
     )
-    print(f"DCS Copilot running; PTT {ptt_label}. Press Ctrl-C to stop.")
+    mute_label = (
+        f"controller {settings.assistant_mute_device}, "
+        f"button {settings.assistant_mute_button}"
+        if settings.assistant_mute_device is not None
+        else settings.assistant_mute_key
+    )
+    print(
+        f"DCS Copilot running; PTT {ptt_label}; mute {mute_label}. "
+        "Press Ctrl-C to stop."
+    )
     try:
         tasks = [telemetry_task, cloud_task]
         if ptt_task is not None:
@@ -270,6 +331,9 @@ async def run_client_runtime(
         stop.set()
         if ptt_input is not None:
             ptt_input.stop()
+            await asyncio.sleep(0)
+        if mute_input is not None:
+            mute_input.stop()
             await asyncio.sleep(0)
         await controller.release()
         await playback.close()

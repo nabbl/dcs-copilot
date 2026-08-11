@@ -4,7 +4,9 @@ from dataclasses import dataclass
 
 import pytest
 from dcs_copilot.input.ptt import (
+    GlobalFunctionKeyHotkey,
     GlobalFunctionKeyPTT,
+    GlobalJoystickButtonHotkey,
     GlobalJoystickButtonPTT,
     JoystickDevice,
     PTTUnavailableError,
@@ -61,6 +63,31 @@ def test_global_f13_ptt_is_edge_triggered() -> None:
     assert listeners[0].stopped
 
 
+def test_global_function_hotkey_emits_once_per_press() -> None:
+    events: list[str] = []
+    listeners: list[FakeListener] = []
+
+    def factory(**kwargs):
+        listener = FakeListener(**kwargs)
+        listeners.append(listener)
+        return listener
+
+    hotkey = GlobalFunctionKeyHotkey(
+        "F14",
+        on_press=lambda: events.append("toggle"),
+        platform="win32",
+        listener_factory=factory,
+    )
+    hotkey.start()
+    key = FakeKey(function_key_virtual_code("F14"))
+    listeners[0].on_press(key)
+    listeners[0].on_press(key)
+    listeners[0].on_release(key)
+    listeners[0].on_press(key)
+    assert events == ["toggle", "toggle"]
+    hotkey.stop()
+
+
 def test_ptt_validation_and_non_windows_failure() -> None:
     with pytest.raises(ValueError, match="F1 through F24"):
         function_key_virtual_code("F25")
@@ -112,6 +139,27 @@ def test_joystick_button_ptt_is_edge_triggered() -> None:
     backend.state = 0
     assert _wait_until(lambda: events == ["down", "up"])
     ptt.stop()
+
+
+def test_joystick_button_hotkey_emits_once_per_press() -> None:
+    events: list[str] = []
+    backend = FakeJoystickBackend()
+    hotkey = GlobalJoystickButtonHotkey(
+        2,
+        5,
+        on_press=lambda: events.append("toggle"),
+        platform="win32",
+        backend=backend,
+        poll_interval=0.001,
+    )
+    hotkey.start()
+    backend.state = 1 << 4
+    assert _wait_until(lambda: events == ["toggle"])
+    backend.state = 0
+    assert _wait_until(lambda: not hotkey._pressed)
+    backend.state = 1 << 4
+    assert _wait_until(lambda: events == ["toggle", "toggle"])
+    hotkey.stop()
 
 
 def test_joystick_discovery_and_validation() -> None:

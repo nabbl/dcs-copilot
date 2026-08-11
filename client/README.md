@@ -1,11 +1,17 @@
 # DCS Copilot thin client
 
+The in-cockpit assistant is **MARA — Mission-Aware Realtime Assistant**.
+
 The customer-side read-only DCS telemetry and audio peripheral. The Windows
 build includes a Qt desktop shell for login, DCS Saved Games selection,
 DCS-BIOS installation/repair, settings, status, and runtime control. It retains
 aircraft normalization and deterministic safety logic locally, captures PCM
 only while PTT is held, and connects to the DCS Copilot service through the
 shared versioned protocol. It contains no AI model or provider credential.
+The desktop can learn separate HOTAS buttons for PTT and assistant mute. The
+Activity tab filters raw runtime output and shows only recognized pilot speech
+and the resulting MARA response. Short generated local tones confirm mute
+and unmute without requiring cloud TTS.
 It also executes the four Milestone 4 aircraft tools locally against normalized
 state, deterministic rules, bounded history, and flight phase. Tool calls are
 read-only, allowlisted, and never expose raw or arbitrary DCS access.

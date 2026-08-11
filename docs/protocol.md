@@ -104,8 +104,14 @@ cloud  -> event (utterance.received)
 cloud  -> tool.request
 client -> tool.result (correlated)
 cloud  -> binary AUDIO_OUTPUT chunks
+cloud  -> pilot.text
 cloud  -> assistant.text
 ```
+
+`pilot.text` contains the cloud STT result for the completed PTT turn. The
+desktop uses `pilot.text` and `assistant.text` for its conversation-only
+Activity view. Assistant muting remains a local playback control and does not
+change protocol traffic or upload controller bindings.
 
 Tool requests use their control `message_id` as the request ID. Tool results
 must place that ID in `correlation_id`:
