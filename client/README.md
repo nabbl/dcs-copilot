@@ -18,7 +18,10 @@ read-only, allowlisted, and never expose raw or arbitrary DCS access.
 Deterministic rule transitions also feed a bounded local `EventManager`.
 `COPILOT_SPEECH_MODE` selects `MINIMAL`, `NORMAL`, or `COACH`; the policy sends
 only eligible semantic events to cloud TTS and never uploads a cockpit snapshot.
-There is intentionally no local warning-audio pack in this build.
+When a new cockpit slot is detected, the client also requests one short curated
+MARA welcome through the same cloud TTS path. Aircraft resynchronization after a
+cloud reconnect does not repeat it. There is intentionally no local audio pack
+in this build.
 
 Milestone 6 keeps account data off the gaming PC. The desktop signs in through
 the backend HTTP API and stores only its rotating refresh credential in Windows

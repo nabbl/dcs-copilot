@@ -19,7 +19,7 @@ from .messages import (
     ProtocolError,
     UnsupportedProtocolVersion,
 )
-from .sessions import SESSION_METADATA_VERSION, AircraftChanged
+from .sessions import SESSION_METADATA_VERSION, AircraftChanged, CockpitEntered
 from .tools import (
     AIRCRAFT_TOOL_VERSION,
     ALLOWED_AIRCRAFT_STATE_FIELDS,
@@ -46,6 +46,7 @@ __all__ = [
     "AircraftToolRequest",
     "AircraftToolResult",
     "AudioFormat",
+    "CockpitEntered",
     "ControlMessage",
     "EventProtocolError",
     "FlightSummary",
