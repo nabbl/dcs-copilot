@@ -204,12 +204,14 @@ into the new slot.
 ## Milestone 4 aircraft-tool contract
 
 The LLM can advertise only `get_aircraft_state`, `get_active_issues`,
-`get_recent_events`, and `get_flight_phase`. Tool schema version 1 validates
-names, arguments, field counts, history windows, and result shape at both trust
-boundaries. `get_aircraft_state` requires an explicit field list and rejects
-raw state, warning-light maps, and every unrecognized field. Results preserve
-`AVAILABLE`, `STALE`, and `UNAVAILABLE` status; an unavailable value is returned
-as `null`, never inferred.
+`get_recent_events`, `get_flight_phase`, and
+`get_missing_checklist_items`. Tool schema version 1 validates names, arguments,
+field counts, history windows, and result shape at both trust boundaries.
+`get_aircraft_state` requires an explicit field list and rejects raw state,
+warning-light maps, and every unrecognized field. Checklist gaps are evaluated
+deterministically on the client and preserve incomplete versus unconfirmed
+status. Results preserve `AVAILABLE`, `STALE`, and `UNAVAILABLE` status; an
+unavailable value is returned as `null`, never inferred.
 
 The gateway correlates each `tool.result` with the request message ID and rejects
 unsolicited or mismatched responses. Pending calls have a short timeout and fail

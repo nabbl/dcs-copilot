@@ -12,9 +12,9 @@ The desktop can learn separate HOTAS buttons for PTT and assistant mute. The
 Activity tab filters raw runtime output and shows only recognized pilot speech
 and the resulting MARA response. Short generated local tones confirm mute
 and unmute without requiring cloud TTS.
-It also executes the four Milestone 4 aircraft tools locally against normalized
-state, deterministic rules, bounded history, and flight phase. Tool calls are
-read-only, allowlisted, and never expose raw or arbitrary DCS access.
+It also executes versioned aircraft and checklist tools locally against
+normalized state, deterministic rules, bounded history, and flight phase. Tool
+calls are read-only, allowlisted, and never expose raw or arbitrary DCS access.
 Deterministic rule transitions also feed a bounded local `EventManager`.
 `COPILOT_SPEECH_MODE` selects `MINIMAL`, `NORMAL`, or `COACH`; the policy sends
 only eligible semantic events to cloud TTS and never uploads a cockpit snapshot.

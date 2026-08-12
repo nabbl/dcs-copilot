@@ -432,6 +432,82 @@ def test_complete_mocked_voice_tool_result_voice_round_trip() -> None:
         assert response.correlation_id is not None
 
 
+class MissingChecklistVoicePipeline(FakeVoicePipeline):
+    async def respond(
+        self, turn: VoiceTurn, on_audio, request_tool=None
+    ) -> VoiceTurnResult:
+        self.turn = turn
+        assert request_tool is not None
+        result = await request_tool(
+            "get_missing_checklist_items",
+            {"checklist_id": "fa18c_startup", "stage": "before-taxi"},
+        )
+        response = f"You missed {result['items'][0]['label']}."
+        await on_audio(b"\x30\x40" * 240)
+        return VoiceTurnResult("What have I missed?", response)
+
+
+def test_missing_checklist_items_complete_voice_round_trip() -> None:
+    pipeline = MissingChecklistVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v1/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_bytes(
+            MediaPacket(MediaKind.AUDIO_INPUT, 0, 1, b"\x01\x02" * 320).to_bytes()
+        )
+        websocket.send_text(ControlMessage("ptt.end").to_json())
+        assert receive_control(websocket).payload["event_type"] == "utterance.received"
+
+        tool_control = receive_control(websocket)
+        request = AircraftToolRequest.from_control(tool_control)
+        assert request.tool == "get_missing_checklist_items"
+        assert request.arguments == {
+            "checklist_id": "fa18c_startup",
+            "stage": "before-taxi",
+            "include_complete": False,
+        }
+        websocket.send_text(
+            AircraftToolResult.success(
+                request,
+                {
+                    "available": True,
+                    "checklist_id": "fa18c_startup",
+                    "aircraft": "FA-18C_hornet",
+                    "stage": "before-taxi",
+                    "complete": False,
+                    "items": [
+                        {
+                            "id": "ejection_seat_armed",
+                            "label": "Ejection seat",
+                            "status": "incomplete",
+                            "expected": True,
+                            "actual": False,
+                            "reason": "ejection_seat_armed is False, expected True",
+                            "verification_type": "state",
+                            "observed_at": 1.0,
+                        }
+                    ],
+                },
+            )
+            .to_control()
+            .to_json()
+        )
+
+        assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+            MediaKind.AUDIO_OUTPUT
+        )
+        assert receive_control(websocket).payload["text"] == "What have I missed?"
+        response = receive_control(websocket)
+        assert response.payload == {"text": "You missed Ejection seat."}
+
+
 def proactive_event(*, status: str = "RAISED") -> AircraftEvent:
     return AircraftEvent(
         event_id="event-1",

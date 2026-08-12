@@ -52,7 +52,7 @@ def test_missing_server_key_and_unknown_provider_fail_closed() -> None:
         build_provider_bundle(CloudSettings(openai_api_key="key", stt_provider="local"))
 
 
-def test_pipecat_context_exposes_only_milestone_four_aircraft_tools() -> None:
+def test_pipecat_context_exposes_allowlisted_aircraft_tools() -> None:
     async def handler(_params) -> None:
         return None
 
@@ -62,7 +62,13 @@ def test_pipecat_context_exposes_only_milestone_four_aircraft_tools() -> None:
         "get_active_issues",
         "get_recent_events",
         "get_flight_phase",
+        "get_missing_checklist_items",
     }
+    checklist = next(
+        schema for schema in schemas if schema.name == "get_missing_checklist_items"
+    )
+    assert checklist.required == []
+    assert set(checklist.properties) == {"checklist_id", "stage"}
     assert all(schema.handler is handler for schema in schemas)
 
 
@@ -80,7 +86,7 @@ def test_pipecat_context_separates_allowlisted_account_and_aircraft_tools() -> N
         "get_flight_history",
         "get_pilot_habits",
     }
-    assert len(copilot_tool_schemas(handler)) == 11
+    assert len(copilot_tool_schemas(handler)) == 12
     assert all(schema.handler is handler for schema in account_schemas)
 
 

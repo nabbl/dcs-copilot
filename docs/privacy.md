@@ -11,10 +11,12 @@ The gateway receives session metadata, PTT control messages, intentional PCM
 audio, semantic tool results requested for the active conversation, and
 speech-policy-approved semantic events.
 
-The four client tools are versioned, read-only, and allowlisted. State reads
-require explicit safe fields; issue, phase, and recent-event results are bounded.
-The interface cannot access raw DCS-BIOS, complete cockpit snapshots, files,
-shell commands, Lua, cockpit controls, enemy/world state, or arbitrary DCS data.
+Client tools are versioned, read-only, and allowlisted. State reads require
+explicit safe fields; issue, phase, recent-event, and checklist-gap results are
+bounded. Checklist gaps contain semantic item results evaluated locally, not a
+cockpit snapshot. The interface cannot access raw DCS-BIOS, complete cockpit
+snapshots, files, shell commands, Lua, cockpit controls, enemy/world state, or
+arbitrary DCS data.
 The gateway keeps a bounded in-memory list of audio byte/chunk receipts for
 diagnostics; it does not persist or log audio payloads.
 

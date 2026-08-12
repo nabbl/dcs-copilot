@@ -15,8 +15,8 @@ current build implements the reset Milestones 1 through 7:
   assistant mute input, binary audio transport, and playback plumbing;
 - a persistent cloud Pipecat cascade with configurable OpenAI STT, Responses
   LLM, streaming TTS, and PTT barge-in cancellation;
-- four versioned, allowlisted read-only aircraft tools evaluated against local
-  normalized state, deterministic issues, history, and flight phase;
+- versioned, allowlisted read-only aircraft and checklist tools evaluated against
+  local normalized state, deterministic issues, history, and flight phase;
 - deterministic semantic event management, local `MINIMAL`/`NORMAL`/`COACH`
   speech policy, and cloud-streamed proactive warning audio.
 - cloud user accounts with short-lived device-bound access tokens, rotating

@@ -153,11 +153,13 @@ must place that ID in `correlation_id`:
 }
 ```
 
-The allowlist is `get_aircraft_state`, `get_active_issues`,
-`get_recent_events`, and `get_flight_phase`. State requests require explicit
-safe normalized fields and never accept `raw` or a complete snapshot. Recent
-deterministic rule events are capped at 20 records and a 300-second window.
-Unknown tools,
+Mara's advertised allowlist is `get_aircraft_state`, `get_active_issues`,
+`get_recent_events`, `get_flight_phase`, and
+`get_missing_checklist_items`. State requests require explicit safe normalized
+fields and never accept `raw` or a complete snapshot. Checklist results contain
+only bounded semantic item status, expected/actual values, and reasons evaluated
+locally. Recent deterministic rule events are capped at 20 records and a
+300-second window. Unknown tools,
 arguments, versions, unsolicited results, and correlation mismatches fail
 closed. The cloud times out pending calls and fails them immediately on client
 disconnect.

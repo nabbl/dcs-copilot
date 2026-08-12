@@ -360,7 +360,7 @@ class PipecatVoicePipeline:
 
 
 def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
-    """Provider-neutral Pipecat schemas for the four local read-only tools."""
+    """Provider-neutral Pipecat schemas for local read-only aircraft tools."""
 
     no_arguments: dict[str, Any] = {}
     state_fields = sorted(ALLOWED_AIRCRAFT_STATE_FIELDS)
@@ -420,6 +420,36 @@ def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
             name="get_flight_phase",
             description="Read the deterministic local flight phase, if available.",
             properties=no_arguments,
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="get_missing_checklist_items",
+            description=(
+                "Read only incomplete or unconfirmed items from the deterministic "
+                "local checklist. Use this for cold-start questions such as what "
+                "have I missed. Report only returned items and preserve uncertainty."
+            ),
+            properties={
+                "checklist_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": (
+                        "Checklist identifier. Omit to use the checklist for the "
+                        "current aircraft."
+                    ),
+                },
+                "stage": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": (
+                        "Checklist stage identifier. Omit to use the active or "
+                        "default stage."
+                    ),
+                },
+            },
             required=[],
             handler=handler,
         ),
