@@ -48,4 +48,4 @@ reports the CapRover deployment result.
 
 For the Windows installer workflow, set the existing repository variable
 `DCS_COPILOT_SERVICE_URL` to the matching
-`wss://api.example.com/v1/realtime` URL.
+`wss://api.example.com/v2/realtime` URL.

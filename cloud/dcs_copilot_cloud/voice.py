@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from dcs_copilot_protocol import ALLOWED_AIRCRAFT_STATE_FIELDS, AudioFormat
+from dcs_copilot_protocol import AudioFormat
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
@@ -40,6 +40,7 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
 from .providers import ProviderBundle
+from .tools import ALLOWED_AIRCRAFT_STATE_FIELDS
 
 AudioCallback = Callable[[bytes], Awaitable[None]]
 ToolCallback = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
@@ -340,8 +341,8 @@ class PipecatVoicePipeline:
                 result: dict[str, Any] = {
                     "available": False,
                     "error": {
-                        "code": "aircraft_client_unavailable",
-                        "detail": "aircraft tools are unavailable for this turn",
+                        "code": "backend_state_unavailable",
+                        "detail": "backend aircraft state is unavailable for this turn",
                     },
                 }
             else:
@@ -350,7 +351,7 @@ class PipecatVoicePipeline:
                         params.function_name,
                         dict(params.arguments),
                     )
-                except Exception as exc:  # noqa: BLE001 - errors become tool data
+                except ValueError as exc:
                     from .tools import aircraft_tool_error_result
 
                     result = aircraft_tool_error_result(exc)

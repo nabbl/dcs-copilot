@@ -1,29 +1,34 @@
-# Adding an aircraft adapter
+# Adding backend aircraft support
 
 Aircraft adapters translate symbolic DCS-BIOS controls into the small normalized
-`AircraftState`; they never contain addresses. A new adapter should be added only
-after its controls and value behavior have been checked in the installed
-DCS-BIOS control reference and, where needed, in a live cockpit.
+`AircraftState`; they never contain addresses. Adapters, rules, and checklists
+exist only under `cloud/dcs_copilot_cloud/`. A mapping for a control already
+exported by the generic client requires only a backend deployment.
+
+A new adapter should be added only after its controls and value behavior have
+been checked in the installed DCS-BIOS control reference and, where needed, in a
+live cockpit.
 
 ## Interface
 
 Implement `AircraftAdapter` with an `aircraft_names` set and a `normalize()`
 method returning `PartialAircraftState`. Construct a `ControlReader` from the
-registry and incoming `DcsBiosState`. The reader provides decoded values with
-source, timestamp, availability, and staleness. Register the adapter in
-`AircraftStateStore`.
+connection-scoped `RawTelemetryStore`. The reader consumes stable
+module/identifier/output-type/output-index identities and provides decoded
+values with source, receipt time, availability, and staleness. Register the
+adapter in the backend `AircraftStateStore`.
 
 Never silently substitute a different control when the intended one is missing.
 Composite fields must be unavailable unless every required component is
 available and semantically valid. Keep module-specific identifiers inside the
 adapter; rules consume normalized names only.
 
-## Hornet v1 mapping
+## Hornet mapping
 
 | Normalized field | DCS-BIOS source | Notes |
 | --- | --- | --- |
 | IAS | `CommonData/IAS_US_INT` | Requires advancing CommonData model time |
-| Ground speed | Local delta of `CommonData/LAT_*` and `LON_*` | Coordinates remain client-local and are not exposed; requires advancing model time |
+| Ground speed | Backend delta of `CommonData/LAT_*` and `LON_*` | Raw coordinates remain bounded session telemetry and are not persisted; requires advancing model time |
 | MSL altitude | `CommonData/ALT_MSL_FT` | Requires advancing CommonData model time |
 | Heading | `CommonData/HDG_DEG_MAG` | Magnetic degrees; CommonData health-gated |
 | Gear | `GEAR_LEVER` plus three `FLP_LG_*_GEAR_LT` | Down requires all three lights; up requires lever-up/dark lights to remain stable for three seconds |
@@ -49,7 +54,8 @@ guide's IFEI description.
 
 ## Required tests
 
-For each mapped field, test normal values, unavailable inputs, stale inputs, and
-invalid strings/enums. Composite fields need partial-input and transition cases.
-Add phase tests only for inferences supported by the new aircraft's verified
-telemetry; otherwise allow `UNKNOWN`.
+Add tests under `cloud/tests/` for normal, unavailable, stale, and invalid
+inputs. Composite fields need partial-input and transition cases. Add phase
+tests only for inferences supported by verified telemetry; otherwise allow
+`UNKNOWN`. Include a transport-to-tool integration case when introducing a new
+aircraft family.

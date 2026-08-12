@@ -2,74 +2,65 @@
 
 The in-cockpit assistant is **MARA — Mission-Aware Realtime Assistant**.
 
-The customer-side read-only DCS telemetry and audio peripheral. The Windows
-build includes a Qt desktop shell for login, DCS Saved Games selection,
-DCS-BIOS installation/repair, settings, status, and runtime control. It retains
-aircraft normalization and deterministic safety logic locally, captures PCM
-only while PTT is held, and connects to the DCS Copilot service through the
-shared versioned protocol. It contains no AI model or provider credential.
+The client is a generic read-only DCS-BIOS and audio transport. It ingests the
+DCS-BIOS multicast stream, decodes own-aircraft control outputs, and
+continuously publishes a decoded control catalog, an initial value snapshot, and
+changed-value deltas to the cloud — independent of PTT. It captures PCM only
+while PTT is held and connects to the DCS Copilot service through the shared
+versioned protocol (v2, `/v2/realtime`, auth at `/v1/auth`). It contains no AI
+model, no OpenAI credential, and performs no aircraft normalization, rule
+evaluation, phase detection, checklist execution, event management, or speech
+policy. All semantic processing is authoritative on the backend.
+
+The Windows build includes a Qt desktop shell for login, DCS Saved Games
+selection, DCS-BIOS installation/repair, settings, status, and runtime control.
 The desktop can learn separate HOTAS buttons for PTT and assistant mute. The
 Activity tab filters raw runtime output and shows only recognized pilot speech
-and the resulting MARA response. Short generated local tones confirm mute
-and unmute without requiring cloud TTS.
-It also executes versioned aircraft and checklist tools locally against
-normalized state, deterministic rules, bounded history, and flight phase. Tool
-calls are read-only, allowlisted, and never expose raw or arbitrary DCS access.
-Deterministic rule transitions also feed a bounded local `EventManager`.
-`COPILOT_SPEECH_MODE` selects `MINIMAL`, `NORMAL`, or `COACH`; the policy sends
-only eligible semantic events to cloud TTS and never uploads a cockpit snapshot.
-When a new cockpit slot is detected, the client also requests one short curated
-MARA welcome through the same cloud TTS path. Aircraft resynchronization after a
-cloud reconnect does not repeat it. There is intentionally no local audio pack
-in this build.
+and the resulting MARA response. Short generated local tones confirm mute and
+unmute without requiring cloud TTS.
 
-Milestone 6 keeps account data off the gaming PC. The desktop signs in through
-the backend HTTP API and stores only its rotating refresh credential in Windows
-Credential Manager. Access tokens remain in memory and are refreshed before
-WebSocket reconnects. The client sends the short-lived token and a stable,
-random device identifier during the handshake. It reports only a versioned
-aircraft identifier for the cloud flight-session record; no cockpit snapshot or
-telemetry accompanies that metadata. Password verification, token hashes,
-memory, and database logic remain cloud-side.
+## Telemetry publishing
+
+The telemetry publisher builds a stable control catalog from the DCS-BIOS
+control registry and detected aircraft module. Each catalog entry identifies a
+control output by its symbolic name (`module`, `identifier`, `output_type`,
+`output_index`) — not by numeric DCS-BIOS address. On each new aircraft slot
+or reconnect the publisher generates a fresh epoch UUID, sends the complete
+catalog in chunks, sends a complete value snapshot, then sends coalesced
+changed-value deltas at 10–20 Hz. Only own-aircraft modules and CommonData
+passive DCS-BIOS outputs are published; no Lua, filesystem, enemy, world,
+target, or hidden mission data is forwarded and no DCS writes are ever issued.
+
+## PTT and audio
+
+Microphone capture opens only after PTT is pressed and closes before `ptt.end`
+is sent. There is no open-microphone mode, VAD, or background capture. PTT
+press first stops assistant playback and sends `assistant.interrupt`. Cloud
+failures reconnect with bounded backoff while the independent DCS ingestion
+task continues running.
+
+## Authentication
+
+The desktop signs in through the backend HTTP auth API at `/v1/auth` and stores
+only its rotating refresh credential in Windows Credential Manager. Access
+tokens remain in memory and are refreshed before each WebSocket reconnect. The
+client sends the short-lived token and a stable, random device identifier during
+the handshake.
 
 The Windows installer can configure every detected DCS Saved Games tree. It
-downloads a pinned DCS-Skunkworks DCS-BIOS release, verifies its SHA-256 digest,
-backs up an existing DCS-BIOS folder and `Export.lua`, and adds the standard
-DCS-BIOS `dofile` exactly once. The same operation is available from the UI and
-as `dcs-copilot setup-dcs [path]`.
+downloads a pinned DCS-Skunkworks DCS-BIOS release, verifies its SHA-256
+digest, backs up an existing DCS-BIOS folder and `Export.lua`, and adds the
+standard DCS-BIOS `dofile` exactly once. The same operation is available from
+the UI and as `dcs-copilot setup-dcs [path]`.
 
-Milestone 7 adds local `FlightStatsManager` aggregation over the same
-deterministic rules. On flight end it sends only an allowlisted rule/count map
-with explicit telemetry coverage. Unavailable rules are omitted, never guessed
-clear. Summaries remain bounded and pending until a correlated cloud ack; no
-raw or complete normalized state is uploaded.
-
-The F/A-18C rule engine supports declarative deterministic `RuleDefinition`
-entries for configuration, phase, transition, and command-vs-actual mismatch
-checks. The first carrier-launch, post-launch, combat-mode, probe, and recovery
-rules use normalized semantic fields such as `carrier_launch_sequence`,
-`takeoff_trim_confirmed`, `wing_fold_spread`, and `carrier_recovery`; missing
-DCS-BIOS controls disable affected rules instead of guessing. Actual stabilator
-trim magnitude remains unsupported unless an IC-safe read-only export is added.
-Each rule also declares catalogue metadata: category, minimum chatter mode,
-severity, feasibility, false-positive risk, required fields, timing, description,
-and source reference. `SpeechPolicy` uses the deterministic rule's
-`minimum_mode` so `MINIMAL`, `NORMAL`, and `COACH` remain cumulative without
-letting the cloud model decide whether a cockpit condition exists.
-
-Useful diagnostics:
+## CLI commands
 
 ```text
-dcs-copilot rules
-dcs-copilot rules --active
-dcs-copilot rule explain HOOK_DOWN_OUTSIDE_RECOVERY
-dcs-copilot check carrier-launch
-dcs-copilot checklist status before-taxi
-dcs-copilot checklist explain seat-armed --stage before-taxi
+dcs-copilot status [--wait N]   bounded DCS-BIOS and cloud diagnostics
+dcs-copilot run [--stdin-ptt]   DCS monitoring, cloud session, and PTT audio
+dcs-copilot watch [--module M]  decoded DCS-BIOS output changes
+dcs-copilot setup-dcs [path]    install DCS-BIOS and configure Export.lua
 ```
 
-The checklist engine is also deterministic and local-only. It evaluates
-data-driven checklist items against normalized aircraft state, recent state
-history transitions, derived rule conditions, and explicitly confirmed manual
-items. Checklist tool calls expose only checklist IDs, item labels, local status,
-and reasons; they do not upload raw cockpit state.
+`status` reports `AI inference running locally: NO`. `--stdin-ptt` replaces the
+Windows hotkey with Enter for POSIX development.

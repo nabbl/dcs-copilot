@@ -2,7 +2,7 @@
   #define AppVersion "0.1.0"
 #endif
 #ifndef ServiceUrl
-  #define ServiceUrl "ws://127.0.0.1:8000/v1/realtime"
+  #define ServiceUrl "ws://127.0.0.1:8000/v2/realtime"
 #endif
 
 #define AppName "DCS Copilot"

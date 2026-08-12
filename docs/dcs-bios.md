@@ -54,28 +54,29 @@ Watch decoded symbolic controls:
 
 ```bash
 uv run dcs-copilot watch
-uv run dcs-copilot watch --raw --module FA-18C_hornet
-uv run dcs-copilot watch --raw --module FA-18C_hornet --control MASTER_CAUTION_LT
+uv run dcs-copilot watch --module FA-18C_hornet
+uv run dcs-copilot watch --module FA-18C_hornet --control MASTER_CAUTION_LT
 ```
 
-Normal `watch` output contains normalized field changes and availability status.
-`--raw` compares decoded controls and prints changes only. Neither mode prints
-every 30 Hz packet. A control is decoded only after every byte required by its
-metadata has been exported.
+`watch` prints changed decoded controls by stable module and identifier. It does
+not normalize aircraft state and does not print every 30 Hz packet. A control is
+decoded only after every byte required by its metadata has been exported.
 
 ## Failure behavior
 
-- No frames within the stale timeout marks the client disconnected and clears
-  all state availability, preventing old cockpit values from being reused.
+- No frames within the stale timeout marks DCS-BIOS disconnected and clears the
+  local decoder cache. Backend tool reads independently age received values to
+  stale, preventing old cockpit facts from being treated as current.
 - A malformed write header increments the parser error counter and suspends
   parsing until the next valid sync marker.
 - A truncated write is never partially applied.
 - Bad JSON files are skipped and reported as degraded registry health.
 - `_ACFT_NAME` values `NONE`, empty, or unavailable produce no detected aircraft.
-- CommonData IAS/altitude/heading and locally derived ground speed remain
-  unavailable until its model-time counter advances, which distinguishes a live
-  ownship export from cached/default bytes. Position components used for ground
-  speed are not retained in normalized state or sent to the cloud.
+- Backend CommonData IAS/altitude/heading and derived ground speed remain
+  unavailable until its model-time counter advances, distinguishing a live
+  ownship export from cached/default bytes. Decoded CommonData position
+  components are sent as own-cockpit telemetry, held only in bounded session
+  memory, and are not persisted as raw telemetry.
 
 If status reports frames but no aircraft, verify that `MetadataStart.json` is
 present and use the DCS-BIOS control reference to confirm `_ACFT_NAME` updates.

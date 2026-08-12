@@ -37,7 +37,7 @@ class CloudSettings:
     handshake_timeout_seconds: float = 5.0
     log_level: str = "info"
     max_utterance_seconds: float = 60.0
-    aircraft_tool_timeout_seconds: float = 3.0
+    telemetry_stale_seconds: float = 30.0
     openai_api_key: str = field(default="", repr=False)
     stt_provider: str = "openai"
     stt_model: str = "gpt-transcribe"
@@ -77,8 +77,8 @@ class CloudSettings:
             ),
             log_level=os.getenv("CLOUD_LOG_LEVEL", "info").lower(),
             max_utterance_seconds=float(os.getenv("CLOUD_MAX_UTTERANCE_SECONDS", "60")),
-            aircraft_tool_timeout_seconds=float(
-                os.getenv("CLOUD_AIRCRAFT_TOOL_TIMEOUT_SECONDS", "3")
+            telemetry_stale_seconds=float(
+                os.getenv("CLOUD_TELEMETRY_STALE_SECONDS", "30")
             ),
             openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
             stt_provider=os.getenv("STT_PROVIDER", "openai").strip().lower(),

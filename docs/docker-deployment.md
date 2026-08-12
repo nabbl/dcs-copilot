@@ -5,6 +5,9 @@ client remains a native application because it needs Windows global keyboard
 input, the credential vault, DCS process focus, host audio devices, and local
 DCS-BIOS multicast.
 
+Protocol version 2 is the only supported version. A v1 client cannot connect to
+this gateway. The client and cloud must be upgraded together.
+
 ## Start the backend
 
 Install Docker Desktop or Docker Engine with the Compose plugin, then run from
@@ -40,7 +43,7 @@ credential in the Windows credential vault.
 For Docker Desktop on the same Windows PC, use:
 
 ```text
-ws://127.0.0.1:8000/v1/realtime
+ws://127.0.0.1:8000/v2/realtime
 ```
 
 Enter that URL in the desktop client's service URL setting, or bake it into an
@@ -48,12 +51,12 @@ installer:
 
 ```powershell
 ./packaging/windows/build.ps1 -Version 0.1.0 `
-  -ServiceUrl "ws://127.0.0.1:8000/v1/realtime"
+  -ServiceUrl "ws://127.0.0.1:8000/v2/realtime"
 ```
 
 For a backend on another computer or a public server, terminate TLS in a
 reverse proxy/load balancer that supports WebSocket upgrades and expose the
-service as `wss://your-domain.example/v1/realtime`. The client intentionally
+service as `wss://your-domain.example/v2/realtime`. The client intentionally
 rejects unencrypted `ws://` connections to non-loopback hosts. Do not expose
 PostgreSQL; only the backend port is published by Compose.
 
@@ -61,7 +64,7 @@ Build a remote-client installer with the public URL:
 
 ```powershell
 ./packaging/windows/build.ps1 -Version 0.1.0 `
-  -ServiceUrl "wss://your-domain.example/v1/realtime"
+  -ServiceUrl "wss://your-domain.example/v2/realtime"
 ```
 
 ## Environment variables
@@ -71,7 +74,7 @@ backend/database containers:
 
 | Variable | Purpose |
 | --- | --- |
-| `OPENAI_API_KEY` | Server-side OpenAI STT, LLM, and TTS access |
+| `OPENAI_API_KEY` | Server-side STT (gpt-transcribe), LLM (gpt-5.6-luna), and TTS access |
 | `DCS_COPILOT_AUTH_SIGNING_KEY` | Signs short-lived account access tokens |
 | `POSTGRES_PASSWORD` | Password for the private Compose PostgreSQL service |
 

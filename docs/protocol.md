@@ -1,9 +1,29 @@
-# Client/cloud protocol version 1
+# Client/cloud protocol version 2
+
+Protocol version 2 is a **breaking change**. Protocol version 1 is no longer
+supported. The client and cloud must be upgraded together; a version-1 client
+cannot connect to a version-2 gateway and vice versa.
 
 The same protocol is used against localhost and the production service. The
-initial transport is one persistent WebSocket at `/v1/realtime`. Production
-connections require TLS (`wss://`); plaintext `ws://` is rejected by the client
-unless the host is loopback.
+realtime WebSocket endpoint is `/v2/realtime`. HTTP account operations remain at
+`/v1/auth`. Production connections require TLS (`wss://`); plaintext `ws://` is
+rejected by the client unless the host is loopback.
+
+## Architecture overview
+
+In protocol version 2 the client is a generic read-only DCS-BIOS and audio
+transport. It continuously sends a decoded own-cockpit control catalog, an
+initial value snapshot, and changed-value deltas — independent of PTT. The
+backend receives the raw decoded telemetry stream, holds it bounded in
+authenticated session memory, and owns all normalization, phase detection,
+deterministic rules, checklists, semantic events, speech policy, habit
+statistics, and MARA tool execution. Raw telemetry is never persisted or logged
+as full snapshots or time series; semantic account, history, and habit records
+may persist as documented in `docs/accounts.md`.
+
+Only own-aircraft modules and CommonData passive DCS-BIOS outputs are accepted.
+No Lua, filesystem, enemy, world, target, or hidden mission data crosses this
+interface. The client never writes to DCS.
 
 ## Control envelope
 
@@ -11,7 +31,7 @@ Control messages are compact JSON text frames:
 
 ```json
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
   "type": "ptt.start",
   "message_id": "uuid",
   "correlation_id": "optional-request-uuid",
@@ -21,14 +41,13 @@ Control messages are compact JSON text frames:
 
 Every response to a request uses the request's `message_id` as its
 `correlation_id`. Version mismatches are fatal. A syntactically valid unknown
-message type produces an `unsupported_message` error without crashing or
-closing an otherwise valid session.
+message type produces an `unsupported_message` error without closing an
+otherwise valid session.
 
-The v1 registry includes `hello`, `authenticate`, `session.start`,
-`session.end`, `ptt.start`, `ptt.end`, `assistant.text`, `assistant.interrupt`,
-`tool.request`, `tool.result`, `flight.summary`, aircraft/event lifecycle messages,
-`connection.status`, and `error`. Aircraft tool and semantic event behavior is
-implemented; unrelated future lifecycle types remain forward-compatible.
+The v2 message type registry: `hello`, `authenticate`, `session.start`,
+`session.end`, `ptt.start`, `ptt.end`, `pilot.text`, `assistant.text`,
+`audio.input`, `audio.output`, `assistant.interrupt`, `connection.status`,
+`error`, `event`, `telemetry.catalog`, `telemetry.snapshot`, `telemetry.delta`.
 
 ## Session sequence
 
@@ -39,22 +58,157 @@ cloud  -> connection.status (authenticated)
 client -> session.start (session ID + audio format)
 cloud  -> connection.status (session active)
 
+// Telemetry stream — continuous, independent of PTT:
+client -> telemetry.catalog  (chunked; fresh epoch per aircraft slot or reconnect)
+client -> telemetry.snapshot (chunked initial values, same epoch)
+cloud  -> assistant.text     (cockpit welcome, proactive: true)
+client -> telemetry.delta    (changed values at 10–20 Hz)
+
+// PTT voice turn:
 client -> assistant.interrupt
 client -> ptt.start
 client -> binary AUDIO_INPUT packets while held
 client -> ptt.end
 cloud  -> event (utterance.received)
+cloud  -> binary AUDIO_OUTPUT chunks
+cloud  -> pilot.text
+cloud  -> assistant.text
 
 client -> session.end
 ```
 
-Milestone 6 normally uses a short-lived, signed access token returned by the
-cloud HTTP account API. The token is bound to the `device_id`; an expired,
-tampered, or wrong-device token closes authentication. Refresh rotation occurs
-over HTTPS outside this media protocol. A configured `DCS_COPILOT_DEV_TOKEN`
-remains a loopback-development escape hatch with no account identity or memory
-access. Both peers enforce a bounded handshake timeout so an idle or malicious
-half-open connection cannot occupy a session indefinitely.
+Authentication uses a short-lived signed access token from the cloud HTTP
+account API. The token is bound to `device_id`; an expired, tampered, or
+wrong-device token closes authentication. Refresh rotation occurs over HTTPS
+outside this protocol. `DCS_COPILOT_DEV_TOKEN` remains a loopback-development
+escape hatch with no account identity or memory access. Both peers enforce a
+bounded handshake timeout.
+
+## Telemetry stream
+
+The client sends a contiguous sequence of catalog → snapshot → deltas for each
+aircraft session. A new UUID epoch signals a fresh aircraft slot or reconnect;
+the backend resets its session-memory state and closes the active MARA pipeline.
+
+### Control identity
+
+Every catalog entry and decoded value carries a stable `identity` object that
+identifies the cockpit control by symbolic name, not by numeric DCS-BIOS
+address or memory offset:
+
+```json
+{
+  "module": "FA-18C_hornet",
+  "identifier": "MASTER_CAUTION_LT",
+  "output_type": "integer",
+  "output_index": 0
+}
+```
+
+`output_type` is `"integer"` or `"string"`. `output_index` distinguishes
+multiple outputs of the same type on the same control. The tuple
+`(module, identifier, output_type, output_index)` is the stable, unique key.
+
+### Catalog message
+
+Sent once per epoch, possibly chunked. Each entry describes one control output:
+
+```json
+{
+  "protocol_version": 2,
+  "type": "telemetry.catalog",
+  "message_id": "uuid",
+  "payload": {
+    "telemetry_version": 1,
+    "epoch": "epoch-uuid",
+    "sequence": 0,
+    "aircraft": "FA-18C_hornet",
+    "chunk_index": 0,
+    "chunk_count": 1,
+    "entries": [
+      {
+        "identity": {"module": "FA-18C_hornet", "identifier": "MASTER_CAUTION_LT",
+                     "output_type": "integer", "output_index": 0},
+        "description": "Master Caution light",
+        "integer_max": 1
+      }
+    ]
+  }
+}
+```
+
+Entries never include DCS-BIOS addresses, masks, shifts, or filesystem paths.
+The catalog may contain up to 256 entries per chunk and up to 64 chunks per
+epoch. The backend caps session state at 4 096 registered controls per
+connection.
+
+### Snapshot message
+
+Follows the complete catalog for the same epoch. Contains the current value of
+every catalogued control:
+
+```json
+{
+  "protocol_version": 2,
+  "type": "telemetry.snapshot",
+  "message_id": "uuid",
+  "payload": {
+    "telemetry_version": 1,
+    "epoch": "epoch-uuid",
+    "sequence": 1,
+    "aircraft": "FA-18C_hornet",
+    "chunk_index": 0,
+    "chunk_count": 1,
+    "values": [
+      {
+        "identity": {"module": "FA-18C_hornet", "identifier": "MASTER_CAUTION_LT",
+                     "output_type": "integer", "output_index": 0},
+        "available": true,
+        "value": 0,
+        "observed_at_ms": 1234567
+      }
+    ]
+  }
+}
+```
+
+An unavailable value sets `available: false` and `value: null`. The backend
+triggers a cockpit welcome announcement after the complete snapshot is received.
+
+### Delta message
+
+Sent continuously after the snapshot, carrying only controls whose decoded
+value changed since the previous message. Sequences are monotonically
+increasing within an epoch:
+
+```json
+{
+  "protocol_version": 2,
+  "type": "telemetry.delta",
+  "message_id": "uuid",
+  "payload": {
+    "telemetry_version": 1,
+    "epoch": "epoch-uuid",
+    "sequence": 42,
+    "aircraft": "FA-18C_hornet",
+    "chunk_index": 0,
+    "chunk_count": 1,
+    "values": [
+      {
+        "identity": {"module": "FA-18C_hornet", "identifier": "MASTER_CAUTION_LT",
+                     "output_type": "integer", "output_index": 0},
+        "available": true,
+        "value": 1,
+        "observed_at_ms": 1234999
+      }
+    ]
+  }
+}
+```
+
+A delta must contain at least one value. A message for an unrecognized epoch is
+rejected. The backend never persists raw telemetry values; all state is bounded
+in the authenticated session's in-process memory.
 
 ## Binary media envelope
 
@@ -64,26 +218,25 @@ network-byte-order header `!4sBBIQ`:
 | Field | Size | Value |
 | --- | ---: | --- |
 | Magic | 4 bytes | `DCSC` |
-| Protocol version | 1 byte | `1` |
+| Protocol version | 1 byte | `2` |
 | Media kind | 1 byte | `1` input, `2` output |
 | Sequence | 4 bytes | unsigned, wraps at 2³² |
 | Timestamp | 8 bytes | monotonic milliseconds |
-| Payload | remaining bytes | PCM for v1 |
+| Payload | remaining bytes | PCM |
 
-The negotiated v1 audio formats are mono `pcm_s16le`: 16 kHz input and 24 kHz
-output, in 20 ms chunks by default. Media packets are represented independently
-of the WebSocket adapter, allowing a future WebRTC implementation to retain the
-control/session layer.
+The negotiated v2 audio formats are mono `pcm_s16le`: 16 kHz input and 24 kHz
+output, in 20 ms chunks by default. Media packets are transport-neutral,
+allowing a future WebRTC implementation to retain the control/session layer.
 
-The cloud accepts `AUDIO_INPUT` only during an active PTT turn. The client
-accepts only `AUDIO_OUTPUT` from the cloud. PTT release, not silence detection,
-is authoritative. The uplink queue is bounded; excess audio may be dropped, but
-reserved control capacity preserves FIFO delivery of `ptt.end` after all
-accepted audio.
+The backend accepts `AUDIO_INPUT` only during an active PTT turn. The client
+accepts only `AUDIO_OUTPUT` from the backend. PTT release, not silence
+detection, is authoritative. The uplink queue is bounded; excess audio may be
+dropped, but reserved control capacity preserves FIFO delivery of `ptt.end`
+after all accepted audio.
 
-## Voice and aircraft-tool sequence
+## Voice turn sequence
 
-The cloud returns a diagnostic event after each bounded turn:
+The backend returns a diagnostic event after each bounded PTT turn:
 
 ```json
 {
@@ -95,174 +248,69 @@ The cloud returns a diagnostic event after each bounded turn:
 }
 ```
 
-The receipt is followed by cloud voice processing. A cockpit-dependent question
-may insert one or more local tool calls before response text/audio:
+The receipt is followed by cloud voice processing. The LLM reads aircraft
+state, active issues, recent events, flight phase, and checklist gaps directly
+from the backend's session-memory telemetry store. No `tool.request` message is
+sent to the client; all aircraft tool execution is backend-internal.
 
 ```text
 client -> ptt.end
 cloud  -> event (utterance.received)
-cloud  -> tool.request
-client -> tool.result (correlated)
 cloud  -> binary AUDIO_OUTPUT chunks
 cloud  -> pilot.text
 cloud  -> assistant.text
 ```
 
-`pilot.text` contains the cloud STT result for the completed PTT turn. The
-desktop uses `pilot.text` and `assistant.text` for its conversation-only
-Activity view. Assistant muting remains a local playback control and does not
-change protocol traffic or upload controller bindings.
+`pilot.text` contains the STT transcript. `assistant.text` contains the
+response text. The desktop Activity view shows only `pilot.text` and
+`assistant.text`; it never shows raw telemetry, tokens, or controller state.
+Assistant muting is a local playback control and does not affect protocol
+traffic.
 
-Tool requests use their control `message_id` as the request ID. Tool results
-must place that ID in `correlation_id`:
+## Proactive speech
+
+The backend's deterministic rule engine observes the telemetry stream and
+generates `RAISED`, `RESOLVED`, and `DISABLED` events internally. When speech
+policy permits, the backend synthesises the deterministic rule message through
+the configured cloud TTS provider and streams `AUDIO_OUTPUT`. After delivery it
+sends:
 
 ```json
 {
-  "protocol_version": 1,
-  "type": "tool.request",
-  "message_id": "request-uuid",
+  "protocol_version": 2,
+  "type": "assistant.text",
+  "message_id": "uuid",
   "payload": {
-    "tool_version": 1,
-    "tool": "get_aircraft_state",
-    "arguments": {"fields": ["refueling_probe", "master_caution"]}
+    "text": "Refueling probe is still out.",
+    "proactive": true,
+    "event_id": "event-uuid"
   }
 }
 ```
 
-```json
-{
-  "protocol_version": 1,
-  "type": "tool.result",
-  "message_id": "result-uuid",
-  "correlation_id": "request-uuid",
-  "payload": {
-    "tool_version": 1,
-    "tool": "get_aircraft_state",
-    "ok": true,
-    "result": {
-      "fields": {
-        "refueling_probe": {
-          "status": "AVAILABLE",
-          "value": true,
-          "updated_at": 123.4,
-          "source": "DCS-BIOS:EXT_REFUEL_PROBE"
-        }
-      }
-    }
-  }
-}
-```
+Advisories are dropped while a PTT turn or voice response is active; warnings
+and critical events may replace an active response. `ptt.start` or
+`assistant.interrupt` cancels active proactive speech. No `event.raised` or
+`event.resolved` control message is sent to the client; event management is
+entirely backend-side.
 
-Mara's advertised allowlist is `get_aircraft_state`, `get_active_issues`,
-`get_recent_events`, `get_flight_phase`, and
-`get_missing_checklist_items`. State requests require explicit safe normalized
-fields and never accept `raw` or a complete snapshot. Checklist results contain
-only bounded semantic item status, expected/actual values, and reasons evaluated
-locally. Recent deterministic rule events are capped at 20 records and a
-300-second window. Unknown tools,
-arguments, versions, unsolicited results, and correlation mismatches fail
-closed. The cloud times out pending calls and fails them immediately on client
-disconnect.
+## Flight-session epoch
 
-`get_active_issues` also reports `coverage` and the IDs of rules that could not
-be evaluated with current telemetry. An empty issue list therefore never turns
-missing telemetry into an unsupported “all clear.”
+A new epoch in `telemetry.catalog` signals an aircraft slot change or a fresh
+connection. The backend interrupts and closes the active MARA pipeline, resets
+its session-memory raw telemetry state, and starts the cockpit welcome flow for
+the new slot. Explicit account memories and preferences are not erased.
 
-## Proactive semantic events
+The backend attaches the aircraft name from the first valid catalog's `aircraft`
+field to the authenticated user's flight session record. The flight session
+closes on `session.end` or disconnect.
 
-Milestone 5 uses versioned, bounded `event.raised` and `event.resolved` control
-messages. A raised event contains only deterministic rule output:
+Cloud memory, preference, and habit tools are internal Pipecat functions. They
+never produce client-facing messages and cannot reach DCS or the client's
+filesystem.
 
-```json
-{
-  "protocol_version": 1,
-  "type": "event.raised",
-  "message_id": "message-uuid",
-  "payload": {
-    "event_version": 1,
-    "event_id": "event-uuid",
-    "rule_id": "FA18_REFUELING_PROBE_LEFT_OUT",
-    "status": "RAISED",
-    "severity": "ADVISORY",
-    "aircraft": "FA-18C_hornet",
-    "flight_phase": "CRUISE",
-    "message": "Refueling probe is still out.",
-    "data": {"flight_phase": "CRUISE"}
-  }
-}
-```
+## Migration from protocol v1
 
-The matching `event.resolved` reuses `event_id` and has status `RESOLVED` or
-`DISABLED`. Unknown versions, extra fields, invalid severities, and control-type
-or status mismatches are rejected. No raw addresses, full normalized snapshot,
-enemy/world state, or arbitrary client data is accepted.
-
-An accepted raised event may produce binary `AUDIO_OUTPUT` followed by an
-`assistant.text` carrying `proactive: true` and the event ID. Advisories are
-dropped while another response or PTT turn is active; warnings and critical
-events may replace an active cloud response. `ptt.start`,
-`assistant.interrupt`, or the matching resolution cancels active proactive
-speech. The client does not replay events accumulated during a disconnect.
-
-## Flight-session metadata
-
-After session start and whenever the locally detected aircraft changes, the
-client may send this bounded semantic message:
-
-```json
-{
-  "protocol_version": 1,
-  "type": "aircraft.changed",
-  "message_id": "message-uuid",
-  "payload": {
-    "metadata_version": 1,
-    "aircraft": "F/A-18C"
-  }
-}
-```
-
-Only `metadata_version` and the nullable, 64-character aircraft identifier are
-accepted. Extra fields—including raw cockpit or telemetry data—are rejected.
-The cloud attaches the identifier to the authenticated user's current semantic
-flight session. Every accepted aircraft transition also interrupts and closes
-the current MARA voice pipeline; the next PTT turn starts with a fresh
-conversation context. Explicit account memories and preferences are not erased.
-The flight session closes on `session.end` or disconnect.
-
-Cloud memory and preference tools are internal Pipecat functions. They do not
-produce `tool.request` messages and never cross into the client. This keeps
-account persistence distinct from authoritative local aircraft reads.
-
-## End-of-flight semantic summaries
-
-Milestone 7 adds a strict `flight.summary` control after a local flight ends:
-
-```json
-{
-  "protocol_version": 1,
-  "type": "flight.summary",
-  "message_id": "message-uuid",
-  "payload": {
-    "summary_version": 1,
-    "summary_id": "summary-uuid",
-    "aircraft": "FA-18C_hornet",
-    "rules": {
-      "FA18_REFUELING_PROBE_LEFT_OUT": 1,
-      "FA18_MASTER_CAUTION": 0
-    }
-  }
-}
-```
-
-The rule keys are a fixed allowlist and counts are bounded integers. A present
-zero means the rule had usable telemetry and did not activate; an omitted rule
-means its telemetry coverage was unavailable and must not be treated as clear.
-Unknown versions, rule IDs, extra fields, booleans, negative counts, and raw or
-nested telemetry are rejected.
-
-The cloud accepts summaries only for an active session authenticated by a
-signed user token. It responds with an `event` whose `event_type` is
-`flight.summary.accepted`, whose `summary_id` matches the upload, and whose
-`correlation_id` is the upload message ID. Repeated summary UUIDs are
-acknowledged as duplicates without incrementing statistics. The client retains
-unacknowledged summaries in a bounded queue and retries them after reconnect.
+Protocol v1 clients and servers are incompatible with protocol v2 and cannot
+negotiate a shared version. Both sides must be upgraded at the same time. No
+fallback or negotiation path is provided.

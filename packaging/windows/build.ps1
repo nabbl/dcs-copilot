@@ -1,6 +1,6 @@
 param(
     [string]$Version = "0.1.0",
-    [string]$ServiceUrl = "ws://127.0.0.1:8000/v1/realtime",
+    [string]$ServiceUrl = "ws://127.0.0.1:8000/v2/realtime",
     [switch]$SkipInstaller
 )
 

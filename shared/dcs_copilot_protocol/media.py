@@ -1,4 +1,4 @@
-"""Compact binary media envelope, independent of WebSocket or WebRTC."""
+"""Compact binary media envelope for protocol version 2."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class AudioFormat:
 
     def __post_init__(self) -> None:
         if self.encoding != "pcm_s16le":
-            raise ProtocolError("only pcm_s16le audio is supported in protocol v1")
+            raise ProtocolError("only pcm_s16le audio is supported in protocol v2")
         if self.sample_rate <= 0 or self.channels <= 0 or self.chunk_ms <= 0:
             raise ProtocolError("audio format values must be positive")
 
@@ -48,7 +48,7 @@ class AudioFormat:
         channels = payload.get("channels")
         chunk_ms = payload.get("chunk_ms")
         if encoding != "pcm_s16le":
-            raise ProtocolError("only pcm_s16le audio is supported in protocol v1")
+            raise ProtocolError("only pcm_s16le audio is supported in protocol v2")
         if not isinstance(sample_rate, int) or sample_rate <= 0:
             raise ProtocolError("audio sample_rate must be a positive integer")
         if not isinstance(channels, int) or channels <= 0:

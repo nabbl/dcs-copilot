@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from uuid import uuid4
 
 from dcs_copilot_cloud.app import create_app
 from dcs_copilot_cloud.config import CloudSettings
 from dcs_copilot_cloud.voice import VoiceAnnouncement, VoiceTurn, VoiceTurnResult
 from dcs_copilot_protocol import (
-    AircraftChanged,
-    AircraftEvent,
-    AircraftToolRequest,
-    AircraftToolResult,
     AudioFormat,
-    CockpitEntered,
+    CatalogEntry,
+    ControlIdentity,
     ControlMessage,
+    DecodedValue,
     MediaKind,
     MediaPacket,
+    TelemetryCatalog,
+    TelemetryDelta,
+    TelemetrySnapshot,
 )
 from fastapi.testclient import TestClient
 
@@ -39,7 +42,8 @@ def authenticate_and_start(websocket) -> None:
             "session.start",
             {
                 "session_id": "session-1",
-                "audio": AudioFormat().to_dict(),
+                "input_audio": AudioFormat().to_dict(),
+                "output_audio": AudioFormat(sample_rate=24_000).to_dict(),
             },
         ).to_json()
     )
@@ -51,7 +55,7 @@ def test_ptt_audio_reaches_cloud_and_release_ends_turn() -> None:
     app = create_app(CloudSettings(dev_access_token="test-token"))
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
         websocket.send_text(ControlMessage("ptt.start").to_json())
@@ -80,7 +84,7 @@ def test_ptt_audio_reaches_cloud_and_release_ends_turn() -> None:
 def test_unknown_message_is_nonfatal_and_invalid_token_closes() -> None:
     app = create_app(CloudSettings(dev_access_token="test-token"))
     with TestClient(app) as client:
-        with client.websocket_connect("/v1/realtime") as websocket:
+        with client.websocket_connect("/v2/realtime") as websocket:
             authenticate_and_start(websocket)
             websocket.send_text(
                 ControlMessage(
@@ -92,7 +96,11 @@ def test_unknown_message_is_nonfatal_and_invalid_token_closes() -> None:
             websocket.send_text(
                 ControlMessage(
                     "session.start",
-                    {"session_id": "other", "audio": AudioFormat().to_dict()},
+                    {
+                        "session_id": "other",
+                        "input_audio": AudioFormat().to_dict(),
+                        "output_audio": AudioFormat(sample_rate=24_000).to_dict(),
+                    },
                 ).to_json()
             )
             assert (
@@ -103,7 +111,7 @@ def test_unknown_message_is_nonfatal_and_invalid_token_closes() -> None:
             assert error.type == "error"
             assert error.payload["code"] == "unsupported_message"
 
-        with client.websocket_connect("/v1/realtime") as websocket:
+        with client.websocket_connect("/v2/realtime") as websocket:
             assert receive_control(websocket).type == "hello"
             websocket.send_text(
                 ControlMessage(
@@ -120,7 +128,7 @@ def test_health_explicitly_reports_no_ai_pipeline() -> None:
     with TestClient(app) as client:
         assert client.get("/healthz").json() == {
             "status": "ok",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "ai_inference": False,
             "voice_pipeline": "pipecat",
             "proactive_events": True,
@@ -139,7 +147,7 @@ def test_unauthenticated_connection_times_out() -> None:
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         assert receive_control(websocket).type == "hello"
         error = receive_control(websocket)
@@ -187,7 +195,7 @@ def test_ptt_turn_streams_cloud_voice_audio_and_text() -> None:
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
         websocket.send_text(ControlMessage("ptt.start").to_json())
@@ -212,7 +220,7 @@ def test_ptt_turn_streams_cloud_voice_audio_and_text() -> None:
     assert pipeline.closed
 
 
-def test_aircraft_change_recreates_voice_pipeline_with_clean_context() -> None:
+def test_new_epoch_catalog_resets_voice_pipeline_and_context() -> None:
     pipelines: list[FakeVoicePipeline] = []
 
     def pipeline_factory(_settings: CloudSettings) -> FakeVoicePipeline:
@@ -226,7 +234,7 @@ def test_aircraft_change_recreates_voice_pipeline_with_clean_context() -> None:
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
         websocket.send_text(ControlMessage("ptt.start").to_json())
@@ -242,11 +250,12 @@ def test_aircraft_change_recreates_voice_pipeline_with_clean_context() -> None:
         assert receive_control(websocket).type == "assistant.text"
         assert len(pipelines) == 1
 
-        websocket.send_text(ControlMessage("ptt.start").to_json())
-        websocket.send_bytes(
-            MediaPacket(MediaKind.AUDIO_INPUT, 1, 2, b"\x05\x06" * 320).to_bytes()
+        new_epoch = str(uuid4())
+        websocket.send_text(
+            TelemetryCatalog(new_epoch, 0, "FA-18C_hornet", 0, 1, [])
+            .to_control()
+            .to_json()
         )
-        websocket.send_text(AircraftChanged(None).to_control().to_json())
         websocket.send_text(ControlMessage("future.message").to_json())
         assert receive_control(websocket).payload["code"] == "unsupported_message"
         assert pipelines[0].closed
@@ -268,7 +277,11 @@ def test_aircraft_change_recreates_voice_pipeline_with_clean_context() -> None:
         assert pipelines[1] is not pipelines[0]
 
 
-def test_cockpit_entry_streams_one_curated_welcome() -> None:
+BATTERY_IDENTITY = ControlIdentity("FA-18C_hornet", "BATTERY_SW", "integer", 0)
+BATTERY_ENTRY = CatalogEntry(BATTERY_IDENTITY, "Battery switch", integer_max=2)
+
+
+def test_cockpit_welcome_streams_once_on_complete_snapshot() -> None:
     pipeline = FakeVoicePipeline()
     app = create_app(
         CloudSettings(dev_access_token="test-token"),
@@ -276,11 +289,23 @@ def test_cockpit_entry_streams_one_curated_welcome() -> None:
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
-        websocket.send_text(AircraftChanged("FA-18C_hornet").to_control().to_json())
-        request = CockpitEntered("FA-18C_hornet").to_control()
+        epoch = str(uuid4())
+        websocket.send_text(
+            TelemetryCatalog(epoch, 0, "FA-18C_hornet", 0, 1, [BATTERY_ENTRY])
+            .to_control()
+            .to_json()
+        )
+        request = TelemetrySnapshot(
+            epoch,
+            1,
+            "FA-18C_hornet",
+            0,
+            1,
+            [DecodedValue(BATTERY_IDENTITY, True, 1)],
+        ).to_control()
         websocket.send_text(request.to_json())
 
         output = MediaPacket.from_bytes(websocket.receive_bytes())
@@ -296,9 +321,11 @@ def test_cockpit_entry_streams_one_curated_welcome() -> None:
         "aircraft": "FA-18C_hornet",
     }
     assert response.correlation_id == request.message_id
+    assert pipeline.announcements[0].input_format.sample_rate == 16_000
+    assert pipeline.announcements[0].output_format.sample_rate == 24_000
 
 
-def test_aircraft_resync_alone_does_not_trigger_welcome() -> None:
+def test_catalog_alone_does_not_trigger_welcome() -> None:
     pipeline = FakeVoicePipeline()
     app = create_app(
         CloudSettings(dev_access_token="test-token"),
@@ -306,17 +333,22 @@ def test_aircraft_resync_alone_does_not_trigger_welcome() -> None:
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
-        websocket.send_text(AircraftChanged("FA-18C_hornet").to_control().to_json())
+        epoch = str(uuid4())
+        websocket.send_text(
+            TelemetryCatalog(epoch, 0, "FA-18C_hornet", 0, 1, [BATTERY_ENTRY])
+            .to_control()
+            .to_json()
+        )
         websocket.send_text(ControlMessage("future.message").to_json())
         assert receive_control(websocket).payload["code"] == "unsupported_message"
 
     assert pipeline.announcements == []
 
 
-def test_duplicate_cockpit_entry_does_not_repeat_welcome() -> None:
+def test_duplicate_snapshot_rejected_and_welcome_fires_once() -> None:
     pipeline = FakeVoicePipeline()
     app = create_app(
         CloudSettings(dev_access_token="test-token"),
@@ -324,19 +356,46 @@ def test_duplicate_cockpit_entry_does_not_repeat_welcome() -> None:
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
-        websocket.send_text(AircraftChanged("F-16C_50").to_control().to_json())
-        websocket.send_text(CockpitEntered("F-16C_50").to_control().to_json())
+        epoch = str(uuid4())
+        websocket.send_text(
+            TelemetryCatalog(epoch, 0, "FA-18C_hornet", 0, 1, [BATTERY_ENTRY])
+            .to_control()
+            .to_json()
+        )
+        websocket.send_text(
+            TelemetrySnapshot(
+                epoch,
+                1,
+                "FA-18C_hornet",
+                0,
+                1,
+                [DecodedValue(BATTERY_IDENTITY, True, 1)],
+            )
+            .to_control()
+            .to_json()
+        )
         assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
             MediaKind.AUDIO_OUTPUT
         )
         assert receive_control(websocket).payload["kind"] == "cockpit_welcome"
 
-        websocket.send_text(CockpitEntered("F-16C_50").to_control().to_json())
-        websocket.send_text(ControlMessage("future.message").to_json())
-        assert receive_control(websocket).payload["code"] == "unsupported_message"
+        websocket.send_text(
+            TelemetrySnapshot(
+                epoch,
+                2,
+                "FA-18C_hornet",
+                0,
+                1,
+                [DecodedValue(BATTERY_IDENTITY, True, 0)],
+            )
+            .to_control()
+            .to_json()
+        )
+        error = receive_control(websocket)
+        assert error.payload["code"] == "invalid_message"
 
     assert len(pipeline.announcements) == 1
 
@@ -349,7 +408,7 @@ def test_ptt_barge_in_interrupts_active_cloud_response() -> None:
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
         websocket.send_text(ControlMessage("ptt.start").to_json())
@@ -365,29 +424,46 @@ def test_ptt_barge_in_interrupts_active_cloud_response() -> None:
     assert pipeline.interrupt_calls >= 1
 
 
-class ToolCallingVoicePipeline(FakeVoicePipeline):
+class BackendToolVoicePipeline(FakeVoicePipeline):
     async def respond(
         self, turn: VoiceTurn, on_audio, request_tool=None
     ) -> VoiceTurnResult:
         self.turn = turn
         assert request_tool is not None
-        result = await request_tool("get_active_issues", {})
-        message = result["issues"][0]["message"]
+        result = await request_tool("get_aircraft_state", {"fields": ["connected"]})
+        assert result["fields"]["connected"]["value"] is True
         await on_audio(b"\x30\x40" * 240)
-        return VoiceTurnResult("What did I forget?", message)
+        return VoiceTurnResult("Status?", "Aircraft is connected.")
 
 
-def test_complete_mocked_voice_tool_result_voice_round_trip() -> None:
-    pipeline = ToolCallingVoicePipeline()
+def establish_connected_state(websocket) -> None:
+    """Send a minimal catalog+snapshot pair and consume the resulting welcome."""
+    epoch = str(uuid4())
+    websocket.send_text(
+        TelemetryCatalog(epoch, 0, "FA-18C_hornet", 0, 1, []).to_control().to_json()
+    )
+    websocket.send_text(
+        TelemetrySnapshot(epoch, 1, "FA-18C_hornet", 0, 1, []).to_control().to_json()
+    )
+    assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+        MediaKind.AUDIO_OUTPUT
+    )
+    assert receive_control(websocket).payload["kind"] == "cockpit_welcome"
+
+
+def test_backend_aircraft_tool_executes_locally_no_wire_messages() -> None:
+    pipeline = BackendToolVoicePipeline()
     app = create_app(
         CloudSettings(dev_access_token="test-token"),
         voice_pipeline_factory=lambda _settings: pipeline,
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
+        establish_connected_state(websocket)
+
         websocket.send_text(ControlMessage("ptt.start").to_json())
         websocket.send_bytes(
             MediaPacket(MediaKind.AUDIO_INPUT, 0, 1, b"\x01\x02" * 320).to_bytes()
@@ -395,69 +471,42 @@ def test_complete_mocked_voice_tool_result_voice_round_trip() -> None:
         websocket.send_text(ControlMessage("ptt.end").to_json())
         assert receive_control(websocket).payload["event_type"] == "utterance.received"
 
-        tool_control = receive_control(websocket)
-        request = AircraftToolRequest.from_control(tool_control)
-        assert request.tool == "get_active_issues"
-        websocket.send_text(
-            AircraftToolResult.success(
-                request,
-                {
-                    "available": True,
-                    "coverage": "AVAILABLE",
-                    "unavailable_rule_ids": [],
-                    "issues": [
-                        {
-                            "rule_id": "FA18_REFUELING_PROBE",
-                            "severity": "ADVISORY",
-                            "message": "Your refueling probe is still out.",
-                            "explanation": "The local rule is active.",
-                            "data": {},
-                        }
-                    ],
-                },
-            )
-            .to_control()
-            .to_json()
-        )
-
+        # No tool.request wire message appears: the very next frame is audio output.
         output = MediaPacket.from_bytes(websocket.receive_bytes())
         assert output.kind is MediaKind.AUDIO_OUTPUT
-        assert output.payload == b"\x30\x40" * 240
         transcript = receive_control(websocket)
-        assert transcript.type == "pilot.text"
-        assert transcript.payload == {"text": "What did I forget?"}
+        assert transcript.payload == {"text": "Status?"}
         response = receive_control(websocket)
-        assert response.type == "assistant.text"
-        assert response.payload == {"text": "Your refueling probe is still out."}
-        assert response.correlation_id is not None
+        assert response.payload == {"text": "Aircraft is connected."}
 
 
-class MissingChecklistVoicePipeline(FakeVoicePipeline):
+class ChecklistVoicePipeline(FakeVoicePipeline):
     async def respond(
         self, turn: VoiceTurn, on_audio, request_tool=None
     ) -> VoiceTurnResult:
         self.turn = turn
         assert request_tool is not None
         result = await request_tool(
-            "get_missing_checklist_items",
-            {"checklist_id": "fa18c_startup", "stage": "before-taxi"},
+            "get_missing_checklist_items", {"checklist_id": "fa18c_startup"}
         )
-        response = f"You missed {result['items'][0]['label']}."
+        response = f"Found {len(result['items'])} missing items."
         await on_audio(b"\x30\x40" * 240)
         return VoiceTurnResult("What have I missed?", response)
 
 
-def test_missing_checklist_items_complete_voice_round_trip() -> None:
-    pipeline = MissingChecklistVoicePipeline()
+def test_backend_checklist_tool_executes_locally() -> None:
+    pipeline = ChecklistVoicePipeline()
     app = create_app(
         CloudSettings(dev_access_token="test-token"),
         voice_pipeline_factory=lambda _settings: pipeline,
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
+        establish_connected_state(websocket)
+
         websocket.send_text(ControlMessage("ptt.start").to_json())
         websocket.send_bytes(
             MediaPacket(MediaKind.AUDIO_INPUT, 0, 1, b"\x01\x02" * 320).to_bytes()
@@ -465,63 +514,40 @@ def test_missing_checklist_items_complete_voice_round_trip() -> None:
         websocket.send_text(ControlMessage("ptt.end").to_json())
         assert receive_control(websocket).payload["event_type"] == "utterance.received"
 
-        tool_control = receive_control(websocket)
-        request = AircraftToolRequest.from_control(tool_control)
-        assert request.tool == "get_missing_checklist_items"
-        assert request.arguments == {
-            "checklist_id": "fa18c_startup",
-            "stage": "before-taxi",
-            "include_complete": False,
-        }
-        websocket.send_text(
-            AircraftToolResult.success(
-                request,
-                {
-                    "available": True,
-                    "checklist_id": "fa18c_startup",
-                    "aircraft": "FA-18C_hornet",
-                    "stage": "before-taxi",
-                    "complete": False,
-                    "items": [
-                        {
-                            "id": "ejection_seat_armed",
-                            "label": "Ejection seat",
-                            "status": "incomplete",
-                            "expected": True,
-                            "actual": False,
-                            "reason": "ejection_seat_armed is False, expected True",
-                            "verification_type": "state",
-                            "observed_at": 1.0,
-                        }
-                    ],
-                },
-            )
-            .to_control()
-            .to_json()
-        )
-
         assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
             MediaKind.AUDIO_OUTPUT
         )
         assert receive_control(websocket).payload["text"] == "What have I missed?"
         response = receive_control(websocket)
-        assert response.payload == {"text": "You missed Ejection seat."}
+        assert response.payload["text"].startswith("Found ")
 
 
-def proactive_event(*, status: str = "RAISED") -> AircraftEvent:
-    return AircraftEvent(
-        event_id="event-1",
-        rule_id="FA18_REFUELING_PROBE_LEFT_OUT",
-        status=status,
-        severity="ADVISORY",
-        aircraft="FA-18C_hornet",
-        flight_phase="CRUISE",
-        message="Refueling probe is still out.",
-        data={"flight_phase": "CRUISE"},
+MC_IDENTITY = ControlIdentity("FA-18C_hornet", "MASTER_CAUTION_LT", "integer", 0)
+MC_ENTRY = CatalogEntry(MC_IDENTITY, "Master caution light", integer_max=1)
+
+
+def establish_connected_state_with_master_caution(
+    websocket, epoch: str, value: int
+) -> None:
+    websocket.send_text(
+        TelemetryCatalog(epoch, 0, "FA-18C_hornet", 0, 1, [MC_ENTRY])
+        .to_control()
+        .to_json()
     )
+    websocket.send_text(
+        TelemetrySnapshot(
+            epoch, 1, "FA-18C_hornet", 0, 1, [DecodedValue(MC_IDENTITY, True, value)]
+        )
+        .to_control()
+        .to_json()
+    )
+    assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+        MediaKind.AUDIO_OUTPUT
+    )
+    assert receive_control(websocket).payload["kind"] == "cockpit_welcome"
 
 
-def test_semantic_event_streams_proactive_cloud_tts() -> None:
+def test_backend_rule_violation_fires_proactive_tts() -> None:
     pipeline = FakeVoicePipeline()
     app = create_app(
         CloudSettings(dev_access_token="test-token"),
@@ -529,65 +555,114 @@ def test_semantic_event_streams_proactive_cloud_tts() -> None:
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
-        request = proactive_event().to_control()
-        websocket.send_text(request.to_json())
+        epoch = str(uuid4())
+        establish_connected_state_with_master_caution(websocket, epoch, 1)
+
+        time.sleep(0.35)
+        websocket.send_text(
+            TelemetryDelta(
+                epoch, 2, "FA-18C_hornet", 0, 1, [DecodedValue(MC_IDENTITY, True, 1)]
+            )
+            .to_control()
+            .to_json()
+        )
+
         output = MediaPacket.from_bytes(websocket.receive_bytes())
         response = receive_control(websocket)
-        websocket.send_text(request.to_json())
+
+    assert output.kind is MediaKind.AUDIO_OUTPUT
+    assert response.payload["proactive"] is True
+    assert "Master Caution" in response.payload["text"]
+    assert len(pipeline.announcements) == 2
+
+
+def test_proactive_announcement_suppressed_during_ptt() -> None:
+    pipeline = FakeVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v2/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        epoch = str(uuid4())
+        establish_connected_state_with_master_caution(websocket, epoch, 1)
+
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        time.sleep(0.35)
+        websocket.send_text(
+            TelemetryDelta(
+                epoch, 2, "FA-18C_hornet", 0, 1, [DecodedValue(MC_IDENTITY, True, 1)]
+            )
+            .to_control()
+            .to_json()
+        )
         websocket.send_text(ControlMessage("future.message").to_json())
         assert receive_control(websocket).payload["code"] == "unsupported_message"
 
-    assert output.kind is MediaKind.AUDIO_OUTPUT
-    assert output.payload == b"\x50\x60" * 240
-    assert response.payload == {
-        "text": "Refueling probe is still out.",
-        "proactive": True,
-        "event_id": "event-1",
-    }
-    assert response.correlation_id == request.message_id
-    assert pipeline.announcements[0].input_format.sample_rate == 16_000
-    assert pipeline.announcements[0].output_format.sample_rate == 24_000
     assert len(pipeline.announcements) == 1
 
 
-def test_proactive_event_is_suppressed_while_ptt_is_active() -> None:
-    pipeline = FakeVoicePipeline()
+class BlockingAfterWelcomeVoicePipeline(FakeVoicePipeline):
+    """Welcome completes normally; subsequent announcements block until interrupted."""
+
+    def __init__(self) -> None:
+        super().__init__(block=False)
+        self._announce_count = 0
+        self._blocking_release = asyncio.Event()
+
+    async def announce(self, announcement, on_audio) -> str:
+        self._announce_count += 1
+        self.announcements.append(announcement)
+        await on_audio(b"\x50\x60" * 240)
+        if self._announce_count > 1:
+            await self._blocking_release.wait()
+        return announcement.text
+
+    async def interrupt(self) -> None:
+        self.interrupt_calls += 1
+        self._blocking_release.set()
+
+
+def test_proactive_event_resolution_interrupts_in_progress_speech() -> None:
+    pipeline = BlockingAfterWelcomeVoicePipeline()
     app = create_app(
         CloudSettings(dev_access_token="test-token"),
         voice_pipeline_factory=lambda _settings: pipeline,
     )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         authenticate_and_start(websocket)
-        websocket.send_text(ControlMessage("ptt.start").to_json())
-        websocket.send_text(proactive_event().to_control().to_json())
-        websocket.send_text(ControlMessage("future.message").to_json())
-        assert receive_control(websocket).payload["code"] == "unsupported_message"
+        epoch = str(uuid4())
+        establish_connected_state_with_master_caution(websocket, epoch, 1)
 
-    assert pipeline.announcements == []
-
-
-def test_event_resolution_cancels_in_progress_proactive_speech() -> None:
-    pipeline = FakeVoicePipeline(block=True)
-    app = create_app(
-        CloudSettings(dev_access_token="test-token"),
-        voice_pipeline_factory=lambda _settings: pipeline,
-    )
-    with (
-        TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
-    ):
-        authenticate_and_start(websocket)
-        websocket.send_text(proactive_event().to_control().to_json())
+        time.sleep(0.35)
+        websocket.send_text(
+            TelemetryDelta(
+                epoch, 2, "FA-18C_hornet", 0, 1, [DecodedValue(MC_IDENTITY, True, 1)]
+            )
+            .to_control()
+            .to_json()
+        )
         assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
             MediaKind.AUDIO_OUTPUT
         )
-        websocket.send_text(proactive_event(status="RESOLVED").to_control().to_json())
+
+        time.sleep(0.55)
+        websocket.send_text(
+            TelemetryDelta(
+                epoch, 3, "FA-18C_hornet", 0, 1, [DecodedValue(MC_IDENTITY, True, 0)]
+            )
+            .to_control()
+            .to_json()
+        )
         websocket.send_text(ControlMessage("future.message").to_json())
         assert receive_control(websocket).payload["code"] == "unsupported_message"
 

@@ -16,7 +16,7 @@ def test_cloud_settings_load_dotenv_without_overriding_environment(
         "DCS_COPILOT_DEV_TOKEN=file-token\n"
         "OPENAI_API_KEY=server-key\n"
         "LLM_MODEL=gpt-test\n"
-        "CLOUD_AIRCRAFT_TOOL_TIMEOUT_SECONDS=2.5\n"
+        "CLOUD_TELEMETRY_STALE_SECONDS=2.5\n"
     )
     monkeypatch.setenv("CLOUD_PORT", "9100")
     monkeypatch.delenv("DCS_COPILOT_DEV_TOKEN", raising=False)
@@ -25,7 +25,7 @@ def test_cloud_settings_load_dotenv_without_overriding_environment(
     assert settings.dev_access_token == "file-token"
     assert settings.openai_api_key == "server-key"
     assert settings.llm_model == "gpt-test"
-    assert settings.aircraft_tool_timeout_seconds == 2.5
+    assert settings.telemetry_stale_seconds == 2.5
     assert settings.tts_model == "gpt-4o-mini-tts"
 
 

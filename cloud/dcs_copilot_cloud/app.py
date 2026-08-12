@@ -13,22 +13,24 @@ from typing import Any
 
 from dcs_copilot_protocol import (
     PROTOCOL_VERSION,
-    AircraftEvent,
     ControlMessage,
-    FlightSummary,
     MediaKind,
     MediaPacket,
     ProtocolError,
     UnsupportedProtocolVersion,
 )
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from sqlalchemy.exc import SQLAlchemyError
 
 from .accounts import ACCOUNT_TOOL_NAMES, AccountStore, AccountToolExecutor
+from .aircraft.raw import RawTelemetryKey
 from .auth import AuthService
 from .auth_api import auth_router
 from .config import LOCAL_DEVELOPMENT_SIGNING_KEY, CloudSettings
 from .database import Database
 from .greetings import CockpitGreetingSelector
+from .events.models import CloudAircraftEvent, CloudManagedEvent
+from .events.policy import SpeechMode, SpeechPolicy
 from .providers import build_provider_bundle
 from .session import (
     CompletedUtterance,
@@ -36,7 +38,14 @@ from .session import (
     SessionResult,
     UtteranceReceipt,
 )
-from .tools import AIRCRAFT_TOOL_NAMES, LocalAircraftToolBroker
+from .state.store import AircraftStateStore
+from .telemetry import TelemetryBatch, TelemetryIngress
+from .tools import (
+   AIRCRAFT_TOOL_NAMES,
+   AircraftToolRequest,
+   BackendAircraftToolExecutor,
+   ToolProtocolError,
+)
 from .voice import (
     PipecatVoicePipeline,
     VoiceAnnouncement,
@@ -79,10 +88,8 @@ def create_app(
         raise ValueError("CLOUD_HANDSHAKE_TIMEOUT_SECONDS must be greater than zero")
     if configured.max_utterance_seconds <= 0:
         raise ValueError("CLOUD_MAX_UTTERANCE_SECONDS must be greater than zero")
-    if configured.aircraft_tool_timeout_seconds <= 0:
-        raise ValueError(
-            "CLOUD_AIRCRAFT_TOOL_TIMEOUT_SECONDS must be greater than zero"
-        )
+    if configured.telemetry_stale_seconds <= 0:
+        raise ValueError("CLOUD_TELEMETRY_STALE_SECONDS must be greater than zero")
     pipeline_factory = voice_pipeline_factory or (
         lambda current: PipecatVoicePipeline(build_provider_bundle(current))
     )
@@ -140,7 +147,7 @@ def create_app(
             "habits": True,
         }
 
-    @app.websocket("/v1/realtime")
+    @app.websocket("/v2/realtime")
     async def realtime(websocket: WebSocket) -> None:
         await websocket.accept()
         session = RealtimeSession(
@@ -154,25 +161,45 @@ def create_app(
         active_event_ids: dict[str, None] = {}
         greeting_selector = CockpitGreetingSelector()
         output_sequence = 0
+        telemetry = TelemetryIngress()
+        aircraft_state = AircraftStateStore(
+            value_stale_timeout=configured.telemetry_stale_seconds
+        )
+        aircraft_tools = BackendAircraftToolExecutor(aircraft_state)
 
         async def send_control(message: ControlMessage) -> None:
             async with send_lock:
                 await websocket.send_text(message.to_json())
 
-        aircraft_tools = LocalAircraftToolBroker(
-            send_control,
-            timeout_seconds=configured.aircraft_tool_timeout_seconds,
-        )
-
         async def request_copilot_tool(
             tool: str, arguments: dict[str, Any]
         ) -> dict[str, Any]:
             if tool in AIRCRAFT_TOOL_NAMES:
-                return await aircraft_tools.request(tool, arguments)
+                try:
+                    await refresh_aircraft_state()
+                    return aircraft_tools.execute(
+                        AircraftToolRequest.create(tool, arguments)
+                    )
+                except ToolProtocolError as exc:
+                    return {
+                        "available": False,
+                        "error": {
+                            "code": "invalid_aircraft_tool",
+                            "detail": str(exc),
+                        },
+                    }
             if tool in ACCOUNT_TOOL_NAMES:
-                return await AccountToolExecutor(accounts, session.user_id).request(
+                result = await AccountToolExecutor(accounts, session.user_id).request(
                     tool, arguments
                 )
+                if tool == "set_chatter_level":
+                    preference = result.get("preference")
+                    if isinstance(preference, dict) and preference.get("aircraft") in {
+                        None,
+                        telemetry.aircraft,
+                    }:
+                        apply_speech_mode(preference.get("value"))
+                return result
             return {
                 "available": False,
                 "error": {
@@ -263,7 +290,7 @@ def create_app(
                 )
 
         async def run_announcement(
-            event: AircraftEvent,
+            event: CloudAircraftEvent,
             *,
             correlation_id: str,
         ) -> None:
@@ -364,6 +391,145 @@ def create_app(
                     )
                 )
 
+        async def persist_pending_summaries() -> None:
+            for summary in aircraft_state.flight_stats.pending:
+                if session.user_id is None:
+                    aircraft_state.flight_stats.acknowledge(summary.summary_id)
+                    continue
+                try:
+                    await accounts.ingest_flight_summary(session.user_id, summary)
+                except SQLAlchemyError:
+                    LOGGER.exception("semantic flight summary storage failed")
+                    return
+                aircraft_state.flight_stats.acknowledge(summary.summary_id)
+
+        def apply_speech_mode(value: object) -> None:
+            if not isinstance(value, str):
+                return
+            try:
+                mode = SpeechMode(value.upper())
+            except ValueError:
+                return
+            aircraft_state.event_manager.speech_policy = SpeechPolicy(mode=mode)
+
+        async def load_speech_policy(aircraft: str) -> None:
+            aircraft_state.event_manager.speech_policy = SpeechPolicy()
+            if session.user_id is None:
+                return
+            try:
+                preferences = await accounts.get_preferences(
+                    session.user_id,
+                    aircraft=None,
+                )
+            except SQLAlchemyError:
+                LOGGER.exception("aircraft speech preference lookup failed")
+                return
+            selected: object = None
+            for preference in preferences:
+                if preference.get("key") != "chatter_level":
+                    continue
+                preference_aircraft = preference.get("aircraft")
+                if preference_aircraft is None:
+                    selected = preference.get("value")
+                elif preference_aircraft == aircraft:
+                    selected = preference.get("value")
+                    break
+            apply_speech_mode(selected)
+
+        async def handle_managed_event(managed: CloudManagedEvent) -> None:
+            nonlocal response_event_id, response_task
+            if not managed.publish:
+                return
+            event = managed.event
+            if event.status != "RAISED":
+                active_event_ids.pop(event.event_id, None)
+                if response_event_id == event.event_id:
+                    await interrupt_response()
+                return
+            if event.event_id in active_event_ids:
+                return
+            active_event_ids[event.event_id] = None
+            if len(active_event_ids) > 1_000:
+                del active_event_ids[next(iter(active_event_ids))]
+            if not managed.speak or session.ptt_active:
+                return
+            if response_task is not None and not response_task.done():
+                if event.severity not in {"WARNING", "CRITICAL"}:
+                    return
+                await interrupt_response()
+            response_event_id = event.event_id
+            response_task = asyncio.create_task(
+                run_announcement(event, correlation_id=event.event_id),
+                name=f"proactive-{event.event_id}",
+            )
+
+        async def refresh_aircraft_state() -> None:
+            if not telemetry.ready or telemetry.aircraft is None:
+                return
+            _state, events = aircraft_state.update(
+                aircraft=telemetry.aircraft,
+                connected=True,
+                now=time.monotonic(),
+            )
+            for managed in events:
+                await handle_managed_event(managed)
+            await persist_pending_summaries()
+
+        def raw_key(value: Any) -> RawTelemetryKey:
+            identity = value.identity
+            return RawTelemetryKey(
+                identity.module,
+                identity.identifier,
+                identity.output_type,
+                identity.output_index,
+            )
+
+        async def apply_telemetry_batch(
+            batch: TelemetryBatch,
+            *,
+            correlation_id: str,
+        ) -> None:
+            nonlocal response_task
+            now = time.monotonic()
+            if batch.kind == "reset":
+                aircraft_state.update(aircraft=None, connected=False, now=now)
+                await persist_pending_summaries()
+                aircraft_state.raw.reset()
+                aircraft_state.event_manager.speech_policy = SpeechPolicy()
+                await reset_assistant()
+                if session.user_id is not None and session.session_id is not None:
+                    await accounts.update_flight_aircraft(
+                        session.user_id,
+                        client_session_id=session.session_id,
+                        aircraft=batch.aircraft,
+                    )
+                return
+            if batch.kind == "snapshot":
+                await load_speech_policy(batch.aircraft)
+                for entry in batch.catalog:
+                    aircraft_state.raw.catalog_register(
+                        raw_key(entry),
+                        max_value=entry.integer_max,
+                    )
+            for decoded in batch.values:
+                key = raw_key(decoded)
+                if decoded.available and decoded.value is not None:
+                    # Client monotonic clocks are not comparable across machines.
+                    aircraft_state.raw.update(key, decoded.value, received_at=now)
+                else:
+                    aircraft_state.raw.mark_unavailable(key)
+            if batch.kind == "snapshot" and (
+                response_task is None or response_task.done()
+            ):
+                response_task = asyncio.create_task(
+                    run_cockpit_welcome(
+                        batch.aircraft,
+                        correlation_id=correlation_id,
+                    ),
+                    name="cockpit-welcome",
+                )
+            await refresh_aircraft_state()
+
         await send_control(session.hello())
         try:
             while True:
@@ -389,23 +555,14 @@ def create_app(
                 try:
                     if incoming.get("text") is not None:
                         message = ControlMessage.from_json(incoming["text"])
-                        if message.type == "flight.summary":
-                            summary = FlightSummary.from_control(message)
-                            if (
-                                not session.authenticated
-                                or session.session_id is None
-                                or session.user_id is None
-                            ):
+                        if message.type.startswith("telemetry."):
+                            if session.session_id is None:
                                 result = SessionResult(
                                     responses=(
                                         ControlMessage(
                                             "error",
                                             {
-                                                "code": "account_authentication_required",
-                                                "detail": (
-                                                    "flight summaries require a signed "
-                                                    "user access token and active session"
-                                                ),
+                                                "code": "session_not_active",
                                                 "fatal": False,
                                             },
                                             correlation_id=message.message_id,
@@ -413,109 +570,17 @@ def create_app(
                                     )
                                 )
                             else:
-                                try:
-                                    inserted = await accounts.ingest_flight_summary(
-                                        session.user_id, summary
-                                    )
-                                except Exception:
-                                    LOGGER.exception("flight summary storage failed")
-                                    result = SessionResult(
-                                        responses=(
-                                            ControlMessage(
-                                                "error",
-                                                {
-                                                    "code": "flight_summary_storage_failed",
-                                                    "detail": (
-                                                        "flight statistics storage is "
-                                                        "temporarily unavailable"
-                                                    ),
-                                                    "fatal": False,
-                                                },
-                                                correlation_id=message.message_id,
-                                            ),
-                                        )
-                                    )
-                                else:
-                                    result = SessionResult(
-                                        responses=(
-                                            ControlMessage(
-                                                "event",
-                                                {
-                                                    "event_type": (
-                                                        "flight.summary.accepted"
-                                                    ),
-                                                    "summary_id": summary.summary_id,
-                                                    "duplicate": not inserted,
-                                                },
-                                                correlation_id=message.message_id,
-                                            ),
-                                        )
-                                    )
-                        elif message.type == "tool.result":
-                            aircraft_tools.resolve(message)
-                            result = SessionResult()
-                        elif message.type in {"event.raised", "event.resolved"}:
-                            event = AircraftEvent.from_control(message)
-                            if not session.authenticated or session.session_id is None:
-                                result = session.handle_control(message)
-                            elif message.type == "event.resolved":
-                                active_event_ids.pop(event.event_id, None)
-                                if response_event_id == event.event_id:
-                                    await interrupt_response()
-                                result = SessionResult()
-                            elif event.event_id in active_event_ids:
-                                result = SessionResult()
-                            elif session.ptt_active:
-                                active_event_ids[event.event_id] = None
-                                result = SessionResult()
-                            elif response_task is not None and not response_task.done():
-                                active_event_ids[event.event_id] = None
-                                if event.severity in {"WARNING", "CRITICAL"}:
-                                    await interrupt_response()
-                                    response_event_id = event.event_id
-                                    response_task = asyncio.create_task(
-                                        run_announcement(
-                                            event,
-                                            correlation_id=message.message_id,
-                                        ),
-                                        name=f"proactive-{event.event_id}",
-                                    )
-                                result = SessionResult()
-                            else:
-                                active_event_ids[event.event_id] = None
-                                response_event_id = event.event_id
-                                response_task = asyncio.create_task(
-                                    run_announcement(
-                                        event,
+                                batch = telemetry.accept(message)
+                                if batch is not None:
+                                    await apply_telemetry_batch(
+                                        batch,
                                         correlation_id=message.message_id,
-                                    ),
-                                    name=f"proactive-{event.event_id}",
-                                )
+                                    )
                                 result = SessionResult()
-                            if len(active_event_ids) > 1_000:
-                                del active_event_ids[next(iter(active_event_ids))]
                         else:
                             if message.type in {"assistant.interrupt", "ptt.start"}:
                                 await interrupt_response()
                             result = session.handle_control(message)
-                            if (
-                                result.lifecycle is not None
-                                and result.lifecycle.action == "aircraft_changed"
-                            ):
-                                await reset_assistant()
-                            elif (
-                                result.lifecycle is not None
-                                and result.lifecycle.action == "cockpit_entered"
-                                and result.lifecycle.aircraft is not None
-                            ):
-                                await interrupt_response()
-                                response_task = asyncio.create_task(
-                                    run_cockpit_welcome(
-                                        result.lifecycle.aircraft,
-                                        correlation_id=message.message_id,
-                                    ),
-                                    name="cockpit-welcome",
-                                )
                     elif incoming.get("bytes") is not None:
                         packet = MediaPacket.from_bytes(incoming["bytes"])
                         result = session.handle_media(packet)
@@ -557,12 +622,6 @@ def create_app(
                             client_session_id=lifecycle.session_id,
                             device_id=session.device_id,
                         )
-                    elif lifecycle.action == "aircraft_changed":
-                        await accounts.update_flight_aircraft(
-                            session.user_id,
-                            client_session_id=lifecycle.session_id,
-                            aircraft=lifecycle.aircraft,
-                        )
                     elif lifecycle.action == "ended":
                         await accounts.end_flight(
                             session.user_id,
@@ -590,6 +649,14 @@ def create_app(
         except WebSocketDisconnect:
             pass
         finally:
+            aircraft_state.update(
+                aircraft=None,
+                connected=False,
+                now=time.monotonic(),
+            )
+            await persist_pending_summaries()
+            aircraft_state.raw.reset()
+            telemetry.disconnect()
             if session.user_id is not None and session.session_id is not None:
                 cleanup = asyncio.create_task(
                     accounts.end_flight(
@@ -600,7 +667,6 @@ def create_app(
                 )
                 cleanup_tasks.add(cleanup)
                 cleanup.add_done_callback(cleanup_finished)
-            aircraft_tools.disconnect()
             await interrupt_response()
             if voice is not None:
                 await voice.close()

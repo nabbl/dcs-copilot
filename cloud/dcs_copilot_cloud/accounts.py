@@ -11,7 +11,6 @@ from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
-from dcs_copilot_protocol import HABIT_RULE_IDS, FlightSummary
 from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 
@@ -24,6 +23,7 @@ from .database import (
     PilotMemory,
     utc_now,
 )
+from .habits.models import HABIT_RULE_IDS, FlightSummary
 
 ACCOUNT_TOOL_VERSION = 1
 MEMORY_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")

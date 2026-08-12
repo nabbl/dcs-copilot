@@ -20,6 +20,7 @@ class ControlDefinition:
     identifier: str
     module: str
     output_type: ControlOutputType
+    output_index: int
     address: int
     mask: int | None = None
     shift: int | None = None
@@ -36,7 +37,10 @@ class ControlDefinition:
 
     @property
     def qualified_name(self) -> str:
-        return f"{self.module}/{self.identifier}"
+        return (
+            f"{self.module}/{self.identifier}/"
+            f"{self.output_type}/{self.output_index}"
+        )
 
 
 class DcsBiosControlRegistry:
@@ -184,7 +188,7 @@ class DcsBiosControlRegistry:
                 outputs = control.get("outputs", [])
                 if not isinstance(identifier, str) or not isinstance(outputs, list):
                     continue
-                for output in outputs:
+                for output_index, output in enumerate(outputs):
                     if not isinstance(output, dict):
                         continue
                     output_type = output.get("type")
@@ -216,6 +220,7 @@ class DcsBiosControlRegistry:
                             identifier,
                             module,
                             "integer",
+                            output_index,
                             address,
                             mask,
                             shift,
@@ -231,6 +236,7 @@ class DcsBiosControlRegistry:
                             identifier,
                             module,
                             "string",
+                            output_index,
                             address,
                             None,
                             None,
@@ -271,7 +277,8 @@ class DcsBiosControlRegistry:
         return tuple(result)
 
     def modules_for_aircraft(self, aircraft: str) -> tuple[str, ...]:
-        return self.aircraft_modules.get(aircraft, (aircraft,))
+        aircraft_modules = self.aircraft_modules.get(aircraft, (aircraft,))
+        return tuple(dict.fromkeys((*aircraft_modules, "CommonData")))
 
     def definitions(self, module: str | None = None) -> tuple[ControlDefinition, ...]:
         result = [item for values in self._by_key.values() for item in values]

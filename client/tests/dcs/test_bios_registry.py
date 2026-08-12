@@ -23,7 +23,10 @@ def test_resolves_root_and_decodes_generated_schema(bios_json_dir: Path) -> None
     assert registry.decode(caution, state) == 1
     assert registry.control_count == 3
     assert registry.module_count == 2
-    assert registry.modules_for_aircraft("FA-18C_hornet") == ("FA-18C_hornet",)
+    assert registry.modules_for_aircraft("FA-18C_hornet") == (
+        "FA-18C_hornet",
+        "CommonData",
+    )
 
 
 def test_ambiguous_identifier_requires_module(tmp_path: Path) -> None:
@@ -68,3 +71,27 @@ def test_definitions_for_range_finds_overlapping_strings(bios_json_dir: Path) ->
     registry = DcsBiosControlRegistry.from_path(bios_json_dir)
     overlaps = registry.definitions_for_range(0x7414, 2)
     assert [item.identifier for item in overlaps] == ["UFC_SCRATCHPAD"]
+
+
+def test_multiple_outputs_have_stable_semantic_indexes(tmp_path: Path) -> None:
+    document = {
+        "Panel": {
+            "MULTI": {
+                "identifier": "MULTI",
+                "outputs": [
+                    {"type": "integer", "address": 2, "mask": 1, "shift_by": 0},
+                    {"type": "integer", "address": 4, "mask": 3, "shift_by": 0},
+                ],
+            }
+        }
+    }
+    (tmp_path / "Module.json").write_text(json.dumps(document))
+
+    registry = DcsBiosControlRegistry.from_path(tmp_path)
+    definitions = registry.definitions("Module")
+
+    assert [item.output_index for item in definitions] == [0, 1]
+    assert [item.qualified_name for item in definitions] == [
+        "Module/MULTI/integer/0",
+        "Module/MULTI/integer/1",
+    ]

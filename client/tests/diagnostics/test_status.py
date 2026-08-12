@@ -18,6 +18,12 @@ class FakeDcsBiosClient:
     async def listen_for(self, _duration: float) -> None:
         return None
 
+    def decoded_snapshot(self) -> tuple[object, ...]:
+        return ()
+
+    def active_definitions(self) -> tuple[object, ...]:
+        return ()
+
     def close(self) -> None:
         return None
 
@@ -34,8 +40,10 @@ def test_status_reports_thin_client_resource_and_ai_boundary(monkeypatch) -> Non
     assert exit_code == 0
     assert "Cloud: not probed; use --wait 0.25 or longer" in lines
     assert "Authenticated: no" in lines
-    assert "Recorded events: 0" in lines
-    assert "Speech mode: NORMAL" in lines
+    assert "Active catalog outputs: 0" in lines
+    assert "Available decoded outputs: 0" in lines
+    assert all("Flight phase" not in line for line in lines)
+    assert all("Active issues" not in line for line in lines)
     assert "Mute: F14 (Windows only)" in lines
     assert "Microphone: Test Mic (not opened)" in lines
     assert "Output: Test Headset (not opened)" in lines
