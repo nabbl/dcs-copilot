@@ -220,9 +220,6 @@ class CloudSessionConnection:
             "session.start",
             {
                 "session_id": self._session_id,
-                # `audio` remains for protocol-v1 gateways built before output
-                # format negotiation was introduced.
-                "audio": self.audio_format.to_dict(),
                 "input_audio": self.audio_format.to_dict(),
                 "output_audio": self.output_audio_format.to_dict(),
             },

@@ -8,13 +8,7 @@ import sys
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any
 
-from dcs_copilot_protocol import (
-    AircraftChanged,
-    AudioFormat,
-    CockpitEntered,
-    ControlMessage,
-    FlightSummary,
-)
+from dcs_copilot_protocol import AudioFormat, ControlMessage
 
 from .audio.feedback import mute_tone, unmute_tone
 from .audio.portaudio import PortAudioCapture, PortAudioPlayback
@@ -22,7 +16,6 @@ from .cli.status import _load_registry
 from .config import Settings
 from .dcs.bios_client import DcsBiosClient
 from .desktop.activity import ConversationActivity
-from .events import ManagedAircraftEvent, SpeechPolicy
 from .input.controller import PttSessionController
 from .input.ptt import (
     GlobalFunctionKeyHotkey,
@@ -32,8 +25,7 @@ from .input.ptt import (
     PTTUnavailableError,
 )
 from .network.connection import CloudConnectionStatus, CloudSessionConnection
-from .state.store import AircraftStateStore, NormalizedStateChange
-from .tools import AircraftToolExecutor
+from .telemetry import TelemetryPublisher
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,71 +65,24 @@ async def run_client_runtime(
         stale_timeout=settings.stale_timeout,
         registry=registry,
     )
-    store = (
-        AircraftStateStore(
-            registry,
-            client=dcs_client,
-            value_stale_timeout=settings.value_stale_timeout,
-            speech_policy=SpeechPolicy(settings.speech_mode),
-        )
-        if registry is not None
-        else None
-    )
-    aircraft_tools = AircraftToolExecutor(store)
-    summary_requests: dict[str, str] = {}
     conversation_activity = ConversationActivity()
-    pending_cockpit_welcome: str | None = None
-    cockpit_welcome_ready = False
-
-    def send_flight_summary(summary: FlightSummary) -> bool:
-        message = summary.to_control()
-        if not connection.send_message(message):
-            return False
-        summary_requests[message.message_id] = summary.summary_id
-        return True
+    telemetry: TelemetryPublisher | None = None
 
     def status_changed(status: CloudConnectionStatus) -> None:
         print(f"Cloud: {status.detail}")
+        if telemetry is not None:
+            telemetry.set_session_active(status.session_active)
         if not status.connected:
-            summary_requests.clear()
             conversation_activity.reset()
-        if status.session_active and store is not None:
-            connection.send_message(
-                AircraftChanged(store.current.aircraft).to_control()
-            )
-            send_pending_cockpit_welcome()
-            for summary in store.flight_stats.pending:
-                send_flight_summary(summary)
 
     def control_received(message: ControlMessage) -> None:
-        if message.type == "tool.request":
-            if not connection.send_message(aircraft_tools.handle_control(message)):
-                LOGGER.warning("aircraft tool result could not be queued")
-        elif message.type == "event" and message.payload.get("event_type") == (
+        if message.type == "event" and message.payload.get("event_type") == (
             "utterance.received"
         ):
             print(
                 "Cloud received utterance: "
                 f"{message.payload.get('audio_bytes', 0)} bytes"
             )
-        elif message.type == "event" and message.payload.get("event_type") == (
-            "flight.summary.accepted"
-        ):
-            summary_id = message.payload.get("summary_id")
-            request_summary_id = (
-                summary_requests.pop(message.correlation_id, None)
-                if message.correlation_id is not None
-                else None
-            )
-            if (
-                store is not None
-                and isinstance(summary_id, str)
-                and request_summary_id == summary_id
-            ):
-                store.flight_stats.acknowledge(summary_id)
-                for request_id, pending_id in tuple(summary_requests.items()):
-                    if pending_id == summary_id:
-                        del summary_requests[request_id]
         else:
             for line in conversation_activity.accept(message):
                 print(line, flush=True)
@@ -156,75 +101,9 @@ async def run_client_runtime(
         on_control=control_received,
         on_audio_output=playback.play,
     )
+    if registry is not None:
+        telemetry = TelemetryPublisher(dcs_client, connection.send_message)
     controller = PttSessionController(connection, capture, playback, on_notice=print)
-    published_event_ids: set[str] = set()
-
-    def send_pending_cockpit_welcome() -> None:
-        nonlocal pending_cockpit_welcome
-        if (
-            cockpit_welcome_ready
-            and pending_cockpit_welcome is not None
-            and connection.send_message(
-                CockpitEntered(pending_cockpit_welcome).to_control()
-            )
-        ):
-            pending_cockpit_welcome = None
-
-    async def prepare_cockpit_welcome(aircraft: str | None) -> None:
-        nonlocal cockpit_welcome_ready
-        await controller.reset()
-        if aircraft is None or aircraft != pending_cockpit_welcome:
-            return
-        cockpit_welcome_ready = True
-        send_pending_cockpit_welcome()
-
-    def proactive_event(managed: ManagedAircraftEvent) -> None:
-        if not managed.publish:
-            return
-        event = managed.event
-        if event.status == "RAISED" and managed.speak and controller.active:
-            LOGGER.info(
-                "proactive event suppressed while PTT is active: %s",
-                event.rule_id,
-            )
-            return
-        if event.status != "RAISED" and event.event_id not in published_event_ids:
-            return
-        if connection.send_message(event.to_control()):
-            if event.status == "RAISED":
-                published_event_ids.add(event.event_id)
-            else:
-                published_event_ids.discard(event.event_id)
-            return
-        published_event_ids.discard(event.event_id)
-        if event.status == "RAISED":
-            LOGGER.info(
-                "proactive event retained locally while cloud is unavailable: %s",
-                event.rule_id,
-            )
-
-    if store is not None:
-        store.event_manager.add_callback(proactive_event)
-
-        def flight_summary_ready(summary: FlightSummary) -> None:
-            if not send_flight_summary(summary):
-                LOGGER.info("flight summary retained until cloud reconnects")
-
-        store.flight_stats.add_summary_callback(flight_summary_ready)
-
-        def state_changed(change: NormalizedStateChange) -> None:
-            nonlocal cockpit_welcome_ready, pending_cockpit_welcome
-            if change.field == "aircraft":
-                published_event_ids.clear()
-                conversation_activity.reset()
-                connection.send_message(AircraftChanged(change.new_value).to_control())
-                pending_cockpit_welcome = (
-                    change.new_value if isinstance(change.new_value, str) else None
-                )
-                cockpit_welcome_ready = False
-                schedule(prepare_cockpit_welcome(pending_cockpit_welcome))
-
-        store.add_change_callback(state_changed)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -245,6 +124,12 @@ async def run_client_runtime(
             task.add_done_callback(finished)
 
         loop.call_soon_threadsafe(create)
+
+    def aircraft_changed(_aircraft: str | None) -> None:
+        conversation_activity.reset()
+        schedule(controller.reset())
+
+    dcs_client.add_aircraft_callback(aircraft_changed)
 
     ptt_input: GlobalFunctionKeyPTT | GlobalJoystickButtonPTT | None = None
     mute_input: GlobalFunctionKeyHotkey | GlobalJoystickButtonHotkey | None = None
@@ -333,6 +218,11 @@ async def run_client_runtime(
     telemetry_task = asyncio.create_task(
         dcs_client.run(stop), name="dcs-bios-telemetry"
     )
+    telemetry_publish_task = (
+        asyncio.create_task(telemetry.run(stop), name="cloud-telemetry-publisher")
+        if telemetry is not None
+        else None
+    )
     cloud_task = asyncio.create_task(connection.run(stop), name="cloud-session")
     print("MARA voice is AI-generated.")
     ptt_label = (
@@ -352,13 +242,12 @@ async def run_client_runtime(
     )
     try:
         tasks = [telemetry_task, cloud_task]
+        if telemetry_publish_task is not None:
+            tasks.append(telemetry_publish_task)
         if ptt_task is not None:
             tasks.append(ptt_task)
         await asyncio.gather(*tasks)
     finally:
-        if store is not None:
-            store.flight_stats.finish()
-            await connection.drain()
         stop.set()
         if ptt_input is not None:
             ptt_input.stop()
@@ -368,13 +257,14 @@ async def run_client_runtime(
             await asyncio.sleep(0)
         await controller.release()
         await playback.close()
-        for task in (telemetry_task, cloud_task, ptt_task):
+        for task in (telemetry_task, telemetry_publish_task, cloud_task, ptt_task):
             if task is not None:
                 task.cancel()
         for task in tuple(scheduled):
             task.cancel()
         await asyncio.gather(
             telemetry_task,
+            *(task for task in (telemetry_publish_task,) if task is not None),
             cloud_task,
             *(task for task in (ptt_task, *scheduled) if task is not None),
             return_exceptions=True,

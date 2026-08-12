@@ -20,8 +20,6 @@ class JsonFormatter(logging.Formatter):
             "aircraft",
             "address",
             "error_count",
-            "rule_id",
-            "severity",
         ):
             if hasattr(record, key):
                 payload[key] = getattr(record, key)

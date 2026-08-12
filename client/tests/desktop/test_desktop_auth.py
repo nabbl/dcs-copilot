@@ -36,21 +36,21 @@ class FakeClient:
 
 def test_auth_base_url_tracks_realtime_origin_and_tls() -> None:
     assert (
-        auth_base_url("wss://api.example/v1/realtime") == "https://api.example/v1/auth"
+        auth_base_url("wss://api.example/v2/realtime") == "https://api.example/v1/auth"
     )
     assert (
-        auth_base_url("ws://localhost:8000/v1/realtime")
+        auth_base_url("ws://localhost:8000/v2/realtime")
         == "http://localhost:8000/v1/auth"
     )
     with pytest.raises(AuthError, match="ws://"):
-        auth_base_url("https://api.example/v1/realtime")
+        auth_base_url("https://api.example/v2/realtime")
     with pytest.raises(AuthError, match="localhost"):
-        auth_base_url("ws://api.example/v1/realtime")
+        auth_base_url("ws://api.example/v2/realtime")
 
 
 def test_stored_session_rotates_refresh_token() -> None:
     store = MemoryStore("old-refresh")
-    session = StoredAuthSession("ws://localhost/v1/realtime", "pc-1", store)
+    session = StoredAuthSession("ws://localhost/v2/realtime", "pc-1", store)
     fake = FakeClient()
     session.client = fake  # type: ignore[assignment]
     pair = session.restore()

@@ -1,4 +1,4 @@
-"""Replaceable realtime transport boundary; WebSocket is the v1 adapter."""
+"""Replaceable protocol-v2 realtime transport boundary."""
 
 from __future__ import annotations
 

@@ -1,36 +1,63 @@
 # DCS Copilot cloud
 
-Milestones 3 through 7 run the PTT voice, aircraft-tool, proactive-speech,
-account-memory, and deterministic habit services in the cloud:
+The backend is the authoritative semantic engine. It receives the client's
+continuous decoded own-cockpit telemetry stream, holds raw values bounded in
+authenticated session memory, and owns all normalization, phase detection,
+deterministic rules, checklists, event management, speech policy, habit
+statistics, and MARA tool execution. It also runs the PTT voice pipeline and
+account services:
 
 ```text
-bounded PCM turn -> OpenAI STT -> Pipecat context -> OpenAI Responses
-                 -> streaming OpenAI TTS PCM -> client
+telemetry catalog/snapshot/delta -> AircraftStateStore
+                                     |- normalization
+                                     |- phase detection
+                                     |- deterministic rules
+                                     |- checklists
+                                     |- event management
+                                     `- speech policy
+
+bounded PTT turn -> gpt-transcribe STT -> Pipecat context
+                  -> gpt-5.6-luna Responses LLM
+                  -> streaming cloud TTS PCM -> client
 ```
 
-When the LLM needs live state, Pipecat pauses the response while the gateway
-sends one versioned, narrow `tool.request` to the client. The correlated
-`tool.result` resumes the LLM and TTS stream. Tool calls time out and fail closed
-on disconnect; no raw telemetry stream enters the cloud.
+Raw telemetry values are held only in the authenticated connection's in-process
+session memory. They are never persisted, logged as complete snapshots, or
+stored as raw time series. Semantic account, history, and habit records may
+persist as documented in `docs/accounts.md`.
 
-Milestone 5 accepts validated `event.raised` and `event.resolved` controls. The
-gateway speaks the deterministic short event message through the configured
-cloud TTS provider, streams PCM immediately, suppresses advisories while another
-turn is active, and lets PTT or event resolution cancel playback.
+MARA's aircraft tools (`get_aircraft_state`, `get_active_issues`,
+`get_recent_events`, `get_flight_phase`, `get_checklist_status`,
+`get_missing_checklist_items`, and guided-checklist controls) execute
+backend-internally against the session-memory `AircraftStateStore`. No
+`tool.request` message is sent to the client. Unavailable values remain
+unavailable; `get_active_issues` reports `coverage` so an empty list never
+implies an all-clear.
 
-Milestone 6 adds account registration/login, signed 15-minute access tokens,
-rotating refresh credentials stored only as hashes, and an async persistence
-layer. SQLite is supported for development; production uses PostgreSQL through
-`asyncpg`. One authenticated user owns each memory, preference, and flight
-session. Pipecat exposes narrow cloud tools for explicit remember/forget/recall,
-chatter preferences, and bounded flight history. These are separate from the
-four client-side aircraft tools.
+Speech policy runs backend-side. When a deterministic rule activates, the
+backend synthesises the rule's short message through the configured cloud TTS
+provider and streams `AUDIO_OUTPUT` directly — without asking an LLM to invent
+safety phrasing. Warnings may replace an active voice response; advisories do
+not.
 
-Milestone 7 accepts versioned semantic end-of-flight summaries only from signed
-user sessions. Storage is idempotent and user-isolated. The allowlisted
-`get_pilot_habits` cloud tool calculates coverage-aware counts and returns the
-exact sentence the LLM should speak. It does not infer habits from memories or
-generic flight-session history.
+Checklist definitions, normalization mappings, and rule parameters are
+backend-only artefacts. Changes to them require only a backend deployment when
+their required DCS-BIOS controls are already exported by the client.
+
+Account registration/login, signed 15-minute access tokens, rotating refresh
+credentials stored only as hashes, and an async persistence layer are
+implemented. SQLite is supported for development; production uses PostgreSQL
+through `asyncpg`. Pipecat exposes cloud account tools for explicit
+remember/forget/recall, chatter preferences, and bounded flight history. These
+are backend-internal functions and never produce client-facing `tool.request`
+messages.
+
+The backend `FlightStatsManager` observes the same deterministic rule
+transitions as live monitoring and produces coverage-aware per-flight rule
+summaries scoped to the authenticated user. `get_pilot_habits` calculates
+observed-flight counts and returns the exact sentence the LLM should speak; the
+LLM is required to repeat it and forbidden from deriving counts from memory or
+generic flight history.
 
 STT, LLM, and TTS are selected through provider interfaces and environment
 configuration. The OpenAI key exists only in the cloud process. Copy

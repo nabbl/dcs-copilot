@@ -9,9 +9,7 @@ from uuid import uuid4
 
 from dcs_copilot_protocol import (
     PROTOCOL_VERSION,
-    AircraftChanged,
     AudioFormat,
-    CockpitEntered,
     ControlMessage,
     MediaKind,
     MediaPacket,
@@ -54,7 +52,6 @@ class SessionResult:
 class SessionLifecycle:
     action: str
     session_id: str
-    aircraft: str | None = None
 
 
 @dataclass(slots=True)
@@ -68,14 +65,11 @@ class RealtimeSession:
     session_id: str | None = None
     input_audio_format: AudioFormat | None = None
     output_audio_format: AudioFormat | None = None
-    aircraft: str | None = None
-    cockpit_welcomed: bool = False
     ptt_active: bool = False
     audio_bytes: int = 0
     audio_chunks: int = 0
     audio_buffer: bytearray = field(default_factory=bytearray)
     utterance_overflowed: bool = False
-    interrupted: bool = False
 
     def hello(self) -> ControlMessage:
         return ControlMessage(
@@ -97,12 +91,7 @@ class RealtimeSession:
             return self._start_session(message)
         if message.type == "session.end":
             return self._end_session(message)
-        if message.type == "aircraft.changed":
-            return self._aircraft_changed(message)
-        if message.type == "cockpit.entered":
-            return self._cockpit_entered(message)
         if message.type == "assistant.interrupt":
-            self.interrupted = True
             return SessionResult()
         if message.type == "ptt.start":
             return self._start_ptt(message)
@@ -160,18 +149,21 @@ class RealtimeSession:
     def _start_session(self, message: ControlMessage) -> SessionResult:
         if self.session_id is not None:
             return SessionResult((self._error(message, "session_already_active"),))
+        if set(message.payload) != {
+            "session_id",
+            "input_audio",
+            "output_audio",
+        }:
+            return SessionResult((self._error(message, "invalid_session_start"),))
         session_id = message.payload.get("session_id")
         if not isinstance(session_id, str) or not session_id or len(session_id) > 128:
             return SessionResult((self._error(message, "invalid_session_id"),))
         try:
             input_audio_format = AudioFormat.from_dict(
-                message.payload.get("input_audio", message.payload.get("audio"))
+                message.payload.get("input_audio")
             )
             output_audio_format = AudioFormat.from_dict(
-                message.payload.get(
-                    "output_audio",
-                    AudioFormat(sample_rate=24_000).to_dict(),
-                )
+                message.payload.get("output_audio")
             )
         except ProtocolError as exc:
             return SessionResult(
@@ -180,8 +172,6 @@ class RealtimeSession:
         self.session_id = session_id
         self.input_audio_format = input_audio_format
         self.output_audio_format = output_audio_format
-        self.aircraft = None
-        self.cockpit_welcomed = False
         self.ptt_active = False
         self._reset_utterance()
         return SessionResult(
@@ -201,8 +191,6 @@ class RealtimeSession:
         self.session_id = None
         self.input_audio_format = None
         self.output_audio_format = None
-        self.aircraft = None
-        self.cockpit_welcomed = False
         self.ptt_active = False
         self._reset_utterance()
         return SessionResult(
@@ -210,45 +198,6 @@ class RealtimeSession:
             lifecycle=SessionLifecycle("ended", session_id)
             if session_id is not None
             else None,
-        )
-
-    def _aircraft_changed(self, message: ControlMessage) -> SessionResult:
-        if self.session_id is None:
-            return SessionResult((self._error(message, "session_not_active"),))
-        try:
-            aircraft = AircraftChanged.from_control(message).aircraft
-        except ProtocolError:
-            return SessionResult((self._error(message, "invalid_aircraft"),))
-        self.aircraft = aircraft
-        self.cockpit_welcomed = False
-        self.ptt_active = False
-        self._reset_utterance()
-        return SessionResult(
-            lifecycle=SessionLifecycle(
-                "aircraft_changed",
-                self.session_id,
-                aircraft,
-            )
-        )
-
-    def _cockpit_entered(self, message: ControlMessage) -> SessionResult:
-        if self.session_id is None:
-            return SessionResult((self._error(message, "session_not_active"),))
-        try:
-            aircraft = CockpitEntered.from_control(message).aircraft
-        except ProtocolError:
-            return SessionResult((self._error(message, "invalid_cockpit_entry"),))
-        if aircraft != self.aircraft:
-            return SessionResult((self._error(message, "aircraft_mismatch"),))
-        if self.cockpit_welcomed:
-            return SessionResult()
-        self.cockpit_welcomed = True
-        return SessionResult(
-            lifecycle=SessionLifecycle(
-                "cockpit_entered",
-                self.session_id,
-                aircraft,
-            )
         )
 
     def _start_ptt(self, message: ControlMessage) -> SessionResult:

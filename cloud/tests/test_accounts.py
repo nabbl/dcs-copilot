@@ -7,7 +7,7 @@ import pytest
 from dcs_copilot_cloud.accounts import HABIT_LABELS, AccountStore, AccountToolExecutor
 from dcs_copilot_cloud.auth import AuthService
 from dcs_copilot_cloud.database import Database, normalize_database_url
-from dcs_copilot_protocol import HABIT_RULE_IDS, FlightSummary
+from dcs_copilot_cloud.habits.models import HABIT_RULE_IDS, FlightSummary
 
 SIGNING_KEY = "test-signing-key-that-is-at-least-32-bytes"
 

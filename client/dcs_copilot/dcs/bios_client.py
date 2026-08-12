@@ -21,6 +21,7 @@ LOG = logging.getLogger(__name__)
 class ControlChange:
     control: ControlDefinition
     value: int | str
+    observed_at: float
 
 
 class DcsBiosClient:
@@ -54,6 +55,7 @@ class DcsBiosClient:
         self._decoded_values: dict[ControlDefinition, int | str] = {}
         self._frame_callbacks: list[Callable[[FrameComplete], None]] = []
         self._change_callbacks: list[Callable[[ControlChange], None]] = []
+        self._aircraft_callbacks: list[Callable[[str | None], None]] = []
         self._connection_callbacks: list[Callable[[bool], None]] = []
 
     @property
@@ -72,6 +74,9 @@ class DcsBiosClient:
 
     def add_change_callback(self, callback: Callable[[ControlChange], None]) -> None:
         self._change_callbacks.append(callback)
+
+    def add_aircraft_callback(self, callback: Callable[[str | None], None]) -> None:
+        self._aircraft_callbacks.append(callback)
 
     def add_connection_callback(self, callback: Callable[[bool], None]) -> None:
         self._connection_callbacks.append(callback)
@@ -216,6 +221,41 @@ class DcsBiosClient:
                 "aircraft changed",
                 extra={"event": "aircraft_changed", "aircraft": aircraft or "NONE"},
             )
+            for callback in tuple(self._aircraft_callbacks):
+                callback(aircraft)
+
+    def active_definitions(self) -> tuple[ControlDefinition, ...]:
+        if self.registry is None or self.current_aircraft is None:
+            return ()
+        modules = set(self.registry.modules_for_aircraft(self.current_aircraft))
+        return tuple(
+            sorted(
+                (
+                    definition
+                    for definition in self.registry.definitions()
+                    if definition.module in modules
+                ),
+                key=lambda item: (
+                    item.module,
+                    item.identifier,
+                    item.output_type,
+                    item.output_index,
+                ),
+            )
+        )
+
+    def decoded_snapshot(self) -> tuple[ControlChange, ...]:
+        snapshot: list[ControlChange] = []
+        for definition in self.active_definitions():
+            value = self.registry.decode(definition, self.state) if self.registry else None
+            observed_at = self.state.updated_at(
+                definition.address, definition.byte_length
+            )
+            if value is None or observed_at is None:
+                continue
+            self._decoded_values[definition] = value
+            snapshot.append(ControlChange(definition, value, observed_at))
+        return tuple(snapshot)
 
     def _emit_control_changes(self) -> None:
         if self.registry is None:
@@ -228,7 +268,12 @@ class DcsBiosClient:
         )
         for definition in sorted(
             self._pending_definitions,
-            key=lambda item: (item.module, item.identifier, item.output_type),
+            key=lambda item: (
+                item.module,
+                item.identifier,
+                item.output_type,
+                item.output_index,
+            ),
         ):
             if (
                 definition.module
@@ -238,8 +283,13 @@ class DcsBiosClient:
             value = self.registry.decode(definition, self.state)
             if value is None or self._decoded_values.get(definition) == value:
                 continue
+            observed_at = self.state.updated_at(
+                definition.address, definition.byte_length
+            )
+            if observed_at is None:
+                continue
             self._decoded_values[definition] = value
-            change = ControlChange(definition, value)
+            change = ControlChange(definition, value, observed_at)
             for callback in tuple(self._change_callbacks):
                 callback(change)
         self._pending_definitions.clear()

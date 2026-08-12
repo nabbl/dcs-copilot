@@ -70,7 +70,7 @@ def test_connection_handshake_uplink_and_downlink() -> None:
             played.append(payload)
 
         connection = CloudSessionConnection(
-            url="ws://localhost/v1/realtime",
+            url="ws://localhost/v2/realtime",
             access_token="token",
             device_id="device",
             audio_format=AudioFormat(),
@@ -110,11 +110,11 @@ def test_connection_handshake_uplink_and_downlink() -> None:
 
 
 def test_cloud_url_requires_tls_except_on_loopback() -> None:
-    validate_cloud_url("ws://127.0.0.1:8000/v1/realtime")
-    validate_cloud_url("ws://[::1]:8000/v1/realtime")
-    validate_cloud_url("wss://copilot.example/v1/realtime")
+    validate_cloud_url("ws://127.0.0.1:8000/v2/realtime")
+    validate_cloud_url("ws://[::1]:8000/v2/realtime")
+    validate_cloud_url("wss://copilot.example/v2/realtime")
     with pytest.raises(ValueError, match="localhost"):
-        validate_cloud_url("ws://copilot.example/v1/realtime")
+        validate_cloud_url("ws://copilot.example/v2/realtime")
 
 
 def test_client_handshake_has_a_timeout() -> None:
@@ -122,7 +122,7 @@ def test_client_handshake_has_a_timeout() -> None:
         transport = FakeTransport()
         await transport.incoming.put(ControlMessage("hello").to_json())
         connection = CloudSessionConnection(
-            url="ws://localhost/v1/realtime",
+            url="ws://localhost/v2/realtime",
             access_token="token",
             device_id="device",
             audio_format=AudioFormat(),
@@ -146,7 +146,7 @@ def test_connection_gets_a_fresh_access_token_for_each_handshake() -> None:
             return value
 
         connection = CloudSessionConnection(
-            url="ws://localhost/v1/realtime",
+            url="ws://localhost/v2/realtime",
             access_token="bootstrap-token",
             access_token_provider=provide_token,
             device_id="device",

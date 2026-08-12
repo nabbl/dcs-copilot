@@ -1,57 +1,48 @@
 # Thin-client performance methodology
 
 Client resource consumption is a product requirement. The client must not load
-AI models or contend with DCS for GPU time. Performance claims require both the
-repeatable microbenchmark below and an in-game Windows measurement.
+AI models or contend with DCS for GPU time. Performance claims require automated
+queue/parser tests and an in-game Windows measurement.
 
 ## Dependency and model audit
 
-Milestones 2 through 6 add only standard-library protocol/event/session logic
-plus the WebSocket transport, PyAudio and Windows hotkey listener. Database,
+The client includes standard-library DCS-BIOS decoding and telemetry batching
+plus the WebSocket transport, PyAudio, desktop UI, and Windows hotkey listener. Database,
 authentication, cloud Pipecat, and AI providers remain excluded from the
 client. Before a release, inspect the client-only resolved
 environment and packaged artifact and verify that it contains no FastAPI cloud
 stack, Pipecat, OpenAI, Torch, CUDA, ONNX, Whisper, Kokoro, Piper, Smart Turn,
 embedding, or vector-database package or model file.
 
-The `status` and `benchmark` commands explicitly report:
+The `status` command explicitly reports:
 
 ```text
 AI inference running locally: NO
 ```
 
-## Repeatable microbenchmark
+## Repeatable tests
 
-Run from the repository root on an otherwise idle machine:
+Run the client suite from the repository root:
 
 ```bash
-uv run dcs-copilot benchmark --updates 30000 --idle-seconds 5
+uv run --package dcs-copilot-client pytest -q client/tests
 ```
 
-The command measures:
-
-- process CPU used during a blocking idle sample;
-- resident/high-water memory before and after the workload;
-- DCS-BIOS binary parser throughput and bytes processed;
-- normalized history, phase-detector, six-rule evaluation, and bounded semantic
-  event-management cost;
-- the workload CPU time projected to 30 updates per second.
-
-It does not open a microphone, initialize audio, contact a server, or load a
-model. Results should be retained with the OS, CPU, Python version, client
-revision, and command arguments. CI verifies that the benchmark workload is
-correct but deliberately does not impose timing thresholds on shared runners.
+The suite covers parser behavior, dirty-output decoding, bounded telemetry
+queues, rapid-change coalescing, reconnect epochs, audio, PTT, authentication,
+and the architectural ban on client product-logic packages. CI deliberately
+does not impose timing thresholds on shared runners.
 
 ## Windows DCS acceptance measurement
 
-Microbenchmarks cannot establish the product requirement. Before claiming
+Automated tests cannot establish the product requirement. Before claiming
 Milestone 1 performance acceptance:
 
 1. Select a repeatable demanding F/A-18C mission, graphics preset, resolution,
    and camera view.
 2. Warm DCS for five minutes and record a ten-minute baseline using the same
    frametime tool and sampling interval.
-3. Start the packaged client with normalized monitoring and record another
+3. Start the packaged thin client with telemetry streaming and record another
    ten-minute run without changing the mission or view.
 4. Repeat both runs at least three times in alternating order.
 5. Compare median FPS plus median, 95th, and 99th percentile CPU/GPU frametime;

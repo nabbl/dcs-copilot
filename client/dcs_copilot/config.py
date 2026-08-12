@@ -6,9 +6,6 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dcs_copilot.events import SpeechMode
-
-
 def _load_dotenv(path: Path) -> None:
     """Load a small, dependency-free subset of dotenv syntax."""
 
@@ -39,8 +36,7 @@ class Settings:
     port: int = 5010
     interface: str = "127.0.0.1"
     stale_timeout: float = 2.0
-    value_stale_timeout: float = 30.0
-    cloud_url: str = "ws://127.0.0.1:8000/v1/realtime"
+    cloud_url: str = "ws://127.0.0.1:8000/v2/realtime"
     access_token: str = field(default="local-dev-token", repr=False)
     device_id: str = "local-development-device"
     copilot_ptt_key: str = "F13"
@@ -49,7 +45,6 @@ class Settings:
     assistant_mute_key: str = "F14"
     assistant_mute_device: int | None = None
     assistant_mute_button: int | None = None
-    speech_mode: SpeechMode = SpeechMode.NORMAL
     audio_input_device: int | None = None
     audio_output_device: int | None = None
     audio_sample_rate: int = 16_000
@@ -73,12 +68,9 @@ class Settings:
             port=int(os.getenv("DCS_BIOS_PORT", "5010")),
             interface=os.getenv("DCS_BIOS_INTERFACE", "127.0.0.1"),
             stale_timeout=float(os.getenv("DCS_BIOS_STALE_TIMEOUT", "2.0")),
-            value_stale_timeout=float(
-                os.getenv("DCS_BIOS_VALUE_STALE_TIMEOUT", "30.0")
-            ),
             cloud_url=os.getenv(
                 "DCS_COPILOT_CLOUD_URL",
-                "ws://127.0.0.1:8000/v1/realtime",
+                "ws://127.0.0.1:8000/v2/realtime",
             ).strip(),
             access_token=os.getenv("DCS_COPILOT_ACCESS_TOKEN", "local-dev-token"),
             device_id=os.getenv(
@@ -90,9 +82,6 @@ class Settings:
             assistant_mute_key=os.getenv("COPILOT_MUTE_KEY", "F14").strip().upper(),
             assistant_mute_device=_optional_int("COPILOT_MUTE_DEVICE"),
             assistant_mute_button=_optional_int("COPILOT_MUTE_BUTTON"),
-            speech_mode=SpeechMode(
-                os.getenv("COPILOT_SPEECH_MODE", "NORMAL").strip().upper()
-            ),
             audio_input_device=_optional_int("AUDIO_INPUT_DEVICE"),
             audio_output_device=_optional_int("AUDIO_OUTPUT_DEVICE"),
             audio_sample_rate=int(os.getenv("AUDIO_SAMPLE_RATE", "16000")),

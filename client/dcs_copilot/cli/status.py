@@ -11,9 +11,7 @@ from dcs_copilot.dcs.bios_client import DcsBiosClient
 from dcs_copilot.dcs.bios_registry import DcsBiosControlRegistry
 from dcs_copilot.diagnostics.cloud import CloudProbeResult, probe_cloud
 from dcs_copilot.diagnostics.resources import ResourceSnapshot, format_bytes
-from dcs_copilot.events import SpeechPolicy
 from dcs_copilot.input.ptt import function_key_virtual_code
-from dcs_copilot.state.store import AircraftStateStore
 
 
 def _load_registry(
@@ -50,16 +48,6 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         stale_timeout=settings.stale_timeout,
         registry=registry,
     )
-    state_store = (
-        AircraftStateStore(
-            registry,
-            client=client,
-            value_stale_timeout=settings.value_stale_timeout,
-            speech_policy=SpeechPolicy(settings.speech_mode),
-        )
-        if registry is not None
-        else None
-    )
     socket_error: str | None = None
     try:
         await client.listen_for(wait)
@@ -71,7 +59,8 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         frame_age = client.frame_age
         aircraft = client.current_aircraft
         parser_errors = client.parser.error_count
-        normalized = state_store.refresh() if state_store is not None else None
+        available_outputs = len(client.decoded_snapshot())
+        active_outputs = len(client.active_definitions())
         client.close()
     resource_end = ResourceSnapshot.capture()
     cloud = (
@@ -120,12 +109,8 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         f"Modules loaded: {module_text}",
         f"Control metadata: {metadata_status}",
         f"Parser errors: {parser_errors}",
-        f"Normalized fields: {normalized.available_field_count if normalized else 0}",
-        f"Unavailable fields: {normalized.unavailable_field_count if normalized else 0}",
-        f"Flight phase: {normalized.flight_phase if normalized else 'UNKNOWN'}",
-        f"Active issues: {len(state_store.rule_engine.active_issues) if state_store else 0}",
-        f"Recorded events: {len(state_store.event_manager.history) if state_store else 0}",
-        f"Speech mode: {settings.speech_mode}",
+        f"Active catalog outputs: {active_outputs}",
+        f"Available decoded outputs: {available_outputs}",
         f"Cloud: {cloud.detail}",
         f"Authenticated: {'yes' if cloud.authenticated else 'no'}",
         f"PTT: {ptt_status}",

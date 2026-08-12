@@ -6,7 +6,6 @@ from dcs_copilot_cloud.app import create_app
 from dcs_copilot_cloud.config import CloudSettings
 from dcs_copilot_cloud.voice import VoiceTurnResult
 from dcs_copilot_protocol import (
-    AircraftChanged,
     AudioFormat,
     ControlMessage,
     MediaKind,
@@ -71,11 +70,14 @@ def authenticate_and_start(websocket, access_token: str, session_id: str) -> Non
     websocket.send_text(
         ControlMessage(
             "session.start",
-            {"session_id": session_id, "audio": AudioFormat().to_dict()},
+            {
+                "session_id": session_id,
+                "input_audio": AudioFormat().to_dict(),
+                "output_audio": AudioFormat(sample_rate=24_000).to_dict(),
+            },
         ).to_json()
     )
     assert receive_control(websocket).payload["session_active"] is True
-    websocket.send_text(AircraftChanged("F/A-18C").to_control().to_json())
 
 
 def voice_turn(websocket) -> str:
@@ -119,7 +121,7 @@ def test_voice_memory_survives_complete_cloud_restart(tmp_path: Path) -> None:
     }
     with TestClient(first_app) as client:
         account = client.post("/v1/auth/register", json=credentials).json()
-        with client.websocket_connect("/v1/realtime") as websocket:
+        with client.websocket_connect("/v2/realtime") as websocket:
             authenticate_and_start(websocket, account["access_token"], "flight-1")
             assert voice_turn(websocket) == "Hornet Bingo set to 3,500."
             assert voice_turn(websocket) == "Your Hornet Bingo is 3,500."
@@ -132,7 +134,7 @@ def test_voice_memory_survives_complete_cloud_restart(tmp_path: Path) -> None:
     )
     with TestClient(restarted_app) as client:
         account = client.post("/v1/auth/token", json=credentials).json()
-        with client.websocket_connect("/v1/realtime") as websocket:
+        with client.websocket_connect("/v2/realtime") as websocket:
             authenticate_and_start(websocket, account["access_token"], "flight-2")
             assert voice_turn(websocket) == "Your Hornet Bingo is 3,500."
             end_session(websocket, "flight-2")

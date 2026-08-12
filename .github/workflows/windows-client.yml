@@ -33,7 +33,7 @@ jobs:
         run: >-
           ./packaging/windows/build.ps1
           -Version "${{ inputs.version || '0.1.0' }}"
-          -ServiceUrl "${{ vars.DCS_COPILOT_SERVICE_URL || 'ws://127.0.0.1:8000/v1/realtime' }}"
+          -ServiceUrl "${{ vars.DCS_COPILOT_SERVICE_URL || 'ws://127.0.0.1:8000/v2/realtime' }}"
       - uses: actions/upload-artifact@v4
         with:
           name: dcs-copilot-windows

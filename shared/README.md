@@ -1,11 +1,12 @@
 # DCS Copilot shared protocol
 
 Standard-library JSON control and binary media envelopes for protocol version
-1, including strict schemas for the four versioned read-only aircraft tools.
-It also validates versioned semantic aircraft events used for proactive speech.
-Versioned session metadata is limited to the current own-aircraft identifier;
-versioned flight summaries contain only an aircraft name and allowlisted rule
-activation counts. Account credentials and cloud memory objects never enter
-this package.
+2, including strict schemas for decoded DCS-BIOS catalogs, initial snapshots,
+and changed-value deltas.
+
+The package contains transport-neutral validation only. Aircraft
+normalization, phases, rules, checklists, events, habits, speech policy, and
+Mara tools belong to the cloud package. Numeric DCS-BIOS addresses, account
+credentials, cloud memory objects, and business logic never enter this package.
 The package contains no transport implementation or business logic and is small
 enough to reimplement in a future native client.

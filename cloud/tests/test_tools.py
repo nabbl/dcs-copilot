@@ -1,101 +1,192 @@
 from __future__ import annotations
 
-import asyncio
+from uuid import uuid4
 
-import pytest
+from dcs_copilot_cloud.app import create_app
+from dcs_copilot_cloud.config import CloudSettings
 from dcs_copilot_cloud.tools import (
-    LocalAircraftToolBroker,
-    LocalAircraftToolDisconnected,
-    LocalAircraftToolTimeout,
-)
-from dcs_copilot_protocol import (
+    AIRCRAFT_TOOL_NAMES,
     AircraftToolRequest,
-    AircraftToolResult,
-    ControlMessage,
     ToolProtocolError,
 )
+from dcs_copilot_cloud.voice import VoiceTurn, VoiceTurnResult
+from dcs_copilot_protocol import (
+    AudioFormat,
+    ControlMessage,
+    MediaKind,
+    MediaPacket,
+    TelemetryCatalog,
+    TelemetrySnapshot,
+)
+from fastapi.testclient import TestClient
 
 
-def test_broker_correlates_tool_result_to_request() -> None:
-    async def scenario() -> tuple[ControlMessage, dict[str, object]]:
-        sent: asyncio.Queue[ControlMessage] = asyncio.Queue()
-
-        async def send(message: ControlMessage) -> None:
-            await sent.put(message)
-
-        broker = LocalAircraftToolBroker(send, timeout_seconds=1)
-        task = asyncio.create_task(broker.request("get_active_issues", {}))
-        control = await sent.get()
-        request = AircraftToolRequest.from_control(control)
-        broker.resolve(
-            AircraftToolResult.success(
-                request,
-                {
-                    "available": True,
-                    "coverage": "AVAILABLE",
-                    "unavailable_rule_ids": [],
-                    "issues": [],
-                },
-            ).to_control()
-        )
-        return control, await task
-
-    control, result = asyncio.run(scenario())
-    assert control.type == "tool.request"
-    assert result == {
-        "available": True,
-        "coverage": "AVAILABLE",
-        "unavailable_rule_ids": [],
-        "issues": [],
-    }
+def receive_control(websocket) -> ControlMessage:
+    return ControlMessage.from_json(websocket.receive_text())
 
 
-def test_broker_rejects_mismatched_and_unsolicited_correlation() -> None:
-    async def scenario() -> None:
-        async def send(_message: ControlMessage) -> None:
-            return None
-
-        broker = LocalAircraftToolBroker(send, timeout_seconds=1)
-        unsolicited = ControlMessage(
-            "tool.result",
+def authenticate_and_start(websocket) -> None:
+    assert receive_control(websocket).type == "hello"
+    websocket.send_text(
+        ControlMessage(
+            "authenticate",
+            {"access_token": "test-token", "device_id": "device-1"},
+        ).to_json()
+    )
+    assert receive_control(websocket).payload["authenticated"] is True
+    websocket.send_text(
+        ControlMessage(
+            "session.start",
             {
-                "tool_version": 1,
-                "tool": "get_flight_phase",
-                "ok": True,
-                "result": {"available": False, "flight_phase": None},
+                "session_id": "session-1",
+                "input_audio": AudioFormat().to_dict(),
+                "output_audio": AudioFormat(sample_rate=24_000).to_dict(),
             },
-            correlation_id="not-pending",
+        ).to_json()
+    )
+    assert receive_control(websocket).payload["session_active"] is True
+
+
+def test_aircraft_tool_request_validates_known_names() -> None:
+    request = AircraftToolRequest.create("get_aircraft_state", {"fields": ["connected"]})
+    assert request.tool == "get_aircraft_state"
+
+    try:
+        AircraftToolRequest.create("nonexistent_tool", {})
+    except ToolProtocolError:
+        pass
+    else:
+        raise AssertionError("expected ToolProtocolError for an unknown tool name")
+
+
+def test_aircraft_tool_names_are_complete() -> None:
+    assert set(AIRCRAFT_TOOL_NAMES) == {
+        "get_aircraft_state",
+        "get_active_issues",
+        "get_recent_events",
+        "get_flight_phase",
+        "get_checklist_status",
+        "get_missing_checklist_items",
+        "start_guided_checklist",
+        "get_next_checklist_item",
+        "confirm_manual_checklist_item",
+        "stop_guided_checklist",
+    }
+    assert "get_aircraft_state" in AIRCRAFT_TOOL_NAMES
+    assert "get_missing_checklist_items" in AIRCRAFT_TOOL_NAMES
+
+
+class ConnectedStateVoicePipeline:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def respond(
+        self, turn: VoiceTurn, on_audio, request_tool=None
+    ) -> VoiceTurnResult:
+        assert request_tool is not None
+        result = await request_tool("get_aircraft_state", {"fields": ["connected"]})
+        connected = result["fields"]["connected"]["value"]
+        await on_audio(b"\x30\x40" * 240)
+        return VoiceTurnResult("Status?", f"Aircraft connected: {connected}.")
+
+    async def announce(self, announcement, on_audio) -> str:
+        await on_audio(b"\x50\x60" * 240)
+        return announcement.text
+
+    async def interrupt(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def test_aircraft_tool_executed_locally_via_app() -> None:
+    pipeline = ConnectedStateVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v2/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+
+        epoch = str(uuid4())
+        websocket.send_text(
+            TelemetryCatalog(epoch, 0, "FA-18C_hornet", 0, 1, []).to_control().to_json()
         )
-        with pytest.raises(ToolProtocolError, match="no matching"):
-            broker.resolve(unsolicited)
+        websocket.send_text(
+            TelemetrySnapshot(epoch, 1, "FA-18C_hornet", 0, 1, [])
+            .to_control()
+            .to_json()
+        )
+        assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+            MediaKind.AUDIO_OUTPUT
+        )
+        assert receive_control(websocket).payload["kind"] == "cockpit_welcome"
 
-    asyncio.run(scenario())
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_bytes(
+            MediaPacket(MediaKind.AUDIO_INPUT, 0, 1, b"\x01\x02" * 320).to_bytes()
+        )
+        websocket.send_text(ControlMessage("ptt.end").to_json())
+        assert receive_control(websocket).payload["event_type"] == "utterance.received"
+
+        # No tool.request wire message: the very next frame is the audio output.
+        output = MediaPacket.from_bytes(websocket.receive_bytes())
+        assert output.kind is MediaKind.AUDIO_OUTPUT
+        assert receive_control(websocket).payload == {"text": "Status?"}
+        response = receive_control(websocket)
+        assert response.payload == {"text": "Aircraft connected: True."}
 
 
-def test_broker_times_out_when_client_does_not_return_result() -> None:
-    async def scenario() -> None:
-        async def send(_message: ControlMessage) -> None:
-            return None
+class UnknownToolVoicePipeline:
+    def __init__(self) -> None:
+        self.closed = False
 
-        broker = LocalAircraftToolBroker(send, timeout_seconds=0.01)
-        with pytest.raises(LocalAircraftToolTimeout, match="timed out"):
-            await broker.request("get_flight_phase", {})
+    async def respond(
+        self, turn: VoiceTurn, on_audio, request_tool=None
+    ) -> VoiceTurnResult:
+        assert request_tool is not None
+        result = await request_tool("not_a_real_tool", {})
+        assert result["error"]["code"] == "tool_not_allowlisted"
+        await on_audio(b"\x30\x40" * 240)
+        return VoiceTurnResult("What tools exist?", "That tool isn't available.")
 
-    asyncio.run(scenario())
+    async def announce(self, announcement, on_audio) -> str:
+        await on_audio(b"\x50\x60" * 240)
+        return announcement.text
+
+    async def interrupt(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        self.closed = True
 
 
-def test_broker_fails_pending_request_on_disconnect() -> None:
-    async def scenario() -> None:
-        sent = asyncio.Event()
+def test_unknown_tool_returns_not_allowlisted_error() -> None:
+    pipeline = UnknownToolVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v2/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
 
-        async def send(_message: ControlMessage) -> None:
-            sent.set()
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_bytes(
+            MediaPacket(MediaKind.AUDIO_INPUT, 0, 1, b"\x01\x02" * 320).to_bytes()
+        )
+        websocket.send_text(ControlMessage("ptt.end").to_json())
+        assert receive_control(websocket).payload["event_type"] == "utterance.received"
 
-        broker = LocalAircraftToolBroker(send, timeout_seconds=1)
-        task = asyncio.create_task(broker.request("get_flight_phase", {}))
-        await sent.wait()
-        broker.disconnect()
-        with pytest.raises(LocalAircraftToolDisconnected, match="disconnected"):
-            await task
-
-    asyncio.run(scenario())
+        assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+            MediaKind.AUDIO_OUTPUT
+        )
+        assert receive_control(websocket).payload == {"text": "What tools exist?"}
+        response = receive_control(websocket)
+        assert response.payload == {"text": "That tool isn't available."}

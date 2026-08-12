@@ -318,9 +318,6 @@ class DashboardPage(QWidget):
         self._mute_devices: dict[int, JoystickDevice] = {}
         self._refresh_mute_devices()
         self.mute_device.currentIndexChanged.connect(self._update_mute_controls)
-        self.speech = QComboBox()
-        self.speech.addItems(["MINIMAL", "NORMAL", "COACH"])
-        self.speech.setCurrentText(self.config.speech_mode)
         self.launch_login = QCheckBox("Start DCS Copilot when I sign in to Windows")
         self.launch_login.setChecked(self.config.launch_at_login)
         form.addRow("DCS Saved Games folder", path_row)
@@ -331,7 +328,6 @@ class DashboardPage(QWidget):
         form.addRow("MARA mute input device", mute_device_row)
         form.addRow("MARA mute key / button", self.mute_control)
         form.addRow("", self.mute_hint)
-        form.addRow("Speech mode", self.speech)
         form.addRow("", self.launch_login)
         save = QPushButton("Save settings")
         save.setObjectName("primary")
@@ -566,7 +562,6 @@ class DashboardPage(QWidget):
             and self.config.ptt_button == self.config.assistant_mute_button
         ):
             raise ValueError("Mute / unmute button cannot be the same as PTT.")
-        self.config.speech_mode = self.speech.currentText()
         self.config.launch_at_login = self.launch_login.isChecked()
 
     def refresh_setup_status(self) -> None:
@@ -792,7 +787,6 @@ class MainWindow(QMainWindow):
             if self.config.assistant_mute_button is None
             else str(self.config.assistant_mute_button),
         )
-        environment.insert("COPILOT_SPEECH_MODE", self.config.speech_mode)
         if self.config.dcs_path is not None:
             environment.insert(
                 "DCS_BIOS_PATH", str(self.config.dcs_path / "Scripts" / "DCS-BIOS")

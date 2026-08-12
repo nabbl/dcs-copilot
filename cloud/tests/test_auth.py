@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from uuid import uuid4
 
 from dcs_copilot_cloud.accounts import AccountStore
 from dcs_copilot_cloud.app import create_app
 from dcs_copilot_cloud.config import CloudSettings
 from dcs_copilot_cloud.database import Database
-from dcs_copilot_protocol import AircraftChanged, AudioFormat, ControlMessage
+from dcs_copilot_protocol import AudioFormat, ControlMessage, TelemetryCatalog
 from fastapi.testclient import TestClient
 
 SIGNING_KEY = "test-signing-key-that-is-at-least-32-bytes"
@@ -98,7 +99,7 @@ def test_realtime_access_token_is_signed_and_device_bound(tmp_path: Path) -> Non
                 "device_id": "device-1",
             },
         ).json()
-        with client.websocket_connect("/v1/realtime") as websocket:
+        with client.websocket_connect("/v2/realtime") as websocket:
             assert ControlMessage.from_json(websocket.receive_text()).type == "hello"
             websocket.send_text(
                 ControlMessage(
@@ -114,7 +115,7 @@ def test_realtime_access_token_is_signed_and_device_bound(tmp_path: Path) -> Non
 
         token = account["access_token"]
         tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
-        with client.websocket_connect("/v1/realtime") as websocket:
+        with client.websocket_connect("/v2/realtime") as websocket:
             assert ControlMessage.from_json(websocket.receive_text()).type == "hello"
             websocket.send_text(
                 ControlMessage(
@@ -138,7 +139,7 @@ def test_authenticated_flight_session_closes_on_disconnect(tmp_path: Path) -> No
                 "device_id": "device-1",
             },
         ).json()
-        with client.websocket_connect("/v1/realtime") as websocket:
+        with client.websocket_connect("/v2/realtime") as websocket:
             assert ControlMessage.from_json(websocket.receive_text()).type == "hello"
             websocket.send_text(
                 ControlMessage(
@@ -155,13 +156,21 @@ def test_authenticated_flight_session_closes_on_disconnect(tmp_path: Path) -> No
             websocket.send_text(
                 ControlMessage(
                     "session.start",
-                    {"session_id": "flight-1", "audio": AudioFormat().to_dict()},
+                    {
+                        "session_id": "flight-1",
+                        "input_audio": AudioFormat().to_dict(),
+                        "output_audio": AudioFormat(sample_rate=24_000).to_dict(),
+                    },
                 ).to_json()
             )
             assert ControlMessage.from_json(websocket.receive_text()).payload[
                 "session_active"
             ]
-            websocket.send_text(AircraftChanged("Hornet").to_control().to_json())
+            websocket.send_text(
+                TelemetryCatalog(
+                    str(uuid4()), 0, "FA-18C_hornet", 0, 1, []
+                ).to_control().to_json()
+            )
             websocket.send_text(ControlMessage("barrier").to_json())
             assert ControlMessage.from_json(websocket.receive_text()).payload[
                 "code"

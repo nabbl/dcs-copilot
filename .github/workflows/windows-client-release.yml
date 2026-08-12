@@ -29,7 +29,7 @@ jobs:
         run: >-
           ./packaging/windows/build.ps1
           -Version "${{ inputs.version }}"
-          -ServiceUrl "${{ vars.DCS_COPILOT_SERVICE_URL || 'ws://127.0.0.1:8000/v1/realtime' }}"
+          -ServiceUrl "${{ vars.DCS_COPILOT_SERVICE_URL || 'ws://127.0.0.1:8000/v2/realtime' }}"
       - name: Upload installer to development release
         shell: pwsh
         env:

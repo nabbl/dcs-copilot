@@ -23,12 +23,13 @@ notification; it does not hide a currently active issue.
 
 ## Event and speech policy
 
-Every rule transition enters the bounded local event history. An activation and
-its later resolution or disablement share an event ID. Only semantic fields are
-eligible for publication: rule ID, severity, aircraft, phase, concise message,
-and the rule's bounded data object.
+Every rule transition enters the bounded backend event history. An activation
+and its later resolution or disablement share an event ID. Only semantic fields
+are eligible for the proactive speech path: rule ID, severity, aircraft, phase,
+concise message, and the rule's bounded data object.
 
-Speech mode is configured with `COPILOT_SPEECH_MODE`:
+Speech policy is enforced backend-side using the account's chatter preference,
+defaulting to `NORMAL`:
 
 - `MINIMAL`: only rules explicitly marked for minimal speech, generally
   time-critical launch, gear, oxygen, seat, and hook warnings;
@@ -36,39 +37,20 @@ Speech mode is configured with `COPILOT_SPEECH_MODE`:
   parking-brake, and refueling-probe advisories;
 - `COACH`: every cooldown-eligible activation, including INFO.
 
-Rules explicitly marked non-proactive remain available in local issue/history
-diagnostics but are never spoken. The policy does not play local audio.
-Eligible activations use cloud TTS; PTT
-suppresses or interrupts them. Event detection and history continue if the
-cloud is unavailable, but offline warning speech is not a requirement.
+Rules explicitly marked non-proactive remain available in backend issue/history
+diagnostics but are never spoken. Eligible activations use cloud TTS; PTT
+suppresses or interrupts them. No duplicate offline client rule engine exists.
 
 The 250-knot gear threshold follows the Hornet landing procedure in the Eagle
 Dynamics guide, which calls for gear and flaps down at 250 knots. The cockpit
 signals are the adapter's verified `MASTER_CAUTION_LT`, gear lights and lever,
-`CANOPY_POS`, `EMERGENCY_PARKING_BRAKE_ROTATE`, `LDG_TAXI_SW`, and
+`CANOPY_POS`, `EMERGENCY_PARKING_BRAKE_PULL` with rotation fallback,
+`LDG_TAXI_SW`, and
 `EJECTION_SEAT_ARMED`
 exports. Live behavior still requires the validation matrix in
 `docs/multiplayer-validation.md`; automated fixtures are not evidence of
 multiplayer or Integrity Check compatibility.
 
-Ground movement uses a local position delta from DCS-BIOS CommonData rather than
+Ground movement uses a backend position delta from DCS-BIOS CommonData rather than
 wind-affected indicated airspeed. Coordinates are not placed in normalized
-state, exposed to cloud tools, or transmitted.
-
-## Replay format
-
-Each non-comment JSONL line is a complete normalized snapshot. Values provided
-in `fields` are available by default; omitted fields are unavailable. A value
-may instead be an object with `value`, `available`, `stale`, `updated_at`, and
-`source` keys. `flight_phase` is optional—when omitted, replay runs the phase
-detector.
-
-```json
-{"timestamp":3,"aircraft":"FA-18C_hornet","fields":{"indicated_airspeed":260,"gear_position":"DOWN","weight_on_wheels":false}}
-```
-
-Run a synthetic fixture with:
-
-```bash
-uv run dcs-copilot replay client/tests/fixtures/replay/airborne-alerts.jsonl
-```
+state or transmitted beyond the telemetry stream.

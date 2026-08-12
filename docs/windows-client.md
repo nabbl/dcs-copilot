@@ -29,7 +29,7 @@ On a Windows x64 build host, install `uv` and Inno Setup 6, then run:
 
 ```powershell
 ./packaging/windows/build.ps1 -Version 0.1.0 `
-  -ServiceUrl "wss://api.example.com/v1/realtime"
+  -ServiceUrl "wss://api.example.com/v2/realtime"
 ```
 
 The script synchronizes the workspace, builds separate PyInstaller windowed and

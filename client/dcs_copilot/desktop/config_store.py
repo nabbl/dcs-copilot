@@ -11,7 +11,6 @@ from pathlib import Path
 from uuid import uuid4
 
 from dcs_copilot.config import Settings
-from dcs_copilot.events import SpeechMode
 
 APP_DIR_NAME = "DCS Copilot"
 CONFIG_FILE_NAME = "config.json"
@@ -33,7 +32,7 @@ def default_cloud_url() -> str:
                     return value.strip()
         except (FileNotFoundError, OSError):
             pass
-    return "ws://127.0.0.1:8000/v1/realtime"
+    return "ws://127.0.0.1:8000/v2/realtime"
 
 
 def app_data_dir() -> Path:
@@ -131,7 +130,6 @@ class DesktopConfig:
     assistant_mute_key: str = "F14"
     assistant_mute_device_id: int | None = None
     assistant_mute_button: int | None = None
-    speech_mode: str = "NORMAL"
     launch_at_login: bool = False
 
     @classmethod
@@ -178,7 +176,6 @@ class DesktopConfig:
                 "assistant_mute_device_id"
             ),
             assistant_mute_button=optional_int_value("assistant_mute_button"),
-            speech_mode=text_value("speech_mode", defaults.speech_mode),
             launch_at_login=(
                 launch_value
                 if isinstance(launch_value, bool)
@@ -229,5 +226,4 @@ class DesktopConfig:
             assistant_mute_key=self.assistant_mute_key.strip().upper(),
             assistant_mute_device=self.assistant_mute_device_id,
             assistant_mute_button=self.assistant_mute_button,
-            speech_mode=SpeechMode(self.speech_mode.strip().upper()),
         )

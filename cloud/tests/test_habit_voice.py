@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+from dcs_copilot_cloud.accounts import AccountStore
 from dcs_copilot_cloud.app import create_app
+from dcs_copilot_cloud.auth import AuthService
 from dcs_copilot_cloud.config import CloudSettings
+from dcs_copilot_cloud.database import Database
+from dcs_copilot_cloud.habits.models import FlightSummary
 from dcs_copilot_cloud.voice import VoiceTurnResult
 from dcs_copilot_protocol import (
-    AircraftChanged,
     AudioFormat,
     ControlMessage,
-    FlightSummary,
     MediaKind,
     MediaPacket,
 )
@@ -63,11 +66,14 @@ def start(websocket, access_token: str, session_id: str) -> None:
     websocket.send_text(
         ControlMessage(
             "session.start",
-            {"session_id": session_id, "audio": AudioFormat().to_dict()},
+            {
+                "session_id": session_id,
+                "input_audio": AudioFormat().to_dict(),
+                "output_audio": AudioFormat(sample_rate=24_000).to_dict(),
+            },
         ).to_json()
     )
     assert receive_control(websocket).payload["session_active"] is True
-    websocket.send_text(AircraftChanged("F/A-18C").to_control().to_json())
 
 
 def test_semantic_summaries_survive_restart_and_drive_exact_voice_response(
@@ -87,29 +93,29 @@ def test_semantic_summaries_survive_restart_and_drive_exact_voice_response(
     first_app = create_app(settings)
     with TestClient(first_app) as client:
         account = client.post("/v1/auth/register", json=credentials).json()
-        with client.websocket_connect("/v1/realtime") as websocket:
-            start(websocket, account["access_token"], "flight-upload")
-            for index in range(1, 6):
-                summary = FlightSummary(
-                    f"20000000-0000-4000-8000-{index:012d}",
-                    "FA-18C_hornet",
-                    {"FA18_REFUELING_PROBE_LEFT_OUT": int(index <= 3)},
-                )
-                request = summary.to_control()
-                websocket.send_text(request.to_json())
-                accepted = receive_control(websocket)
-                assert accepted.correlation_id == request.message_id
-                assert accepted.payload == {
-                    "event_type": "flight.summary.accepted",
-                    "summary_id": summary.summary_id,
-                    "duplicate": False,
-                }
-                if index == 1:
-                    duplicate_request = summary.to_control()
-                    websocket.send_text(duplicate_request.to_json())
-                    duplicate = receive_control(websocket)
-                    assert duplicate.correlation_id == duplicate_request.message_id
-                    assert duplicate.payload["duplicate"] is True
+    user_id = account["user_id"]
+
+    # Flight summaries are cloud-internal: ingest them directly against the
+    # account store rather than over the client WebSocket (there is no
+    # client ingest path in protocol v2).
+    async def ingest_summaries() -> None:
+        database = Database(database_url)
+        await database.initialize()
+        store = AccountStore(database)
+        for index in range(1, 6):
+            summary = FlightSummary(
+                f"20000000-0000-4000-8000-{index:012d}",
+                "FA-18C_hornet",
+                {"FA18_REFUELING_PROBE_LEFT_OUT": int(index <= 3)},
+            )
+            accepted = await store.ingest_flight_summary(user_id, summary)
+            assert accepted is True
+            if index == 1:
+                duplicate = await store.ingest_flight_summary(user_id, summary)
+                assert duplicate is False
+        await database.close()
+
+    asyncio.run(ingest_summaries())
 
     pipeline = HabitVoicePipeline()
     restarted_app = create_app(
@@ -117,7 +123,7 @@ def test_semantic_summaries_survive_restart_and_drive_exact_voice_response(
     )
     with TestClient(restarted_app) as client:
         account = client.post("/v1/auth/token", json=credentials).json()
-        with client.websocket_connect("/v1/realtime") as websocket:
+        with client.websocket_connect("/v2/realtime") as websocket:
             start(websocket, account["access_token"], "flight-recall")
             websocket.send_text(ControlMessage("ptt.start").to_json())
             websocket.send_bytes(
@@ -142,19 +148,51 @@ def test_semantic_summaries_survive_restart_and_drive_exact_voice_response(
     assert pipeline.closed
 
 
-def test_dev_token_cannot_upload_account_flight_statistics() -> None:
-    app = create_app(CloudSettings(dev_access_token="test-token"))
+class AccountAuthRequiredVoicePipeline:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def respond(self, turn, on_audio, request_tool=None) -> VoiceTurnResult:
+        assert request_tool is not None
+        result = await request_tool("get_pilot_habits", {"aircraft": "F/A-18C"})
+        assert result["error"]["code"] == "account_authentication_required"
+        await on_audio(b"\x44\x55" * 240)
+        return VoiceTurnResult(
+            "What's my bad habit?", "I can't check habits without an account."
+        )
+
+    async def announce(self, announcement, on_audio) -> str:
+        await on_audio(b"\x44\x55" * 240)
+        return announcement.text
+
+    async def interrupt(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def test_dev_token_voice_session_account_tools_require_auth() -> None:
+    pipeline = AccountAuthRequiredVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
     with (
         TestClient(app) as client,
-        client.websocket_connect("/v1/realtime") as websocket,
+        client.websocket_connect("/v2/realtime") as websocket,
     ):
         start(websocket, "test-token", "dev-flight")
-        request = FlightSummary(
-            "30000000-0000-4000-8000-000000000001",
-            "F/A-18C",
-            {"FA18_MASTER_CAUTION": 1},
-        ).to_control()
-        websocket.send_text(request.to_json())
-        error = receive_control(websocket)
-        assert error.correlation_id == request.message_id
-        assert error.payload["code"] == "account_authentication_required"
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_bytes(
+            MediaPacket(MediaKind.AUDIO_INPUT, 0, 1, b"\x01\x02" * 320).to_bytes()
+        )
+        websocket.send_text(ControlMessage("ptt.end").to_json())
+        assert receive_control(websocket).payload["event_type"] == "utterance.received"
+        assert MediaPacket.from_bytes(websocket.receive_bytes()).payload == (
+            b"\x44\x55" * 240
+        )
+        assert receive_control(websocket).type == "pilot.text"
+        response = receive_control(websocket)
+        assert response.type == "assistant.text"
+        assert response.payload["text"] == "I can't check habits without an account."
