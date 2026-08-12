@@ -13,6 +13,7 @@ from dcs_copilot_protocol import (
     AircraftToolRequest,
     AircraftToolResult,
     AudioFormat,
+    CockpitEntered,
     ControlMessage,
     EventProtocolError,
     FlightSummary,
@@ -49,6 +50,25 @@ def test_control_envelope_rejects_unsupported_version() -> None:
     )
     with pytest.raises(UnsupportedProtocolVersion):
         ControlMessage.from_json(raw)
+
+
+def test_cockpit_entered_is_versioned_and_requires_an_aircraft() -> None:
+    message = CockpitEntered("FA-18C_hornet").to_control()
+    assert message.type == "cockpit.entered"
+    assert CockpitEntered.from_control(message).aircraft == "FA-18C_hornet"
+    with pytest.raises(ProtocolError, match="1 to 64"):
+        CockpitEntered("")
+    with pytest.raises(ProtocolError, match="unexpected fields"):
+        CockpitEntered.from_control(
+            ControlMessage(
+                "cockpit.entered",
+                {
+                    "metadata_version": 1,
+                    "aircraft": "FA-18C_hornet",
+                    "raw_state": {},
+                },
+            )
+        )
 
 
 def test_binary_media_envelope_round_trip() -> None:

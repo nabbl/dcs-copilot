@@ -11,6 +11,7 @@ from typing import Any
 from dcs_copilot_protocol import (
     AircraftChanged,
     AudioFormat,
+    CockpitEntered,
     ControlMessage,
     FlightSummary,
 )
@@ -85,6 +86,8 @@ async def run_client_runtime(
     aircraft_tools = AircraftToolExecutor(store)
     summary_requests: dict[str, str] = {}
     conversation_activity = ConversationActivity()
+    pending_cockpit_welcome: str | None = None
+    cockpit_welcome_ready = False
 
     def send_flight_summary(summary: FlightSummary) -> bool:
         message = summary.to_control()
@@ -102,6 +105,7 @@ async def run_client_runtime(
             connection.send_message(
                 AircraftChanged(store.current.aircraft).to_control()
             )
+            send_pending_cockpit_welcome()
             for summary in store.flight_stats.pending:
                 send_flight_summary(summary)
 
@@ -155,6 +159,25 @@ async def run_client_runtime(
     controller = PttSessionController(connection, capture, playback, on_notice=print)
     published_event_ids: set[str] = set()
 
+    def send_pending_cockpit_welcome() -> None:
+        nonlocal pending_cockpit_welcome
+        if (
+            cockpit_welcome_ready
+            and pending_cockpit_welcome is not None
+            and connection.send_message(
+                CockpitEntered(pending_cockpit_welcome).to_control()
+            )
+        ):
+            pending_cockpit_welcome = None
+
+    async def prepare_cockpit_welcome(aircraft: str | None) -> None:
+        nonlocal cockpit_welcome_ready
+        await controller.reset()
+        if aircraft is None or aircraft != pending_cockpit_welcome:
+            return
+        cockpit_welcome_ready = True
+        send_pending_cockpit_welcome()
+
     def proactive_event(managed: ManagedAircraftEvent) -> None:
         if not managed.publish:
             return
@@ -190,11 +213,16 @@ async def run_client_runtime(
         store.flight_stats.add_summary_callback(flight_summary_ready)
 
         def state_changed(change: NormalizedStateChange) -> None:
+            nonlocal cockpit_welcome_ready, pending_cockpit_welcome
             if change.field == "aircraft":
                 published_event_ids.clear()
                 conversation_activity.reset()
-                schedule(controller.reset())
                 connection.send_message(AircraftChanged(change.new_value).to_control())
+                pending_cockpit_welcome = (
+                    change.new_value if isinstance(change.new_value, str) else None
+                )
+                cockpit_welcome_ready = False
+                schedule(prepare_cockpit_welcome(pending_cockpit_welcome))
 
         store.add_change_callback(state_changed)
 

@@ -28,6 +28,7 @@ from .auth import AuthService
 from .auth_api import auth_router
 from .config import LOCAL_DEVELOPMENT_SIGNING_KEY, CloudSettings
 from .database import Database
+from .greetings import CockpitGreetingSelector
 from .providers import build_provider_bundle
 from .session import (
     CompletedUtterance,
@@ -151,6 +152,7 @@ def create_app(
         response_task: asyncio.Task[None] | None = None
         response_event_id: str | None = None
         active_event_ids: dict[str, None] = {}
+        greeting_selector = CockpitGreetingSelector()
         output_sequence = 0
 
         async def send_control(message: ControlMessage) -> None:
@@ -312,6 +314,56 @@ def create_app(
                 if response_event_id == event.event_id:
                     response_event_id = None
 
+        async def run_cockpit_welcome(
+            aircraft: str,
+            *,
+            correlation_id: str,
+        ) -> None:
+            nonlocal voice
+            try:
+                if voice is None:
+                    voice = pipeline_factory(configured)
+                if (
+                    session.input_audio_format is None
+                    or session.output_audio_format is None
+                ):
+                    raise VoicePipelineError("session audio format is unavailable")
+                response = await voice.announce(
+                    VoiceAnnouncement(
+                        greeting_selector.choose(aircraft),
+                        session.input_audio_format,
+                        session.output_audio_format,
+                    ),
+                    stream_audio,
+                )
+                await send_control(
+                    ControlMessage(
+                        "assistant.text",
+                        {
+                            "text": response,
+                            "proactive": True,
+                            "kind": "cockpit_welcome",
+                            "aircraft": aircraft,
+                        },
+                        correlation_id=correlation_id,
+                    )
+                )
+            except asyncio.CancelledError:
+                raise
+            except (ValueError, VoicePipelineError) as exc:
+                LOGGER.warning("cockpit welcome failed: %s", exc)
+                await send_control(
+                    ControlMessage(
+                        "error",
+                        {
+                            "code": "cockpit_welcome_failed",
+                            "detail": str(exc),
+                            "fatal": False,
+                        },
+                        correlation_id=correlation_id,
+                    )
+                )
+
         await send_control(session.hello())
         try:
             while True:
@@ -451,6 +503,19 @@ def create_app(
                                 and result.lifecycle.action == "aircraft_changed"
                             ):
                                 await reset_assistant()
+                            elif (
+                                result.lifecycle is not None
+                                and result.lifecycle.action == "cockpit_entered"
+                                and result.lifecycle.aircraft is not None
+                            ):
+                                await interrupt_response()
+                                response_task = asyncio.create_task(
+                                    run_cockpit_welcome(
+                                        result.lifecycle.aircraft,
+                                        correlation_id=message.message_id,
+                                    ),
+                                    name="cockpit-welcome",
+                                )
                     elif incoming.get("bytes") is not None:
                         packet = MediaPacket.from_bytes(incoming["bytes"])
                         result = session.handle_media(packet)

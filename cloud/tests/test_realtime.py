@@ -11,6 +11,7 @@ from dcs_copilot_protocol import (
     AircraftToolRequest,
     AircraftToolResult,
     AudioFormat,
+    CockpitEntered,
     ControlMessage,
     MediaKind,
     MediaPacket,
@@ -265,6 +266,79 @@ def test_aircraft_change_recreates_voice_pipeline_with_clean_context() -> None:
         assert receive_control(websocket).type == "assistant.text"
         assert len(pipelines) == 2
         assert pipelines[1] is not pipelines[0]
+
+
+def test_cockpit_entry_streams_one_curated_welcome() -> None:
+    pipeline = FakeVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v1/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        websocket.send_text(AircraftChanged("FA-18C_hornet").to_control().to_json())
+        request = CockpitEntered("FA-18C_hornet").to_control()
+        websocket.send_text(request.to_json())
+
+        output = MediaPacket.from_bytes(websocket.receive_bytes())
+        response = receive_control(websocket)
+
+    assert output.kind is MediaKind.AUDIO_OUTPUT
+    assert output.payload == b"\x50\x60" * 240
+    assert len(pipeline.announcements) == 1
+    assert response.payload == {
+        "text": pipeline.announcements[0].text,
+        "proactive": True,
+        "kind": "cockpit_welcome",
+        "aircraft": "FA-18C_hornet",
+    }
+    assert response.correlation_id == request.message_id
+
+
+def test_aircraft_resync_alone_does_not_trigger_welcome() -> None:
+    pipeline = FakeVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v1/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        websocket.send_text(AircraftChanged("FA-18C_hornet").to_control().to_json())
+        websocket.send_text(ControlMessage("future.message").to_json())
+        assert receive_control(websocket).payload["code"] == "unsupported_message"
+
+    assert pipeline.announcements == []
+
+
+def test_duplicate_cockpit_entry_does_not_repeat_welcome() -> None:
+    pipeline = FakeVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v1/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        websocket.send_text(AircraftChanged("F-16C_50").to_control().to_json())
+        websocket.send_text(CockpitEntered("F-16C_50").to_control().to_json())
+        assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+            MediaKind.AUDIO_OUTPUT
+        )
+        assert receive_control(websocket).payload["kind"] == "cockpit_welcome"
+
+        websocket.send_text(CockpitEntered("F-16C_50").to_control().to_json())
+        websocket.send_text(ControlMessage("future.message").to_json())
+        assert receive_control(websocket).payload["code"] == "unsupported_message"
+
+    assert len(pipeline.announcements) == 1
 
 
 def test_ptt_barge_in_interrupts_active_cloud_response() -> None:
