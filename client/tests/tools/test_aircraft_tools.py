@@ -12,6 +12,7 @@ from dcs_copilot.state.models import (
     AircraftState,
     CanopyState,
     FlightPhase,
+    MasterArmState,
     TelemetryValue,
 )
 from dcs_copilot.state.store import AircraftStateStore
@@ -134,10 +135,22 @@ def test_executor_exposes_checklist_status_and_missing_items(
     current = AircraftState(
         aircraft="FA-18C_hornet",
         connected=True,
+        parking_brake=TelemetryValue(True, available=True, updated_at=1.0),
+        master_arm=TelemetryValue(
+            MasterArmState.SAFE, available=True, updated_at=1.0
+        ),
+        battery_on=TelemetryValue(True, available=True, updated_at=1.0),
+        apu_ready=TelemetryValue(True, available=True, updated_at=1.0),
+        engine_rpm_left=TelemetryValue(70, available=True, updated_at=1.0),
+        engine_rpm_right=TelemetryValue(70, available=True, updated_at=1.0),
+        left_generator_normal=TelemetryValue(True, available=True, updated_at=1.0),
+        right_generator_normal=TelemetryValue(True, available=True, updated_at=1.0),
+        bleed_air_normal=TelemetryValue(True, available=True, updated_at=1.0),
+        ins_mode=TelemetryValue("NAV", available=True, updated_at=1.0),
         obogs_on=TelemetryValue(False, available=True, updated_at=1.0),
         ejection_seat_armed=TelemetryValue(False, available=True, updated_at=1.0),
         canopy_state=TelemetryValue(CanopyState.CLOSED, available=True, updated_at=1.0),
-        takeoff_trim_pressed=TelemetryValue(False, available=True, updated_at=1.0),
+        takeoff_trim_confirmed=TelemetryValue(False, available=True, updated_at=1.0),
         master_caution=TelemetryValue(False, available=True, updated_at=1.0),
     )
     store.current = current
@@ -170,8 +183,43 @@ def test_executor_exposes_checklist_status_and_missing_items(
     assert [item["status"] for item in missing["items"]] == [
         "incomplete",
         "incomplete",
-        "unconfirmed",
+        "incomplete",
     ]
+
+
+def test_default_startup_gaps_include_cold_and_dark_dependencies(
+    normalization_registry: DcsBiosControlRegistry,
+) -> None:
+    store = AircraftStateStore(normalization_registry, bios_state=DcsBiosState())
+    store.current = AircraftState(
+        aircraft="FA-18C_hornet",
+        connected=True,
+        parking_brake=TelemetryValue(True, available=True, updated_at=1.0),
+        master_arm=TelemetryValue(
+            MasterArmState.SAFE, available=True, updated_at=1.0
+        ),
+        battery_on=TelemetryValue(False, available=True, updated_at=1.0),
+        apu_ready=TelemetryValue(False, available=True, updated_at=1.0),
+        engine_rpm_left=TelemetryValue(0, available=True, updated_at=1.0),
+        engine_rpm_right=TelemetryValue(0, available=True, updated_at=1.0),
+    )
+    executor = AircraftToolExecutor(store, clock=lambda: 2.0)
+
+    missing = executor.execute(
+        AircraftToolRequest.create(
+            "get_missing_checklist_items",
+            {"checklist_id": "fa18c_startup"},
+        )
+    )
+
+    assert missing["stage"] == "before-taxi"
+    assert missing["complete"] is False
+    assert {item["id"] for item in missing["items"]} >= {
+        "battery_on",
+        "apu_ready",
+        "left_engine_running",
+        "right_engine_running",
+    }
 
 
 def test_executor_missing_checklist_items_excludes_not_applicable(

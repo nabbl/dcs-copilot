@@ -138,7 +138,44 @@ class FA18CAdapter:
         )
 
         parking_raw = read_int("EMERGENCY_PARKING_BRAKE_ROTATE")
-        parking = self._map_bool(parking_raw, lambda value: value != 2)
+        parking_pull_raw = read_int("EMERGENCY_PARKING_BRAKE_PULL")
+        parking = (
+            self._map_bool(parking_pull_raw, bool)
+            if parking_pull_raw.available
+            else self._map_bool(parking_raw, lambda value: value != 2)
+        )
+        battery_raw = read_int("BATTERY_SW")
+        battery_on = self._map_bool(battery_raw, lambda value: value == 0)
+        apu_ready_raw = read_int("APU_READY_LT")
+        apu_ready = self._map_bool(apu_ready_raw, bool)
+        left_generator_raw = read_int("L_GEN_SW")
+        left_generator_normal = self._map_bool(
+            left_generator_raw, lambda value: value == 0
+        )
+        right_generator_raw = read_int("R_GEN_SW")
+        right_generator_normal = self._map_bool(
+            right_generator_raw, lambda value: value == 0
+        )
+        bleed_air_raw = read_int("BLEED_AIR_KNOB")
+        bleed_air_normal = self._map_bool(bleed_air_raw, lambda value: value == 1)
+        ins_mode = reader.read(
+            MODULE,
+            "INS_SW",
+            map_value(
+                {
+                    0: "OFF",
+                    1: "CV",
+                    2: "GND",
+                    3: "NAV",
+                    4: "IFA",
+                    5: "GYRO",
+                    6: "GB",
+                    7: "TEST",
+                }
+            ),
+            output_type="integer",
+        )
+        raw["INS_SW"] = ins_mode
         taxi_light_raw = read_int("LDG_TAXI_SW")
         taxi_light = self._map_bool(taxi_light_raw, bool)
 
@@ -213,6 +250,12 @@ class FA18CAdapter:
                 "fuel_quantity": fuel,
                 "master_caution": master_caution,
                 "parking_brake": parking,
+                "battery_on": battery_on,
+                "apu_ready": apu_ready,
+                "left_generator_normal": left_generator_normal,
+                "right_generator_normal": right_generator_normal,
+                "bleed_air_normal": bleed_air_normal,
+                "ins_mode": ins_mode,
                 "taxi_light_on": taxi_light,
                 "speed_brake": speed_brake,
                 "refueling_probe": probe,

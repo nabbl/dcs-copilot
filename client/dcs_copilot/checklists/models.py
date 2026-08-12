@@ -49,6 +49,7 @@ class ChecklistDefinition:
     aircraft: str
     label: str
     stages: tuple[ChecklistStage, ...]
+    default_stage: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

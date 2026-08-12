@@ -43,6 +43,13 @@ def populate_hornet(
         "IFEI_FUEL_UP": "12500",
         "IFEI_T": "T",
         "EMERGENCY_PARKING_BRAKE_ROTATE": 1,
+        "EMERGENCY_PARKING_BRAKE_PULL": 1,
+        "BATTERY_SW": 0,
+        "APU_READY_LT": 1,
+        "L_GEN_SW": 0,
+        "R_GEN_SW": 0,
+        "BLEED_AIR_KNOB": 1,
+        "INS_SW": 3,
         "EXT_SPEED_BRAKE": 32768,
         "EXT_REFUEL_PROBE": 0,
         "EXT_HOOK": 65535,
@@ -86,6 +93,12 @@ def test_normalizes_verified_hornet_controls(
     assert result.values["master_arm"].value is MasterArmState.ARM
     assert result.values["fuel_quantity"].value == 12500
     assert result.values["parking_brake"].value is True
+    assert result.values["battery_on"].value is True
+    assert result.values["apu_ready"].value is True
+    assert result.values["left_generator_normal"].value is True
+    assert result.values["right_generator_normal"].value is True
+    assert result.values["bleed_air_normal"].value is True
+    assert result.values["ins_mode"].value == "NAV"
     assert result.values["taxi_light_on"].value is True
     assert result.values["speed_brake"].value == pytest.approx(0.5, abs=0.001)
     assert result.values["refueling_probe"].value is False
@@ -101,6 +114,39 @@ def test_normalizes_verified_hornet_controls(
     assert result.values["master_mode_combat"].value is False
     assert result.values["master_caution"].value is True
     assert result.warning_lights["fuel_low"].value is True
+
+
+def test_parking_brake_uses_handle_pull_state_not_rotation(
+    normalization_registry: DcsBiosControlRegistry,
+) -> None:
+    state = DcsBiosState()
+    populate_hornet(normalization_registry, state)
+    set_control(
+        normalization_registry,
+        state,
+        "FA-18C_hornet",
+        "EMERGENCY_PARKING_BRAKE_ROTATE",
+        2,
+        timestamp=101,
+    )
+
+    engaged = FA18CAdapter(normalization_registry).normalize(
+        state, now=102, stale_timeout=30
+    )
+    assert engaged.values["parking_brake"].value is True
+
+    set_control(
+        normalization_registry,
+        state,
+        "FA-18C_hornet",
+        "EMERGENCY_PARKING_BRAKE_PULL",
+        0,
+        timestamp=103,
+    )
+    released = FA18CAdapter(normalization_registry).normalize(
+        state, now=104, stale_timeout=30
+    )
+    assert released.values["parking_brake"].value is False
 
 
 def test_fuel_is_unavailable_when_ifei_is_showing_another_tank_pair(

@@ -29,6 +29,14 @@ def test_cloud_settings_load_dotenv_without_overriding_environment(
     assert settings.tts_model == "gpt-4o-mini-tts"
 
 
+def test_cloud_settings_default_to_low_latency_luna_model(monkeypatch) -> None:
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+
+    settings = CloudSettings.from_env(Path("/does/not/exist"))
+
+    assert settings.llm_model == "gpt-5.6-luna"
+
+
 def test_non_loopback_service_rejects_development_credentials() -> None:
     with pytest.raises(ValueError, match="DEV_TOKEN"):
         create_app(CloudSettings(host="0.0.0.0"))

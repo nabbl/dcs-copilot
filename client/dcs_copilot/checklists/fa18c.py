@@ -38,12 +38,34 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                                 "equals": MasterArmState.SAFE,
                             },
                         ),
+                        ChecklistItem(
+                            id="battery_on",
+                            label="Battery switch",
+                            verification=VerificationType.STATE,
+                            expected={"field": "battery_on", "equals": True},
+                        ),
                     ),
                 ),
                 ChecklistStage(
                     id="engine-start",
                     label="ENGINE START",
                     items=(
+                        ChecklistItem(
+                            id="apu_ready",
+                            label="APU ready",
+                            verification=VerificationType.DERIVED,
+                            condition={
+                                "any": [
+                                    {"apu_ready": True},
+                                    {
+                                        "all": [
+                                            {"engine_rpm_left": {"greater_than": 60}},
+                                            {"engine_rpm_right": {"greater_than": 60}},
+                                        ]
+                                    },
+                                ]
+                            },
+                        ),
                         ChecklistItem(
                             id="left_engine_running",
                             label="Left engine",
@@ -57,6 +79,7 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                             expected={"field": "engine_rpm_right", "greater_than": 60},
                         ),
                     ),
+                    depends_on=("pre-start",),
                 ),
                 ChecklistStage(
                     id="post-start",
@@ -67,6 +90,42 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                             label="OBOGS",
                             verification=VerificationType.STATE,
                             expected={"field": "obogs_on", "equals": True},
+                        ),
+                        ChecklistItem(
+                            id="left_generator_normal",
+                            label="Left generator",
+                            verification=VerificationType.STATE,
+                            expected={
+                                "field": "left_generator_normal",
+                                "equals": True,
+                            },
+                        ),
+                        ChecklistItem(
+                            id="right_generator_normal",
+                            label="Right generator",
+                            verification=VerificationType.STATE,
+                            expected={
+                                "field": "right_generator_normal",
+                                "equals": True,
+                            },
+                        ),
+                        ChecklistItem(
+                            id="bleed_air_normal",
+                            label="Bleed air",
+                            verification=VerificationType.STATE,
+                            expected={
+                                "field": "bleed_air_normal",
+                                "equals": True,
+                            },
+                        ),
+                        ChecklistItem(
+                            id="ins_alignment_selected",
+                            label="INS alignment mode",
+                            verification=VerificationType.STATE,
+                            expected={
+                                "field": "ins_mode",
+                                "one_of": ("CV", "GND", "NAV", "IFA"),
+                            },
                         ),
                         ChecklistItem(
                             id="master_caution_clear",
@@ -81,12 +140,6 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                     id="before-taxi",
                     label="BEFORE TAXI",
                     items=(
-                        ChecklistItem(
-                            id="obogs_on",
-                            label="OBOGS",
-                            verification=VerificationType.STATE,
-                            expected={"field": "obogs_on", "equals": True},
-                        ),
                         ChecklistItem(
                             id="ejection_seat_armed",
                             label="Ejection seat",
@@ -105,15 +158,12 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                         ChecklistItem(
                             id="takeoff_trim",
                             label="Takeoff trim",
-                            verification=VerificationType.ACTION,
-                            action_field="takeoff_trim_pressed",
-                            source_reference="DCS-BIOS T/O TRIM button transition",
-                        ),
-                        ChecklistItem(
-                            id="master_caution_clear",
-                            label="Master caution",
                             verification=VerificationType.STATE,
-                            expected={"field": "master_caution", "equals": False},
+                            expected={
+                                "field": "takeoff_trim_confirmed",
+                                "equals": True,
+                            },
+                            source_reference="DCS-BIOS T/O TRIM button transition",
                         ),
                     ),
                     depends_on=("post-start",),
@@ -193,5 +243,6 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                     depends_on=("before-takeoff",),
                 ),
             ),
+            default_stage="before-taxi",
         ),
     )

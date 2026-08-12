@@ -56,6 +56,32 @@ def test_state_verification_distinguishes_complete_incomplete_and_unconfirmed() 
     assert unavailable.unconfirmed_items[0].reason == "obogs_on is unavailable"
 
 
+def test_state_verification_supports_negative_expectations() -> None:
+    item = ChecklistItem(
+        "ins",
+        "INS",
+        VerificationType.STATE,
+        expected={"field": "ins_mode", "not_equals": "OFF"},
+    )
+    engine = engine_for((item,))
+
+    assert engine.evaluate(state(ins_mode="GND"), StateHistory(), now=1).complete
+    assert engine.evaluate(state(ins_mode="OFF"), StateHistory(), now=1).incomplete_items
+
+
+def test_state_verification_supports_allowed_values() -> None:
+    item = ChecklistItem(
+        "ins",
+        "INS",
+        VerificationType.STATE,
+        expected={"field": "ins_mode", "one_of": ("CV", "GND", "NAV", "IFA")},
+    )
+    engine = engine_for((item,))
+
+    assert engine.evaluate(state(ins_mode="GND"), StateHistory(), now=1).complete
+    assert engine.evaluate(state(ins_mode="TEST"), StateHistory(), now=1).incomplete_items
+
+
 def test_action_verification_uses_state_history_transitions() -> None:
     item = ChecklistItem(
         "takeoff_trim",
@@ -99,3 +125,62 @@ def test_derived_manual_and_conditional_items() -> None:
     engine.confirm_manual_item("helmet")
     confirmed = engine.evaluate(current, StateHistory(), now=1)
     assert {item.id for item in confirmed.complete_items} == {"launch_config", "helmet"}
+
+
+def test_stage_evaluation_includes_transitive_dependencies() -> None:
+    engine = ChecklistEngine(
+        [
+            ChecklistDefinition(
+                id="startup",
+                aircraft="FA-18C_hornet",
+                label="Startup",
+                stages=(
+                    ChecklistStage(
+                        "power",
+                        "Power",
+                        (
+                            ChecklistItem(
+                                "battery",
+                                "Battery",
+                                VerificationType.STATE,
+                                expected={"field": "battery_on", "equals": True},
+                            ),
+                        ),
+                    ),
+                    ChecklistStage(
+                        "engines",
+                        "Engines",
+                        (
+                            ChecklistItem(
+                                "left_engine",
+                                "Left engine",
+                                VerificationType.STATE,
+                                expected={
+                                    "field": "engine_rpm_left",
+                                    "greater_than": 60,
+                                },
+                            ),
+                        ),
+                        depends_on=("power",),
+                    ),
+                    ChecklistStage(
+                        "before-taxi",
+                        "Before taxi",
+                        (),
+                        depends_on=("engines",),
+                    ),
+                ),
+                default_stage="before-taxi",
+            )
+        ]
+    )
+
+    result = engine.evaluate(
+        state(battery_on=False, engine_rpm_left=0), StateHistory(), now=1
+    )
+
+    assert result.stage == "before-taxi"
+    assert [item.id for item in result.incomplete_items] == [
+        "battery",
+        "left_engine",
+    ]

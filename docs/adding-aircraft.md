@@ -32,7 +32,9 @@ adapter; rules consume normalized names only.
 | Master Arm | `MASTER_ARM_SW` | 0 SAFE, 1 ARM |
 | Total fuel | `IFEI_FUEL_UP` plus `IFEI_T` | Pounds; available only when upper legend is `T` |
 | Master Caution | `MASTER_CAUTION_LT` | Boolean light state |
-| Parking brake | `EMERGENCY_PARKING_BRAKE_ROTATE` | 0 emergency, 1 parking, 2 release |
+| Parking brake | `EMERGENCY_PARKING_BRAKE_PULL` with rotate fallback | Pulled means engaged; rotate fallback is 0 emergency, 1 parking, 2 release |
+| Battery | `BATTERY_SW` | 0 on, 1 off, 2 override |
+| APU ready | `APU_READY_LT` | Boolean indicator |
 | Speed brake | `EXT_SPEED_BRAKE` | Physical position scaled 0–1 |
 | Refueling probe | `EXT_REFUEL_PROBE` | Physical extension; true above 10% |
 | Hook | `EXT_HOOK` | Physical position; down above 50% |

@@ -10,6 +10,7 @@ from dcs_copilot_cloud.providers.factory import (
     build_provider_bundle,
 )
 from dcs_copilot_cloud.providers.openai import (
+    COPILOT_INSTRUCTION,
     OpenAILLMProvider,
     OpenAISTTProvider,
     OpenAITTSProvider,
@@ -43,6 +44,13 @@ def test_provider_selection_is_configuration_driven() -> None:
     assert isinstance(providers.stt, OpenAISTTProvider)
     assert isinstance(providers.llm, OpenAILLMProvider)
     assert isinstance(providers.tts, OpenAITTSProvider)
+
+
+def test_copilot_prompt_separates_live_state_from_general_knowledge() -> None:
+    assert "Only claim current aircraft facts" in COPILOT_INSTRUCTION
+    assert "general aviation knowledge" in COPILOT_INSTRUCTION
+    assert "empty issue list" in COPILOT_INSTRUCTION
+    assert "include every returned gap" in COPILOT_INSTRUCTION
 
 
 def test_missing_server_key_and_unknown_provider_fail_closed() -> None:

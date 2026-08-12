@@ -56,9 +56,13 @@ class ChecklistEngine:
     ) -> ChecklistResult:
         definition = self._definition_for(state, checklist_id)
         stage = self._stage_for(definition, stage_id or self.session.stage_id)
-        results = tuple(
-            self._evaluate_item(item, state, history, now=now) for item in stage.items
-        )
+        evaluated: dict[str, ChecklistItemResult] = {}
+        for selected_stage in self._stage_chain(definition, stage):
+            for item in selected_stage.items:
+                evaluated[item.id] = self._evaluate_item(
+                    item, state, history, now=now
+                )
+        results = tuple(evaluated.values())
         complete = tuple(
             item for item in results if item.status is ChecklistItemStatus.COMPLETE
         )
@@ -104,8 +108,12 @@ class ChecklistEngine:
         definition = self.definitions.get(checklist_id)
         if definition is None:
             raise ValueError(f"unknown checklist: {checklist_id}")
-        self._stage_for(definition, stage_id)
-        self.session.start(checklist_id, stage_id)
+        selected_stage = (
+            self._stage_for(definition, stage_id)
+            if stage_id is not None
+            else definition.stages[0]
+        )
+        self.session.start(checklist_id, selected_stage.id)
 
     def stop(self) -> None:
         self.session.stop()
@@ -173,11 +181,39 @@ class ChecklistEngine:
         definition: ChecklistDefinition, stage_id: str | None
     ) -> ChecklistStage:
         if stage_id is None:
+            stage_id = definition.default_stage
+        if stage_id is None:
             return definition.stages[0]
         for stage in definition.stages:
             if stage.id == stage_id:
                 return stage
         raise ValueError(f"unknown checklist stage: {stage_id}")
+
+    @classmethod
+    def _stage_chain(
+        cls,
+        definition: ChecklistDefinition,
+        target: ChecklistStage,
+    ) -> tuple[ChecklistStage, ...]:
+        selected: list[ChecklistStage] = []
+        visited: set[str] = set()
+        visiting: set[str] = set()
+
+        def visit(stage: ChecklistStage) -> None:
+            if stage.id in visited:
+                return
+            if stage.id in visiting:
+                raise ValueError(f"cyclic checklist stage dependency: {stage.id}")
+            visiting.add(stage.id)
+            for dependency_id in stage.depends_on:
+                dependency = cls._stage_for(definition, dependency_id)
+                visit(dependency)
+            visiting.remove(stage.id)
+            visited.add(stage.id)
+            selected.append(stage)
+
+        visit(target)
+        return tuple(selected)
 
     def _evaluate_item(
         self,
@@ -291,6 +327,35 @@ class ChecklistEngine:
                 expected["equals"],
                 actual,
                 reason,
+                observed_at=telemetry.updated_at,
+            )
+        if "not_equals" in expected:
+            passed = not _values_equal(actual, expected["not_equals"])
+            return _result(
+                item,
+                ChecklistItemStatus.COMPLETE
+                if passed
+                else ChecklistItemStatus.INCOMPLETE,
+                f"not {expected['not_equals']}",
+                actual,
+                f"{field} is acceptable"
+                if passed
+                else f"{field} must not be {expected['not_equals']}",
+                observed_at=telemetry.updated_at,
+            )
+        if "one_of" in expected:
+            allowed = tuple(expected["one_of"])
+            passed = any(_values_equal(actual, value) for value in allowed)
+            return _result(
+                item,
+                ChecklistItemStatus.COMPLETE
+                if passed
+                else ChecklistItemStatus.INCOMPLETE,
+                allowed,
+                actual,
+                f"{field} is an accepted value"
+                if passed
+                else f"{field} is not one of the accepted values",
                 observed_at=telemetry.updated_at,
             )
         if "less_than_or_equal" in expected:
