@@ -23,6 +23,7 @@ adapter; rules consume normalized names only.
 | Normalized field | DCS-BIOS source | Notes |
 | --- | --- | --- |
 | IAS | `CommonData/IAS_US_INT` | Requires advancing CommonData model time |
+| Ground speed | Local delta of `CommonData/LAT_*` and `LON_*` | Coordinates remain client-local and are not exposed; requires advancing model time |
 | MSL altitude | `CommonData/ALT_MSL_FT` | Requires advancing CommonData model time |
 | Heading | `CommonData/HDG_DEG_MAG` | Magnetic degrees; CommonData health-gated |
 | Gear | `GEAR_LEVER` plus three `FLP_LG_*_GEAR_LT` | Down requires all three lights; up requires lever-up/dark lights to remain stable for three seconds |

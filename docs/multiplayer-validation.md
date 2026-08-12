@@ -3,12 +3,12 @@
 No live DCS environment has been tested yet. Do not describe this build as
 "Integrity Check safe" until the matrix below is completed on the target PC.
 
-| Environment | DCS-BIOS controls | CommonData | IAS | Altitude | Aircraft detection | Warning lights | Module switches | IC passes | Stale/blocked fields | Evidence/date |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Single-player mission | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | N/A | Unknown | Pending |
-| Multiplayer, permissive exports | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unknown | Pending |
-| Multiplayer, restrictive exports | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unknown | Pending |
-| Multiplayer with Integrity Check | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unknown | Pending |
+| Environment | DCS-BIOS controls | CommonData | IAS | Ground speed | Altitude | Aircraft detection | Warning lights | Module switches | IC passes | Stale/blocked fields | Evidence/date |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Single-player mission | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | N/A | Unknown | Pending |
+| Multiplayer, permissive exports | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unknown | Pending |
+| Multiplayer, restrictive exports | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unknown | Pending |
+| Multiplayer with Integrity Check | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unknown | Pending |
 
 For every run, record the DCS version, DCS-BIOS version/commit, aircraft/module,
 server export settings if known, and an anonymized diagnostics capture. A field

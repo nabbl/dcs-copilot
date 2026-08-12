@@ -27,6 +27,7 @@ class StateHistory:
         self.retention_seconds = retention_seconds
         self.numeric_thresholds = {
             "indicated_airspeed": 1.0,
+            "ground_speed": 0.5,
             "altitude_msl": 10.0,
             "heading": 2.0,
             "fuel_quantity": 10.0,

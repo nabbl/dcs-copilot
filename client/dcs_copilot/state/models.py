@@ -91,6 +91,7 @@ class AircraftState:
     flight_phase: FlightPhase = FlightPhase.UNKNOWN
 
     indicated_airspeed: TelemetryValue[float] = field(default_factory=unavailable)
+    ground_speed: TelemetryValue[float] = field(default_factory=unavailable)
     altitude_msl: TelemetryValue[float] = field(default_factory=unavailable)
     heading: TelemetryValue[float] = field(default_factory=unavailable)
 

@@ -40,6 +40,7 @@ def state(**changes) -> AircraftState:
         connected=True,
         flight_phase=FlightPhase.CRUISE,
         indicated_airspeed=tv(200.0),
+        ground_speed=tv(200.0),
         gear_position=tv(GearState.UP),
         canopy_state=tv(CanopyState.CLOSED),
         master_caution=tv(False),
@@ -178,7 +179,7 @@ def test_parking_brake_requires_weight_on_wheels_and_taxi_motion() -> None:
     engine, history = engine_for([ParkingBrakeTaxiRule()])
     taxi = state(
         flight_phase=FlightPhase.TAXI,
-        indicated_airspeed=7.0,
+        ground_speed=7.0,
         parking_brake=True,
         weight_on_wheels=True,
     )
@@ -187,14 +188,14 @@ def test_parking_brake_requires_weight_on_wheels_and_taxi_motion() -> None:
 
     rolling_slowly = state(
         flight_phase=FlightPhase.TAXI,
-        indicated_airspeed=3.0,
+        ground_speed=3.0,
         parking_brake=True,
         weight_on_wheels=True,
     )
     assert evaluate(engine, history, rolling_slowly, 3.0) == ()
     released = state(
         flight_phase=FlightPhase.TAXI,
-        indicated_airspeed=3.0,
+        ground_speed=3.0,
         parking_brake=False,
         weight_on_wheels=True,
     )
@@ -208,7 +209,7 @@ def test_taxi_light_rule_waits_for_sustained_taxi_and_resolves() -> None:
     engine, history = engine_for([TaxiLightOffRule()])
     taxi = state(
         flight_phase=FlightPhase.TAXI,
-        indicated_airspeed=7.0,
+        ground_speed=7.0,
         taxi_light_on=False,
         weight_on_wheels=True,
     )
@@ -219,7 +220,7 @@ def test_taxi_light_rule_waits_for_sustained_taxi_and_resolves() -> None:
 
     light_on = state(
         flight_phase=FlightPhase.TAXI,
-        indicated_airspeed=7.0,
+        ground_speed=7.0,
         taxi_light_on=True,
         weight_on_wheels=True,
     )
@@ -231,7 +232,7 @@ def test_taxi_light_rule_does_not_chatter_while_stopped() -> None:
     engine, history = engine_for([TaxiLightOffRule()])
     stopped = state(
         flight_phase=FlightPhase.STARTUP,
-        indicated_airspeed=0.0,
+        ground_speed=0.0,
         taxi_light_on=False,
         weight_on_wheels=True,
     )

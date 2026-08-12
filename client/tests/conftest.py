@@ -111,10 +111,24 @@ def normalization_registry(tmp_path: Path) -> DcsBiosControlRegistry:
         "HDG_DEG_MAG": (0x0404, 359),
         "TIME_MODEL_HIGH": (0x0406, 65535),
         "TIME_MODEL_LOW": (0x0408, 65535),
+        "LAT_DEG": (0x040A, 90),
+        "LAT_SEC": (0x040C, 59),
+        "LAT_SEC_FRAC": (0x040E, 65535),
+        "LON_DEG": (0x0410, 180),
+        "LON_SEC": (0x0412, 59),
+        "LON_SEC_FRAC": (0x0414, 65535),
     }
     common = {
         identifier: {"identifier": identifier, **_integer_control(address, maximum)}
         for identifier, (address, maximum) in common_specs.items()
+    }
+    common["LAT_Z_DIR"] = {
+        "identifier": "LAT_Z_DIR",
+        **_string_control(0x0416, 1),
+    }
+    common["LON_Z_DIR"] = {
+        "identifier": "LON_Z_DIR",
+        **_string_control(0x0418, 1),
     }
     (tmp_path / "CommonData.json").write_text(
         json.dumps({"Data": common}), encoding="utf-8"

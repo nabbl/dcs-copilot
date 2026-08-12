@@ -72,8 +72,10 @@ metadata has been exported.
 - A truncated write is never partially applied.
 - Bad JSON files are skipped and reported as degraded registry health.
 - `_ACFT_NAME` values `NONE`, empty, or unavailable produce no detected aircraft.
-- CommonData IAS/altitude/heading remain unavailable until its model-time counter
-  advances, which distinguishes a live ownship export from cached/default bytes.
+- CommonData IAS/altitude/heading and locally derived ground speed remain
+  unavailable until its model-time counter advances, which distinguishes a live
+  ownship export from cached/default bytes. Position components used for ground
+  speed are not retained in normalized state or sent to the cloud.
 
 If status reports frames but no aircraft, verify that `MetadataStart.json` is
 present and use the DCS-BIOS control reference to confirm `_ACFT_NAME` updates.

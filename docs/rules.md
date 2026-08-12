@@ -13,8 +13,8 @@ transition. `RESOLVED` is reserved for a condition that was observed clearing.
 | `FA18_MASTER_CAUTION` | WARNING | Master Caution light on | Light off | 0.25 / 0.5 s | 30 s |
 | `FA18_GEAR_OVERSPEED` | WARNING | Airborne, gear down or in transit, IAS at least 250 kt | On ground, gear up, or IAS below 240 kt | 1 / 1 s | 30 s |
 | `FA18_CANOPY_OPEN_MOVING` | WARNING | Canopy not closed and IAS at least 20 kt | Canopy closed or IAS below 10 kt | 1 / 0.5 s | 30 s |
-| `FA18_PARKING_BRAKE_TAXI` | ADVISORY | WOW, parking brake engaged, IAS at least 5 kt | Brake released, airborne, or IAS below 2 kt | 2 / 0.5 s | 45 s |
-| `FA18_TAXI_LIGHT_OFF` | ADVISORY | TAXI phase, WOW, taxi light off, IAS at least 3 kt | Light on, stopped, airborne, or leaving TAXI | 5 / 0.5 s | 120 s |
+| `FA18_PARKING_BRAKE_TAXI` | ADVISORY | WOW, parking brake engaged, ground speed at least 5 kt | Brake released, airborne, or ground speed below 2 kt | 2 / 0.5 s | 45 s |
+| `FA18_TAXI_LIGHT_OFF` | ADVISORY | TAXI phase, WOW, taxi light off, ground speed at least 3 kt | Light on, stopped, airborne, or leaving TAXI | 5 / 0.5 s | 120 s |
 | `FA18_EJECTION_SEAT_NOT_ARMED` | WARNING | Seat SAFE during TAXI or an airborne phase | Seat armed; leaving applicable phases disables it | 2 / 0.25 s | 120 s |
 | `FA18_REFUELING_PROBE_LEFT_OUT` | ADVISORY | Probe extended during climb, cruise, combat, approach, or landing | Probe retracted; entering another phase disables it | 2 / 0.25 s | 60 s |
 
@@ -50,6 +50,10 @@ signals are the adapter's verified `MASTER_CAUTION_LT`, gear lights and lever,
 exports. Live behavior still requires the validation matrix in
 `docs/multiplayer-validation.md`; automated fixtures are not evidence of
 multiplayer or Integrity Check compatibility.
+
+Ground movement uses a local position delta from DCS-BIOS CommonData rather than
+wind-affected indicated airspeed. Coordinates are not placed in normalized
+state, exposed to cloud tools, or transmitted.
 
 ## Replay format
 

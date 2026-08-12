@@ -18,6 +18,7 @@ def aircraft_state(
     *,
     wow: bool,
     speed: float,
+    ground_speed: float | None = None,
     rpm: float = 70,
     gear: GearState = GearState.UP,
     probe: bool = False,
@@ -28,6 +29,7 @@ def aircraft_state(
         aircraft="FA-18C_hornet",
         connected=True,
         indicated_airspeed=tv(speed),
+        ground_speed=tv(speed if ground_speed is None else ground_speed),
         altitude_msl=tv(altitude),
         gear_position=tv(gear),
         weight_on_wheels=tv(wow),
@@ -68,6 +70,15 @@ def test_ground_and_takeoff_phases() -> None:
     assert (
         detect(detector, history, aircraft_state(wow=True, speed=10), 2)
         is FlightPhase.TAXI
+    )
+    assert (
+        detect(
+            detector,
+            history,
+            aircraft_state(wow=True, speed=10, ground_speed=0),
+            2.5,
+        )
+        is FlightPhase.STARTUP
     )
     assert (
         detect(detector, history, aircraft_state(wow=True, speed=100), 3)

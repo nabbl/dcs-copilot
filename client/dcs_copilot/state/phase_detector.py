@@ -68,18 +68,23 @@ class FlightPhaseDetector:
         if not state.connected or not state.weight_on_wheels.usable:
             return FlightPhase.UNKNOWN
         wow = bool(state.weight_on_wheels.value)
-        speed = (
+        airspeed = (
             float(state.indicated_airspeed.value)
             if state.indicated_airspeed.usable
             and state.indicated_airspeed.value is not None
+            else None
+        )
+        ground_speed = (
+            float(state.ground_speed.value)
+            if state.ground_speed.usable and state.ground_speed.value is not None
             else None
         )
         engines = self._engine_state(state)
 
         if wow:
             if (
-                speed is not None
-                and speed >= self.config.takeoff_roll_speed
+                airspeed is not None
+                and airspeed >= self.config.takeoff_roll_speed
                 and engines == "running"
             ):
                 return FlightPhase.TAKEOFF
@@ -94,12 +99,12 @@ class FlightPhaseDetector:
             if (
                 self.current is FlightPhase.POST_LANDING
                 and engines != "off"
-                and speed is not None
+                and ground_speed is not None
             ):
                 return FlightPhase.POST_LANDING
             if (
-                speed is not None
-                and speed >= self.config.taxi_min_speed
+                ground_speed is not None
+                and ground_speed >= self.config.taxi_min_speed
                 and engines == "running"
             ):
                 return FlightPhase.TAXI
@@ -107,13 +112,13 @@ class FlightPhaseDetector:
                 return FlightPhase.COLD_DARK
             if (
                 engines in {"starting", "running"}
-                and speed is not None
-                and speed < self.config.taxi_min_speed
+                and ground_speed is not None
+                and ground_speed < self.config.taxi_min_speed
             ):
                 return FlightPhase.STARTUP
             return FlightPhase.UNKNOWN
 
-        if speed is None or speed < self.config.airborne_min_speed:
+        if airspeed is None or airspeed < self.config.airborne_min_speed:
             return FlightPhase.UNKNOWN
         fuel_rate_ppm = history.rate("fuel_quantity", seconds=10.0, now=now)
         if (
@@ -141,14 +146,14 @@ class FlightPhaseDetector:
         altitude_rate_fps = history.rate("altitude_msl", seconds=10.0, now=now)
         if (
             gear is GearState.DOWN
-            and speed <= self.config.landing_max_speed
+            and airspeed <= self.config.landing_max_speed
             and altitude_rate_fps is not None
             and altitude_rate_fps * 60 <= -100
         ):
             return FlightPhase.LANDING
         if (
             gear in {GearState.DOWN, GearState.TRANSIT}
-            and speed <= self.config.approach_max_speed
+            and airspeed <= self.config.approach_max_speed
         ):
             return FlightPhase.APPROACH
         if (

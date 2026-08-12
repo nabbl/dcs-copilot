@@ -133,14 +133,14 @@ class ParkingBrakeTaxiRule(Rule):
     severity = Severity.ADVISORY
     cooldown_seconds = 45.0
     required_fields = frozenset(
-        {"parking_brake", "indicated_airspeed", "weight_on_wheels"}
+        {"parking_brake", "ground_speed", "weight_on_wheels"}
     )
     aircraft_names = HORNET
     debounce_on_seconds = 2.0
     debounce_off_seconds = 0.5
 
     def evaluate(self, context: RuleContext) -> RuleResult | None:
-        speed = _number(context, "indicated_airspeed")
+        speed = _number(context, "ground_speed")
         minimum_speed = 2.0 if context.active else 5.0
         if (
             not _boolean(context, "weight_on_wheels")
@@ -154,7 +154,7 @@ class ParkingBrakeTaxiRule(Rule):
                 "Weight is on the wheels, the parking brake is engaged, and the "
                 "aircraft is moving."
             ),
-            data={"ias_knots": round(speed, 1)},
+            data={"ground_speed_knots": round(speed, 1)},
         )
 
 
@@ -165,7 +165,7 @@ class TaxiLightOffRule(Rule):
     severity = Severity.ADVISORY
     cooldown_seconds = 120.0
     required_fields = frozenset(
-        {"taxi_light_on", "indicated_airspeed", "weight_on_wheels"}
+        {"taxi_light_on", "ground_speed", "weight_on_wheels"}
     )
     aircraft_names = HORNET
     flight_phases = frozenset({FlightPhase.TAXI})
@@ -178,7 +178,7 @@ class TaxiLightOffRule(Rule):
         if (
             not _boolean(context, "weight_on_wheels")
             or _boolean(context, "taxi_light_on")
-            or _number(context, "indicated_airspeed") < 3.0
+            or _number(context, "ground_speed") < 3.0
         ):
             return None
         return RuleResult(
@@ -187,7 +187,7 @@ class TaxiLightOffRule(Rule):
                 "The aircraft is rolling in the taxi phase with the landing/taxi "
                 "light switch off."
             ),
-            data={"ias_knots": round(_number(context, "indicated_airspeed"), 1)},
+            data={"ground_speed_knots": round(_number(context, "ground_speed"), 1)},
         )
 
 
