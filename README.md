@@ -22,6 +22,8 @@ current build implements the reset Milestones 1 through 7:
   aircraft preferences, and semantic flight-session history;
 - coverage-aware end-of-flight rule summaries and deterministic, user-isolated
   habit statistics that never ask an LLM to calculate a count.
+- the first MARA Ground Operations v1 slice: durable guided-checklist progress,
+  deterministic ground phases, and explicit land/carrier takeoff readiness gates.
 
 There is no Pipecat, STT, LLM, TTS, OpenAI key, or neural model on the customer
 client. All AI inference and its dependencies are isolated in `cloud/`.
@@ -114,7 +116,8 @@ uv run --with mypy mypy client/dcs_copilot shared/dcs_copilot_protocol cloud/dcs
 See [the architecture decision](docs/architecture.md), [wire
 protocol](docs/protocol.md), [privacy boundary](docs/privacy.md), [client
 performance methodology](docs/client-performance.md), [accounts and
-memory](docs/accounts.md), [deterministic habits](docs/habits.md), and [multiplayer validation
+memory](docs/accounts.md), [deterministic habits](docs/habits.md), [ground
+operations](docs/ground-operations.md), and [multiplayer validation
 matrix](docs/multiplayer-validation.md).
 
 See [the Windows client and release guide](docs/windows-client.md) for local

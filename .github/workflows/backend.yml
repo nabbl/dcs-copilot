@@ -37,7 +37,7 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - name: Test cloud and shared packages
-        run: uv run --frozen --package dcs-copilot-cloud pytest -q cloud/tests shared/tests
+        run: PYTHONPATH=client uv run --frozen --package dcs-copilot-cloud pytest -q cloud/tests shared/tests
 
   publish:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

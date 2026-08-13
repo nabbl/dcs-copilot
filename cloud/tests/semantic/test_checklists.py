@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from dcs_copilot_cloud.checklists.engine import ChecklistEngine
 from dcs_copilot_cloud.checklists.fa18c import fa18c_checklists
 from dcs_copilot_cloud.checklists.models import (
@@ -14,7 +13,12 @@ from dcs_copilot_cloud.checklists.models import (
     VerificationType,
 )
 from dcs_copilot_cloud.state.history import StateHistory
-from dcs_copilot_cloud.state.models import AircraftState, FlightPhase
+from dcs_copilot_cloud.state.models import (
+    AircraftState,
+    FlightPhase,
+    MasterArmState,
+    TelemetryValue,
+)
 
 
 def _cold_dark_state() -> AircraftState:
@@ -31,7 +35,9 @@ def test_before_taxi_includes_missing_battery_apu_engines_when_cold_and_dark() -
         state, history, now=0.0, checklist_id="fa18c_startup", stage_id="before-taxi"
     )
     assert not result.complete
-    unresolved_ids = {item.id for item in (*result.incomplete_items, *result.unconfirmed_items)}
+    unresolved_ids = {
+        item.id for item in (*result.incomplete_items, *result.unconfirmed_items)
+    }
     assert "battery_on" in unresolved_ids
     assert "apu_ready" in unresolved_ids
     assert "left_engine_running" in unresolved_ids
@@ -80,7 +86,9 @@ def test_stale_required_telemetry_is_unconfirmed_not_complete() -> None:
     result = engine.evaluate(
         state, history, now=0.0, checklist_id="fa18c_startup", stage_id="pre-start"
     )
-    master_arm_item = next(item for item in result.items if item.id == "master_arm_safe")
+    master_arm_item = next(
+        item for item in result.items if item.id == "master_arm_safe"
+    )
     assert master_arm_item.status is ChecklistItemStatus.UNCONFIRMED
     assert not result.complete
 
@@ -138,3 +146,73 @@ def test_dependency_cycle_raises() -> None:
     )
     with pytest.raises(ValueError, match="cyclic checklist stage dependency"):
         ChecklistEngine([definition])
+
+
+def test_latched_pre_start_does_not_regress_after_parking_brake_release() -> None:
+    engine = ChecklistEngine(fa18c_checklists())
+    history = StateHistory()
+    state = _cold_dark_state()
+    state.parking_brake = TelemetryValue(True, available=True, updated_at=0.0)
+    state.master_arm = TelemetryValue(
+        MasterArmState.SAFE, available=True, updated_at=0.0
+    )
+    state.battery_on = TelemetryValue(True, available=True, updated_at=0.0)
+    history.record(state, timestamp=0.0)
+    engine.observe(state, history, now=0.0)
+
+    state.parking_brake = TelemetryValue(False, available=True, updated_at=10.0)
+    history.record(state, timestamp=10.0)
+    result = engine.evaluate(
+        state,
+        history,
+        now=10.0,
+        checklist_id="fa18c_startup",
+        stage_id="before-takeoff",
+    )
+
+    parking = next(item for item in result.items if item.id == "parking_brake")
+    assert parking.status is ChecklistItemStatus.COMPLETE
+    assert parking.actual is True
+
+
+def test_live_pre_start_items_still_regress_after_parking_brake_latches() -> None:
+    engine = ChecklistEngine(fa18c_checklists())
+    history = StateHistory()
+    state = _cold_dark_state()
+    state.parking_brake = TelemetryValue(True, available=True, updated_at=0.0)
+    state.master_arm = TelemetryValue(
+        MasterArmState.SAFE, available=True, updated_at=0.0
+    )
+    state.battery_on = TelemetryValue(True, available=True, updated_at=0.0)
+    engine.observe(state, history, now=0.0)
+
+    state.battery_on = TelemetryValue(False, available=True, updated_at=10.0)
+    result = engine.evaluate(
+        state,
+        history,
+        now=10.0,
+        checklist_id="fa18c_startup",
+        stage_id="before-taxi",
+    )
+    battery = next(item for item in result.items if item.id == "battery_on")
+    assert battery.status is ChecklistItemStatus.INCOMPLETE
+
+
+def test_default_guided_checklist_targets_before_taxi_and_preserves_progress() -> None:
+    engine = ChecklistEngine(fa18c_checklists())
+    engine.start("fa18c_startup")
+    assert engine.session.stage_id == "before-taxi"
+
+    engine.confirm_manual_item("flight_controls_check")
+    engine.stop()
+    assert engine.manual_item_confirmed("flight_controls_check")
+
+    engine.reset()
+    assert not engine.manual_item_confirmed("flight_controls_check")
+
+
+def test_non_manual_checklist_item_cannot_be_voice_confirmed() -> None:
+    engine = ChecklistEngine(fa18c_checklists())
+    engine.start("fa18c_startup")
+    with pytest.raises(ValueError, match="not manually confirmable"):
+        engine.confirm_manual_item("parking_brake")

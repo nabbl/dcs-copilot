@@ -27,6 +27,7 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                             label="Parking brake",
                             verification=VerificationType.STATE,
                             expected={"field": "parking_brake", "equals": True},
+                            latch_completion=True,
                         ),
                         ChecklistItem(
                             id="master_arm_safe",
@@ -164,6 +165,12 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                             },
                             source_reference="T/O TRIM button transition",
                         ),
+                        ChecklistItem(
+                            id="flight_controls_check",
+                            label="Flight controls check",
+                            verification=VerificationType.MANUAL,
+                            source_reference="Pilot-confirmed before-taxi control check",
+                        ),
                     ),
                     depends_on=("post-start",),
                 ),
@@ -175,13 +182,19 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                             id="flaps_half",
                             label="Flaps",
                             verification=VerificationType.STATE,
-                            expected={"field": "flap_position", "equals": FlapState.HALF},
+                            expected={
+                                "field": "flap_position",
+                                "equals": FlapState.HALF,
+                            },
                         ),
                         ChecklistItem(
                             id="gear_down",
                             label="Landing gear",
                             verification=VerificationType.STATE,
-                            expected={"field": "gear_position", "equals": GearState.DOWN},
+                            expected={
+                                "field": "gear_position",
+                                "equals": GearState.DOWN,
+                            },
                         ),
                         ChecklistItem(
                             id="hook_up",
@@ -193,10 +206,13 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                             id="speedbrake_retracted",
                             label="Speedbrake",
                             verification=VerificationType.STATE,
-                            expected={"field": "speed_brake", "less_than_or_equal": 0.05},
+                            expected={
+                                "field": "speed_brake",
+                                "less_than_or_equal": 0.05,
+                            },
                         ),
                         ChecklistItem(
-                            id="master_arm_safe",
+                            id="master_arm_safe_takeoff",
                             label="Master Arm",
                             verification=VerificationType.STATE,
                             expected={

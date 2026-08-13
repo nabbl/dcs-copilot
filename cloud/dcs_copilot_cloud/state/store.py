@@ -15,6 +15,7 @@ from ..checklists.engine import ChecklistEngine
 from ..checklists.fa18c import fa18c_checklists
 from ..events.manager import EventManager
 from ..events.models import CloudManagedEvent
+from ..ground_ops import GroundOpsCoordinator
 from ..habits.manager import FlightStatsManager
 from ..rules.engine import RuleEngine
 from ..rules.fa18c import fa18c_rules
@@ -51,12 +52,19 @@ class AircraftStateStore:
         self.phase_detector = phase_detector or FlightPhaseDetector()
         self.rule_engine = rule_engine or RuleEngine(fa18c_rules())
         self.checklist_engine = checklist_engine or ChecklistEngine(fa18c_checklists())
-        if event_manager is not None and event_manager.rule_engine is not self.rule_engine:
+        if (
+            event_manager is not None
+            and event_manager.rule_engine is not self.rule_engine
+        ):
             raise ValueError("event_manager must observe this store's rule_engine")
         self.event_manager = event_manager or EventManager(self.rule_engine)
-        if flight_stats is not None and flight_stats.rule_engine is not self.rule_engine:
+        if (
+            flight_stats is not None
+            and flight_stats.rule_engine is not self.rule_engine
+        ):
             raise ValueError("flight_stats must observe this store's rule_engine")
         self.flight_stats = flight_stats or FlightStatsManager(self.rule_engine)
+        self.ground_ops = GroundOpsCoordinator()
         self.generic_adapter = GenericAircraftAdapter()
         selected_adapters = adapters or [FA18CAdapter()]
         self._adapters = {
@@ -67,6 +75,7 @@ class AircraftStateStore:
         self.current = AircraftState()
         self._callbacks: list[Callable[[NormalizedStateChange], None]] = []
         self._proactive_callbacks: list[Callable[[CloudManagedEvent], None]] = []
+        self._pending_proactive: list[CloudManagedEvent] | None = None
         self.event_manager.add_callback(self._on_managed_event)
 
     def add_change_callback(
@@ -109,7 +118,9 @@ class AircraftStateStore:
         self._pending_proactive = proactive
         try:
             if not connected:
-                self.flight_stats.observe(AircraftState(aircraft=aircraft, connected=False))
+                self.flight_stats.observe(
+                    AircraftState(aircraft=aircraft, connected=False)
+                )
                 self.current = AircraftState(aircraft=aircraft, connected=False)
                 self._reset_cockpit_context(timestamp)
                 self._emit_changes(previous, self.current)
@@ -128,6 +139,7 @@ class AircraftStateStore:
             self._derive_context_fields(state, timestamp)
             self.history.record(state, timestamp=timestamp)
             self.current = state
+            self.checklist_engine.observe(state, self.history, now=timestamp)
             self.flight_stats.observe(state)
             self.rule_engine.evaluate(state, self.history, now=timestamp)
             self._emit_changes(previous, state)
@@ -198,7 +210,7 @@ class AircraftStateStore:
         self.history.clear()
         self.phase_detector.reset()
         self.rule_engine.reset(now=timestamp)
-        self.checklist_engine.stop()
+        self.checklist_engine.reset()
         self.event_manager.reset(clear_history=True)
 
     @staticmethod
@@ -237,6 +249,7 @@ class AircraftStateStore:
             or (
                 bool(state.weight_on_wheels.value)
                 and state.indicated_airspeed.usable
+                and state.indicated_airspeed.value is not None
                 and float(state.indicated_airspeed.value) >= 80
             ),
             available=takeoff_available,
@@ -246,11 +259,17 @@ class AircraftStateStore:
         recovery_signal_available = (
             state.hook_commanded_down.usable or state.hook_position.usable
         )
-        recovery_phase = state.flight_phase in {FlightPhase.APPROACH, FlightPhase.LANDING}
+        recovery_phase = state.flight_phase in {
+            FlightPhase.APPROACH,
+            FlightPhase.LANDING,
+        }
         state.carrier_recovery = TelemetryValue(
             value=recovery_phase
             and (
-                (state.hook_commanded_down.usable and bool(state.hook_commanded_down.value))
+                (
+                    state.hook_commanded_down.usable
+                    and bool(state.hook_commanded_down.value)
+                )
                 or (state.hook_position.usable and bool(state.hook_position.value))
             )
             if recovery_signal_available

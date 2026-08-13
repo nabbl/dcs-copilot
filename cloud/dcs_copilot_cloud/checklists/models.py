@@ -33,6 +33,7 @@ class ChecklistItem:
     action_field: str | None = None
     applicable_if: Condition | None = None
     source_reference: str = "Backend normalized telemetry"
+    latch_completion: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,14 +90,21 @@ class ChecklistResult:
 class ChecklistSession:
     checklist_id: str | None = None
     stage_id: str | None = None
+    progress_checklist_id: str | None = None
     confirmed_manual_items: set[str] = field(default_factory=set)
 
     def start(self, checklist_id: str, stage_id: str | None = None) -> None:
+        if self.progress_checklist_id not in {None, checklist_id}:
+            self.confirmed_manual_items.clear()
         self.checklist_id = checklist_id
         self.stage_id = stage_id
-        self.confirmed_manual_items.clear()
+        self.progress_checklist_id = checklist_id
 
     def stop(self) -> None:
         self.checklist_id = None
         self.stage_id = None
+
+    def reset(self) -> None:
+        self.stop()
+        self.progress_checklist_id = None
         self.confirmed_manual_items.clear()
