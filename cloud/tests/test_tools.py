@@ -75,6 +75,8 @@ def test_aircraft_tool_names_are_complete() -> None:
         "stop_guided_checklist",
         "get_ground_ops_status",
         "get_takeoff_readiness",
+        "get_flight_status",
+        "get_hornet_knowledge",
     }
     assert "get_aircraft_state" in AIRCRAFT_TOOL_NAMES
     assert "get_missing_checklist_items" in AIRCRAFT_TOOL_NAMES

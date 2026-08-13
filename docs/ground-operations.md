@@ -86,5 +86,5 @@ launch-bar/carrier signal is active.
 - explicit pause, repeat, defer, and skip semantics for guided checklists;
 - end-to-end voice journey fixtures for interrupted and resumed procedures;
 - live single-player and multiplayer validation on Windows/DCS;
-- a grounded, versioned aircraft knowledge source for in-flight procedural
-  questions.
+- broader coverage in the grounded, versioned aircraft knowledge source begun
+  in [In-Flight Operations v1](in-flight-operations.md).
