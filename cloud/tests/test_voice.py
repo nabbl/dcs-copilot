@@ -54,6 +54,10 @@ def test_copilot_prompt_separates_live_state_from_general_knowledge() -> None:
     assert "get_takeoff_readiness" in COPILOT_INSTRUCTION
     assert "get_flight_status" in COPILOT_INSTRUCTION
     assert "get_hornet_knowledge" in COPILOT_INSTRUCTION
+    assert "Never refuse merely because" in COPILOT_INSTRUCTION
+    assert "answer an engine-start-order question directly" in COPILOT_INSTRUCTION
+    assert "Do not invent a manual citation" in COPILOT_INSTRUCTION
+    assert "say that the procedure is not yet" not in COPILOT_INSTRUCTION
     assert "walked through" in COPILOT_INSTRUCTION
     assert "one subsequent step" in COPILOT_INSTRUCTION
     assert "Never claim land-runway alignment" in COPILOT_INSTRUCTION

@@ -65,11 +65,12 @@ pinned secondary source rather than silently mixed into the ED-derived cards.
 
 ## Expansion policy
 
-A new procedural topic requires a reviewed card, an exact source section, a
-pinned source revision, and tests. If no curated card exists, MARA says the
-procedure is not yet verified instead of presenting general model knowledge as
-an authoritative Hornet procedure. Combat employment is intentionally outside
-this milestone.
+A new source-verified procedural topic requires a reviewed card, an exact source
+section, a pinned source revision, and tests. If no curated card exists, MARA
+still answers directly from its best Hornet or general aviation knowledge. It
+does not refuse solely because the corpus lacks the topic, but it must not invent
+a citation or represent the fallback as source-verified. Live cockpit claims
+remain tool-backed. Combat employment is intentionally outside this milestone.
 
 The official guide does not contain a complete aerial-refueling procedure, so
 an AAR card is intentionally deferred until a suitable authoritative source can
