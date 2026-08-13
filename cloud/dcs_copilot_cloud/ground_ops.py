@@ -175,8 +175,12 @@ class GroundOpsCoordinator:
             ),
             _manual(
                 "flight_controls_check",
-                "Flight controls check",
+                "Flight controls — full-and-free stick and rudder check",
                 checklist.manual_item_confirmed("flight_controls_check"),
+                instruction=(
+                    "complete a full-and-free stick and rudder sweep while checking "
+                    "the FCS indications, then confirm it"
+                ),
             ),
         ]
         if selected_operation is TakeoffOperation.CARRIER:
@@ -348,14 +352,20 @@ def _maximum(
     )
 
 
-def _manual(item_id: str, label: str, confirmed: bool) -> ReadinessItem:
+def _manual(
+    item_id: str,
+    label: str,
+    confirmed: bool,
+    *,
+    instruction: str,
+) -> ReadinessItem:
     return ReadinessItem(
         item_id,
         label,
         ChecklistItemStatus.COMPLETE if confirmed else ChecklistItemStatus.UNCONFIRMED,
-        "pilot confirmation",
+        instruction,
         "confirmed" if confirmed else None,
-        "pilot confirmed" if confirmed else "pilot confirmation required",
+        "pilot confirmed" if confirmed else instruction,
     )
 
 

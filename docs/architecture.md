@@ -221,6 +221,11 @@ preserve `AVAILABLE`, `STALE`, and `UNAVAILABLE` status; unavailable values are
 returned as `null`, never inferred. `get_active_issues` reports `coverage` so
 an empty list never silently implies an all-clear.
 
+The thin client republishes its complete decoded DCS-BIOS snapshot every ten
+seconds in addition to change deltas. This refresh contains no aircraft semantics;
+it prevents stable cockpit controls from aging past the cloud's thirty-second
+freshness window while preserving the cloud as the normalization authority.
+
 Ground-operations readiness is separate from active rule violations. A takeoff
 readiness result is `READY` only when every required current-state and manual
 gate is positively verified. Known wrong values produce `BLOCKED`; unavailable

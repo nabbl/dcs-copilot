@@ -62,6 +62,8 @@ light being illuminated, MARA records either `pilot_confirmation` for a manual
 item or `pilot_override` for a telemetry-verifiable item and advances. It cannot
 confirm a future item or infer confirmation from silence or implication. The
 first inherently manual Hornet item is the before-taxi flight-controls check.
+That item means a full-and-free stick and rudder sweep while checking the FCS
+indications; DCS-BIOS does not currently verify the complete physical check.
 
 ## Alignment boundary
 

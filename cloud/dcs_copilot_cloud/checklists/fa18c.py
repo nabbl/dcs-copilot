@@ -167,9 +167,12 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                         ),
                         ChecklistItem(
                             id="flight_controls_check",
-                            label="Flight controls check",
+                            label="Flight controls — full-and-free stick and rudder check",
                             verification=VerificationType.MANUAL,
-                            source_reference="Pilot-confirmed before-taxi control check",
+                            source_reference=(
+                                "Pilot confirms full-and-free stick and rudder movement "
+                                "after checking the FCS indications"
+                            ),
                         ),
                     ),
                     depends_on=("post-start",),

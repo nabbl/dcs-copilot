@@ -77,6 +77,20 @@ def test_takeoff_gate_separates_blocking_and_unknown_items() -> None:
     assert {item.id for item in report.unknown_items} == {"takeoff_trim"}
 
 
+def test_unconfirmed_flight_controls_explains_the_required_manual_check() -> None:
+    state, checklist = ready_hornet()
+    checklist.reset()
+    report = GroundOpsCoordinator().takeoff_readiness(
+        state, checklist, operation=TakeoffOperation.LAND
+    )
+    flight_controls = next(
+        item for item in report.unknown_items if item.id == "flight_controls_check"
+    )
+
+    assert "full-and-free stick and rudder" in flight_controls.label
+    assert "FCS indications" in flight_controls.reason
+
+
 def test_auto_operation_refuses_to_guess_land_runway_context() -> None:
     state, checklist = ready_hornet()
     report = GroundOpsCoordinator().takeoff_readiness(

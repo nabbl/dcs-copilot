@@ -37,19 +37,26 @@ class TelemetryPublisher:
         flush_hz: float = 15.0,
         max_pending_controls: int = 8_192,
         max_switch_transitions: int = 8,
+        refresh_interval: float = 10.0,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if not 10 <= flush_hz <= 20:
             raise ValueError("telemetry flush rate must be between 10 and 20 Hz")
         if max_pending_controls <= 0 or max_switch_transitions <= 0:
             raise ValueError("telemetry queue bounds must be positive")
+        if refresh_interval <= 0:
+            raise ValueError("telemetry refresh interval must be positive")
         self.client = client
         self._send_control = send_control
+        self._clock = clock
         self.flush_interval = 1.0 / flush_hz
         self.max_pending_controls = max_pending_controls
         self.max_switch_transitions = max_switch_transitions
+        self.refresh_interval = refresh_interval
         self._session_active = False
         self._epoch: str | None = None
         self._aircraft: str | None = None
+        self._next_refresh_at: float | None = None
         self._next_sequence = 0
         self._initial: deque[ControlMessage] = deque()
         self._pending: dict[ControlIdentity, deque[DecodedValue]] = {}
@@ -93,6 +100,7 @@ class TelemetryPublisher:
             if not self._send_control(self._initial[0]):
                 return
             self._initial.popleft()
+        self._refresh_unchanged_values()
         if not self._pending:
             return
         values: list[DecodedValue] = []
@@ -138,6 +146,7 @@ class TelemetryPublisher:
         definitions = self.client.active_definitions()
         self._epoch = str(uuid4())
         self._aircraft = aircraft
+        self._next_refresh_at = self._clock() + self.refresh_interval
         self._catalog = {
             self._identity(definition): self._catalog_entry(definition)
             for definition in definitions
@@ -184,7 +193,19 @@ class TelemetryPublisher:
             or change.control.module not in self._active_modules
         ):
             return
-        value = self._decoded_value(change)
+        self._queue_value(self._decoded_value(change))
+
+    def _refresh_unchanged_values(self) -> None:
+        now = self._clock()
+        if self._next_refresh_at is None or now < self._next_refresh_at:
+            return
+        if not self.client.connected or self._epoch is None:
+            return
+        self._next_refresh_at = now + self.refresh_interval
+        for change in self.client.decoded_snapshot():
+            self._queue_value(self._decoded_value(change))
+
+    def _queue_value(self, value: DecodedValue) -> None:
         identity = value.identity
         queued = self._pending.get(identity)
         if queued is None:
@@ -223,6 +244,7 @@ class TelemetryPublisher:
         self._epoch = None
         self._aircraft = None
         self._next_sequence = 0
+        self._next_refresh_at = None
         self._initial.clear()
         self._pending.clear()
         self._catalog.clear()

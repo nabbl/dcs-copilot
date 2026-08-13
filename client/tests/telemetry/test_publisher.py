@@ -91,6 +91,38 @@ def test_unchanged_outputs_are_not_sent_and_changed_outputs_are_deltas(
     ]
 
 
+def test_unchanged_outputs_are_refreshed_before_cloud_staleness(
+    bios_json_dir: Path,
+) -> None:
+    sent: list[ControlMessage] = []
+    now = [0.0]
+    client, telemetry = publisher(
+        bios_json_dir,
+        sent,
+        refresh_interval=10.0,
+        clock=lambda: now[0],
+    )
+    client.parser.feed(hornet_frame(0))
+    telemetry.set_session_active(True)
+    telemetry.flush()
+    sent.clear()
+
+    now[0] = 9.0
+    client.parser.feed(hornet_frame(0))
+    telemetry.flush()
+    assert sent == []
+
+    now[0] = 10.0
+    client.parser.feed(hornet_frame(0))
+    telemetry.flush()
+
+    assert len(sent) == 1
+    delta = TelemetryDelta.from_control(sent[0])
+    assert [(value.identity.identifier, value.value) for value in delta.values] == [
+        ("MASTER_CAUTION_LT", 0)
+    ]
+
+
 def test_rapid_switch_changes_are_bounded_and_coalesced(
     bios_json_dir: Path,
 ) -> None:

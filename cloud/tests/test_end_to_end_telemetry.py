@@ -164,3 +164,69 @@ def test_decoded_cold_dark_hornet_reaches_backend_checklist_tool(
     assert unresolved["left_engine_running"] == "incomplete"
     assert unresolved["right_engine_running"] == "incomplete"
     assert result["complete"] is False
+
+
+def test_periodic_refresh_keeps_unchanged_startup_state_usable(
+    tmp_path: Path,
+) -> None:
+    messages: list[ControlMessage] = []
+    client_now = [0.0]
+    client = DcsBiosClient(registry=_registry(tmp_path))
+    publisher = TelemetryPublisher(
+        client,
+        lambda message: messages.append(message) is None,
+        refresh_interval=10.0,
+        clock=lambda: client_now[0],
+    )
+    aircraft = b"FA-18C_hornet\x00".ljust(24, b"\x00")
+    running_hornet = _frame(
+        _write(0, aircraft),
+        _write(0x7400, struct.pack("<H", 0)),
+        _write(0x7402, struct.pack("<H", 0)),
+        _write(0x7404, struct.pack("<H", 1)),
+        _write(0x7410, b"70\x00".ljust(8, b"\x00")),
+        _write(0x7418, b"70\x00".ljust(8, b"\x00")),
+    )
+    client.parser.feed(running_hornet)
+    publisher.set_session_active(True)
+    publisher.flush()
+
+    ingress = TelemetryIngress()
+    store = AircraftStateStore(value_stale_timeout=30.0)
+    for message in messages:
+        batch = ingress.accept(message)
+        if batch is not None:
+            _apply(store, batch, now=100.0)
+    messages.clear()
+
+    client_now[0] = 10.0
+    client.parser.feed(running_hornet)
+    publisher.flush()
+    assert messages
+    for message in messages:
+        batch = ingress.accept(message)
+        if batch is not None:
+            _apply(store, batch, now=125.0)
+
+    executor = BackendAircraftToolExecutor(store, clock=lambda: 145.0)
+    state = executor.execute(
+        AircraftToolRequest.create(
+            AircraftToolName.GET_AIRCRAFT_STATE,
+            {"fields": ["battery_on"]},
+        )
+    )
+    checklist = executor.execute(
+        AircraftToolRequest.create(
+            AircraftToolName.GET_CHECKLIST_STATUS,
+            {
+                "checklist_id": "fa18c_startup",
+                "stage": "engine-start",
+                "include_complete": True,
+            },
+        )
+    )
+    apu = next(item for item in checklist["items"] if item["id"] == "apu_ready")
+
+    assert state["fields"]["battery_on"]["status"] == "AVAILABLE"
+    assert state["fields"]["battery_on"]["value"] is True
+    assert apu["status"] == "complete"
