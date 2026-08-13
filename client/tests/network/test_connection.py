@@ -47,7 +47,7 @@ class FakeTransportContext:
 
 
 def test_connection_handshake_uplink_and_downlink() -> None:
-    async def scenario() -> tuple[list[str | bytes], list[bytes]]:
+    async def scenario() -> tuple[list[str | bytes], list[bytes], list[str]]:
         transport = FakeTransport()
         await transport.incoming.put(ControlMessage("hello").to_json())
         await transport.incoming.put(
@@ -62,9 +62,21 @@ def test_connection_handshake_uplink_and_downlink() -> None:
                 {"authenticated": True, "session_active": True},
             ).to_json()
         )
+        await transport.incoming.put(
+            ControlMessage(
+                "error",
+                {
+                    "code": "voice_pipeline_failed",
+                    "detail": "speech was not recognized",
+                    "fatal": False,
+                },
+                correlation_id="turn-id",
+            ).to_json()
+        )
         output = MediaPacket(MediaKind.AUDIO_OUTPUT, 1, 1, b"reply")
         await transport.incoming.put(output.to_bytes())
         played: list[bytes] = []
+        diagnostics: list[str] = []
 
         async def play(payload: bytes) -> None:
             played.append(payload)
@@ -76,6 +88,7 @@ def test_connection_handshake_uplink_and_downlink() -> None:
             audio_format=AudioFormat(),
             transport_factory=lambda _url: FakeTransportContext(transport),
             on_audio_output=play,
+            on_diagnostic=diagnostics.append,
         )
         stop = asyncio.Event()
         task = asyncio.create_task(connection.run_once(stop))
@@ -89,9 +102,9 @@ def test_connection_handshake_uplink_and_downlink() -> None:
             await asyncio.sleep(0)
         stop.set()
         await task
-        return transport.sent, played
+        return transport.sent, played, diagnostics
 
-    sent, played = asyncio.run(scenario())
+    sent, played, diagnostics = asyncio.run(scenario())
     controls = [
         ControlMessage.from_json(item) for item in sent if isinstance(item, str)
     ]
@@ -107,6 +120,17 @@ def test_connection_handshake_uplink_and_downlink() -> None:
     assert media[0].kind is MediaKind.AUDIO_INPUT
     assert media[0].payload == b"pcm"
     assert played == [b"reply"]
+    assert any(line.startswith("Send: authenticate ") for line in diagnostics)
+    assert any(line.startswith("Send: session.start ") for line in diagnostics)
+    assert any(line.startswith("Send: ptt.start ") for line in diagnostics)
+    assert any(line.startswith("Receive: connection.status ") for line in diagnostics)
+    assert any(
+        line.startswith("Error: cloud ")
+        and "code=voice_pipeline_failed" in line
+        and "detail=speech was not recognized" in line
+        for line in diagnostics
+    )
+    assert all("token" not in line for line in diagnostics)
 
 
 def test_cloud_url_requires_tls_except_on_loopback() -> None:

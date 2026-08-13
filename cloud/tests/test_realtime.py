@@ -220,6 +220,43 @@ def test_ptt_turn_streams_cloud_voice_audio_and_text() -> None:
     assert pipeline.closed
 
 
+def test_consecutive_tool_style_turns_are_not_interrupted_while_idle() -> None:
+    pipeline = FakeVoicePipeline()
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: pipeline,
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v2/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        for sequence in range(2):
+            websocket.send_text(
+                ControlMessage("assistant.interrupt", {"reason": "pilot_ptt"}).to_json()
+            )
+            websocket.send_text(ControlMessage("ptt.start").to_json())
+            websocket.send_bytes(
+                MediaPacket(
+                    MediaKind.AUDIO_INPUT,
+                    sequence,
+                    sequence + 1,
+                    b"\x01\x02" * 320,
+                ).to_bytes()
+            )
+            websocket.send_text(ControlMessage("ptt.end").to_json())
+            assert receive_control(websocket).payload["event_type"] == (
+                "utterance.received"
+            )
+            assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+                MediaKind.AUDIO_OUTPUT
+            )
+            assert receive_control(websocket).type == "pilot.text"
+            assert receive_control(websocket).type == "assistant.text"
+
+    assert pipeline.interrupt_calls == 0
+
+
 def test_new_epoch_catalog_resets_voice_pipeline_and_context() -> None:
     pipelines: list[FakeVoicePipeline] = []
 

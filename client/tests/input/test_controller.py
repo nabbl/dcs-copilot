@@ -47,7 +47,10 @@ def test_ptt_starts_capture_and_release_is_authoritative_end() -> None:
     connection = FakeConnection()
     capture = FakeCapture()
     playback = FakePlayback()
-    controller = PttSessionController(connection, capture, playback)  # type: ignore[arg-type]
+    notices: list[str] = []
+    controller = PttSessionController(  # type: ignore[arg-type]
+        connection, capture, playback, on_notice=notices.append
+    )
 
     async def scenario() -> None:
         assert await controller.press()
@@ -63,6 +66,10 @@ def test_ptt_starts_capture_and_release_is_authoritative_end() -> None:
         "ptt.start",
         "audio",
         "ptt.end",
+    ]
+    assert notices == [
+        "PTT: active",
+        "PTT: released audio_chunks=1 audio_bytes=3 dropped=0",
     ]
 
 

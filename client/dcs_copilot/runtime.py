@@ -68,24 +68,19 @@ async def run_client_runtime(
     conversation_activity = ConversationActivity()
     telemetry: TelemetryPublisher | None = None
 
+    def emit_activity(line: str) -> None:
+        print(line, flush=True)
+
     def status_changed(status: CloudConnectionStatus) -> None:
-        print(f"Cloud: {status.detail}")
+        emit_activity(f"Cloud: {status.detail}")
         if telemetry is not None:
             telemetry.set_session_active(status.session_active)
         if not status.connected:
             conversation_activity.reset()
 
     def control_received(message: ControlMessage) -> None:
-        if message.type == "event" and message.payload.get("event_type") == (
-            "utterance.received"
-        ):
-            print(
-                "Cloud received utterance: "
-                f"{message.payload.get('audio_bytes', 0)} bytes"
-            )
-        else:
-            for line in conversation_activity.accept(message):
-                print(line, flush=True)
+        for line in conversation_activity.accept(message):
+            emit_activity(line)
 
     connection = CloudSessionConnection(
         url=settings.cloud_url,
@@ -100,10 +95,13 @@ async def run_client_runtime(
         on_status=status_changed,
         on_control=control_received,
         on_audio_output=playback.play,
+        on_diagnostic=emit_activity,
     )
     if registry is not None:
         telemetry = TelemetryPublisher(dcs_client, connection.send_message)
-    controller = PttSessionController(connection, capture, playback, on_notice=print)
+    controller = PttSessionController(
+        connection, capture, playback, on_notice=emit_activity
+    )
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -117,6 +115,8 @@ async def run_client_runtime(
             exception = task.exception()
             if exception is not None:
                 LOGGER.error("input action failed: %s", exception)
+                detail = " ".join(str(exception).split())
+                emit_activity(f"Error: input action failed: {detail[:240]}")
 
         def create() -> None:
             task = asyncio.create_task(coroutine)

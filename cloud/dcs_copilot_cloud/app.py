@@ -28,9 +28,9 @@ from .auth import AuthService
 from .auth_api import auth_router
 from .config import LOCAL_DEVELOPMENT_SIGNING_KEY, CloudSettings
 from .database import Database
-from .greetings import CockpitGreetingSelector
 from .events.models import CloudAircraftEvent, CloudManagedEvent
 from .events.policy import SpeechMode, SpeechPolicy
+from .greetings import CockpitGreetingSelector
 from .providers import build_provider_bundle
 from .session import (
     CompletedUtterance,
@@ -41,10 +41,10 @@ from .session import (
 from .state.store import AircraftStateStore
 from .telemetry import TelemetryBatch, TelemetryIngress
 from .tools import (
-   AIRCRAFT_TOOL_NAMES,
-   AircraftToolRequest,
-   BackendAircraftToolExecutor,
-   ToolProtocolError,
+    AIRCRAFT_TOOL_NAMES,
+    AircraftToolRequest,
+    BackendAircraftToolExecutor,
+    ToolProtocolError,
 )
 from .voice import (
     PipecatVoicePipeline,
@@ -208,15 +208,19 @@ def create_app(
                 },
             }
 
-        async def interrupt_response() -> None:
+        async def interrupt_response() -> bool:
             nonlocal response_event_id, response_task
+            if response_task is None or response_task.done():
+                response_task = None
+                response_event_id = None
+                return False
             if voice is not None:
                 await voice.interrupt()
-            if response_task is not None and not response_task.done():
-                response_task.cancel()
-                await asyncio.gather(response_task, return_exceptions=True)
+            response_task.cancel()
+            await asyncio.gather(response_task, return_exceptions=True)
             response_task = None
             response_event_id = None
+            return True
 
         async def reset_assistant() -> None:
             nonlocal voice
@@ -241,6 +245,12 @@ def create_app(
 
         async def run_voice_turn(utterance: CompletedUtterance) -> None:
             nonlocal voice
+            LOGGER.info(
+                "voice turn started: session=%s correlation=%s audio_bytes=%d",
+                utterance.session_id,
+                utterance.correlation_id,
+                len(utterance.audio),
+            )
             try:
                 if voice is None:
                     voice = pipeline_factory(configured)
@@ -268,15 +278,27 @@ def create_app(
                     )
                 )
                 LOGGER.info(
-                    "voice turn completed: session=%s transcript_chars=%d response_chars=%d",
+                    "voice turn completed: session=%s correlation=%s "
+                    "transcript_chars=%d response_chars=%d",
                     utterance.session_id,
+                    utterance.correlation_id,
                     len(result.transcript),
                     len(result.response_text),
                 )
             except asyncio.CancelledError:
+                LOGGER.info(
+                    "voice turn interrupted: session=%s correlation=%s",
+                    utterance.session_id,
+                    utterance.correlation_id,
+                )
                 raise
             except (ValueError, VoicePipelineError) as exc:
-                LOGGER.warning("voice turn failed: %s", exc)
+                LOGGER.warning(
+                    "voice turn failed: session=%s correlation=%s error=%s",
+                    utterance.session_id,
+                    utterance.correlation_id,
+                    exc,
+                )
                 await send_control(
                     ControlMessage(
                         "error",
