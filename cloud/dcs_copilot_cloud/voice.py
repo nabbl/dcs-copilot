@@ -13,6 +13,7 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     ErrorFrame,
     Frame,
+    FunctionCallsStartedFrame,
     InputAudioRawFrame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
@@ -126,13 +127,15 @@ class _OutputObserver(FrameProcessor):
                 await callback(frame.audio)
         elif isinstance(frame, ErrorFrame):
             self._owner._turn_error = frame.error
+        elif isinstance(frame, FunctionCallsStartedFrame):
+            self._owner._llm_pass_used_tools = True
         await self.push_frame(frame, direction)
-        if isinstance(frame, (LLMFullResponseEndFrame, ErrorFrame)):
-            # Pipecat schedules function handlers immediately before ending the
-            # first LLM pass. Give that task a chance to start; the tool result
-            # will then trigger the final LLM pass.
-            await asyncio.sleep(0)
-            if not self._owner._tool_requests_in_flight:
+        if isinstance(frame, ErrorFrame):
+            self._owner._turn_done.set()
+        elif isinstance(frame, LLMFullResponseEndFrame):
+            if self._owner._llm_pass_used_tools:
+                self._owner._llm_pass_used_tools = False
+            else:
                 self._owner._turn_done.set()
 
 
@@ -153,7 +156,7 @@ class PipecatVoicePipeline:
         self._response_parts: list[str] = []
         self._audio_callback: AudioCallback | None = None
         self._tool_callback: ToolCallback | None = None
-        self._tool_requests_in_flight = 0
+        self._llm_pass_used_tools = False
 
     async def respond(
         self,
@@ -172,6 +175,7 @@ class PipecatVoicePipeline:
                 raise VoicePipelineError("Pipecat worker did not start")
             self._turn_done.clear()
             self._turn_error = None
+            self._llm_pass_used_tools = False
             self._transcript_parts.clear()
             self._response_parts.clear()
             self._audio_callback = on_audio
@@ -226,6 +230,7 @@ class PipecatVoicePipeline:
                 raise VoicePipelineError("Pipecat worker did not start")
             self._turn_done.clear()
             self._turn_error = None
+            self._llm_pass_used_tools = False
             self._transcript_parts.clear()
             self._response_parts.clear()
             self._audio_callback = on_audio
@@ -335,28 +340,24 @@ class PipecatVoicePipeline:
 
     async def _handle_tool_call(self, params: FunctionCallParams) -> None:
         callback = self._tool_callback
-        self._tool_requests_in_flight += 1
-        try:
-            if callback is None:
-                result: dict[str, Any] = {
-                    "available": False,
-                    "error": {
-                        "code": "backend_state_unavailable",
-                        "detail": "backend aircraft state is unavailable for this turn",
-                    },
-                }
-            else:
-                try:
-                    result = await callback(
-                        params.function_name,
-                        dict(params.arguments),
-                    )
-                except ValueError as exc:
-                    from .tools import aircraft_tool_error_result
+        if callback is None:
+            result: dict[str, Any] = {
+                "available": False,
+                "error": {
+                    "code": "backend_state_unavailable",
+                    "detail": "backend aircraft state is unavailable for this turn",
+                },
+            }
+        else:
+            try:
+                result = await callback(
+                    params.function_name,
+                    dict(params.arguments),
+                )
+            except ValueError as exc:
+                from .tools import aircraft_tool_error_result
 
-                    result = aircraft_tool_error_result(exc)
-        finally:
-            self._tool_requests_in_flight -= 1
+                result = aircraft_tool_error_result(exc)
         await params.result_callback(result)
 
 

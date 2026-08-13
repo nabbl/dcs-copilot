@@ -50,4 +50,14 @@ class ActivityOutputFilter:
 
 
 def _is_activity_line(line: str) -> bool:
-    return line.startswith(("Pilot: ", "MARA: "))
+    return line.startswith(
+        (
+            "Pilot: ",
+            "MARA: ",
+            "Cloud: ",
+            "PTT: ",
+            "Send: ",
+            "Receive: ",
+            "Error: ",
+        )
+    )

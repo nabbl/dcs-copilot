@@ -26,6 +26,7 @@ LOGGER = logging.getLogger(__name__)
 OutboundPayload = str | bytes
 TransportFactory = Callable[[str], AbstractAsyncContextManager[RealtimeTransport]]
 AccessTokenProvider = Callable[[], Awaitable[str]]
+DiagnosticCallback = Callable[[str], None]
 
 
 class CloudConnectionError(RuntimeError):
@@ -57,6 +58,7 @@ class CloudSessionConnection:
         on_status: Callable[[CloudConnectionStatus], None] | None = None,
         on_control: Callable[[ControlMessage], None] | None = None,
         on_audio_output: Callable[[bytes], Awaitable[None]] | None = None,
+        on_diagnostic: DiagnosticCallback | None = None,
     ) -> None:
         validate_cloud_url(url)
         if not access_token:
@@ -83,6 +85,7 @@ class CloudSessionConnection:
         self._on_status = on_status
         self._on_control = on_control
         self._on_audio_output = on_audio_output
+        self._on_diagnostic = on_diagnostic
         self._audio_queue_limit = queue_size
         # Reserve capacity for ptt.end and other control frames even when a slow
         # uplink has filled the audio allowance. FIFO ordering remains intact.
@@ -167,6 +170,7 @@ class CloudSessionConnection:
                                 "session.end", {"session_id": self._session_id}
                             ).to_json()
                         )
+                        self._diagnose("Send: session.end")
                     except Exception as exc:  # noqa: BLE001 - connection is already closing
                         LOGGER.debug("session.end could not be sent: %s", exc)
                 self._set_disconnected("disconnected")
@@ -176,8 +180,13 @@ class CloudSessionConnection:
 
     def send_message(self, message: ControlMessage) -> bool:
         if not self.ready:
+            if not message.type.startswith("telemetry."):
+                self._diagnose(f"Error: {message.type} not queued; cloud unavailable")
             return False
-        return self._enqueue(message.to_json(), audio=False)
+        queued = self._enqueue(message.to_json(), audio=False)
+        if not queued and not message.type.startswith("telemetry."):
+            self._diagnose(f"Error: {message.type} not queued; outbound queue full")
+        return queued
 
     def send_audio(self, audio: bytes) -> bool:
         if not self.ready or not audio:
@@ -212,6 +221,7 @@ class CloudSessionConnection:
             },
         )
         await transport.send_text(authentication.to_json())
+        self._diagnose_control("Send", authentication)
         authenticated = await self._receive_handshake_control(transport)
         self._require_status(authenticated, authenticated=True)
 
@@ -225,6 +235,7 @@ class CloudSessionConnection:
             },
         )
         await transport.send_text(session.to_json())
+        self._diagnose_control("Send", session)
         started = await self._receive_handshake_control(transport)
         self._require_status(started, authenticated=True, session_active=True)
         self._session_generation += 1
@@ -237,6 +248,7 @@ class CloudSessionConnection:
             try:
                 if isinstance(payload, str):
                     await transport.send_text(payload)
+                    self._diagnose_control("Send", ControlMessage.from_json(payload))
                 else:
                     await transport.send_bytes(payload)
             finally:
@@ -247,6 +259,7 @@ class CloudSessionConnection:
             payload = await transport.receive()
             if isinstance(payload, str):
                 message = ControlMessage.from_json(payload)
+                self._diagnose_control("Receive", message)
                 if message.type == "error":
                     LOGGER.warning("cloud protocol error: %s", message.payload)
                 if self._on_control is not None:
@@ -258,12 +271,14 @@ class CloudSessionConnection:
             if self._on_audio_output is not None:
                 await self._on_audio_output(packet.payload)
 
-    @staticmethod
-    async def _receive_control(transport: RealtimeTransport) -> ControlMessage:
+    async def _receive_control(
+        self, transport: RealtimeTransport
+    ) -> ControlMessage:
         payload = await transport.receive()
         if not isinstance(payload, str):
             raise CloudConnectionError("expected a control message during handshake")
         message = ControlMessage.from_json(payload)
+        self._diagnose_control("Receive", message)
         if message.type == "error":
             raise CloudConnectionError(str(message.payload.get("code", "error")))
         return message
@@ -334,6 +349,34 @@ class CloudSessionConnection:
                 CloudConnectionStatus(connected, authenticated, session_active, detail)
             )
 
+    def _diagnose_control(self, direction: str, message: ControlMessage) -> None:
+        if message.type.startswith("telemetry."):
+            return
+        prefix = "Error: cloud" if message.type == "error" else f"{direction}: {message.type}"
+        parts = [prefix, f"id={message.message_id[:8]}"]
+        if message.correlation_id is not None:
+            parts.append(f"correlation={message.correlation_id[:8]}")
+        if message.type == "event":
+            event_type = message.payload.get("event_type")
+            if isinstance(event_type, str):
+                parts.append(f"event={event_type}")
+            for name in ("audio_chunks", "audio_bytes", "duration_ms"):
+                value = message.payload.get(name)
+                if isinstance(value, int):
+                    parts.append(f"{name}={value}")
+        elif message.type == "error":
+            code = message.payload.get("code")
+            if isinstance(code, str):
+                parts.append(f"code={code}")
+            detail = message.payload.get("detail")
+            if isinstance(detail, str) and detail.strip():
+                parts.append(f"detail={_bounded_line(detail)}")
+        self._diagnose(" ".join(parts))
+
+    def _diagnose(self, line: str) -> None:
+        if self._on_diagnostic is not None:
+            self._on_diagnostic(line)
+
 
 def validate_cloud_url(url: str) -> None:
     """Require TLS except for an explicitly local development gateway."""
@@ -352,3 +395,8 @@ def validate_cloud_url(url: str) -> None:
             is_loopback = False
     if not is_loopback:
         raise ValueError("unencrypted ws:// is allowed only for localhost development")
+
+
+def _bounded_line(value: str, limit: int = 240) -> str:
+    line = " ".join(value.split())
+    return line if len(line) <= limit else f"{line[: limit - 3]}..."

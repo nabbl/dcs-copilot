@@ -19,6 +19,7 @@ from dcs_copilot_cloud.voice import (
     PipecatVoicePipeline,
     VoiceAnnouncement,
     VoiceTurn,
+    _OutputObserver,
     account_tool_schemas,
     aircraft_tool_schemas,
     copilot_tool_schemas,
@@ -26,6 +27,8 @@ from dcs_copilot_cloud.voice import (
 from dcs_copilot_protocol import AudioFormat
 from pipecat.frames.frames import (
     Frame,
+    FunctionCallFromLLM,
+    FunctionCallsStartedFrame,
     InputAudioRawFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
@@ -189,6 +192,44 @@ def test_pipecat_pipeline_uses_explicit_ptt_turn_and_streams_audio() -> None:
     assert stt_provider.processor.saw_speech_start
     assert stt_provider.processor.saw_speech_stop
     assert bytes(stt_provider.processor.audio) == pcm
+
+
+def test_tool_call_llm_pass_does_not_complete_turn_before_follow_up() -> None:
+    async def scenario() -> tuple[bool, bool]:
+        pipeline = PipecatVoicePipeline(
+            ProviderBundle(
+                _FakeProvider(_FakeSTT),
+                _FakeProvider(_FakeLLM),
+                _FakeProvider(_FakeTTS),
+            )
+        )
+        observer = _OutputObserver(pipeline)
+        pipeline._turn_done.clear()
+        await observer.process_frame(
+            FunctionCallsStartedFrame(
+                [
+                    FunctionCallFromLLM(
+                        "get_aircraft_state",
+                        "tool-1",
+                        {"fields": ["connected"]},
+                        None,
+                    )
+                ]
+            ),
+            FrameDirection.DOWNSTREAM,
+        )
+        await observer.process_frame(
+            LLMFullResponseEndFrame(), FrameDirection.DOWNSTREAM
+        )
+        completed_after_tool_pass = pipeline._turn_done.is_set()
+        await observer.process_frame(
+            LLMFullResponseEndFrame(), FrameDirection.DOWNSTREAM
+        )
+        return completed_after_tool_pass, pipeline._turn_done.is_set()
+
+    completed_after_tool_pass, completed_after_follow_up = asyncio.run(scenario())
+    assert not completed_after_tool_pass
+    assert completed_after_follow_up
 
 
 def test_pipecat_proactive_announcement_bypasses_stt_and_streams_cloud_tts() -> None:

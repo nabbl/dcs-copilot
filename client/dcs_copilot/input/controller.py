@@ -34,6 +34,9 @@ class PttSessionController:
         self._on_notice = on_notice
         self._active = False
         self._session_generation: int | None = None
+        self._audio_chunks = 0
+        self._audio_bytes = 0
+        self._dropped_audio_chunks = 0
         self._lock = asyncio.Lock()
 
     @property
@@ -45,18 +48,25 @@ class PttSessionController:
             if self._active:
                 return True
             if not self.connection.ready:
-                self._notice("Copilot cloud unavailable")
+                self._notice("Error: cloud unavailable; PTT not started")
                 return False
             await self.playback.interrupt()
             self.connection.send_control("assistant.interrupt", {"reason": "pilot_ptt"})
             if not self.connection.send_control("ptt.start", {}):
-                self._notice("Copilot cloud unavailable")
+                self._notice("Error: PTT start was not queued")
                 return False
             generation = self.connection.session_generation
+            self._audio_chunks = 0
+            self._audio_bytes = 0
+            self._dropped_audio_chunks = 0
 
             def transmit(audio: bytes) -> None:
                 if self.connection.session_generation == generation:
-                    self.connection.send_audio(audio)
+                    if self.connection.send_audio(audio):
+                        self._audio_chunks += 1
+                        self._audio_bytes += len(audio)
+                    else:
+                        self._dropped_audio_chunks += 1
 
             try:
                 await self.capture.start(transmit)
@@ -65,7 +75,7 @@ class PttSessionController:
                 raise
             self._active = True
             self._session_generation = generation
-            self._notice("PTT active")
+            self._notice("PTT: active")
             return True
 
     async def release(self) -> bool:
@@ -80,7 +90,15 @@ class PttSessionController:
             )
             self._active = False
             self._session_generation = None
-            self._notice("PTT released" if sent else "Copilot cloud unavailable")
+            if sent:
+                self._notice(
+                    "PTT: released "
+                    f"audio_chunks={self._audio_chunks} "
+                    f"audio_bytes={self._audio_bytes} "
+                    f"dropped={self._dropped_audio_chunks}"
+                )
+            else:
+                self._notice("Error: PTT end was not queued")
             return sent
 
     async def reset(self) -> None:
