@@ -39,6 +39,7 @@ from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
+from .hornet_knowledge import HornetKnowledgeTopic
 from .providers import ProviderBundle
 from .tools import ALLOWED_AIRCRAFT_STATE_FIELDS
 
@@ -449,6 +450,36 @@ def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
                 }
             },
             required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="get_flight_status",
+            description=(
+                "Read a consolidated deterministic in-flight status: flight stage, "
+                "key instruments, issue coverage, and departure-cleanup readiness. "
+                "Use for broad in-flight status and after-takeoff cleanup questions."
+            ),
+            properties=no_arguments,
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="get_hornet_knowledge",
+            description=(
+                "Read one versioned, source-attributed MARA Hornet procedure card. "
+                "Use for supported procedural questions that do not depend on live state."
+            ),
+            properties={
+                "topic": {
+                    "type": "string",
+                    "enum": [item.value for item in HornetKnowledgeTopic],
+                    "description": (
+                        "Verified Hornet topic. CASE I, Case 1, carrier break, "
+                        "and daytime visual carrier landing map to case_i_recovery."
+                    ),
+                }
+            },
+            required=["topic"],
             handler=handler,
         ),
         FunctionSchema(

@@ -34,6 +34,12 @@ backend-internally against the session-memory `AircraftStateStore`. No
 unavailable; `get_active_issues` reports `coverage` so an empty list never
 implies an all-clear.
 
+In-Flight Operations adds `get_flight_status` for deterministic departure
+cleanup and consolidated flight context, plus `get_hornet_knowledge` for a
+versioned set of source-attributed Hornet procedure cards. The cards are
+MARA-authored summaries pinned to an official Eagle Dynamics manual revision;
+the backend does not ship or embed a third-party handbook.
+
 Speech policy runs backend-side. When a deterministic rule activates, the
 backend synthesises the rule's short message through the configured cloud TTS
 provider and streams `AUDIO_OUTPUT` directly — without asking an LLM to invent

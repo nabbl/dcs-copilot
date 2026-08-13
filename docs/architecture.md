@@ -211,9 +211,11 @@ MARA's allowlist is `get_aircraft_state`, `get_active_issues`,
 `get_missing_checklist_items`, `start_guided_checklist`,
 `get_next_checklist_item`, `confirm_manual_checklist_item`, and
 `stop_guided_checklist`, plus the Ground Operations v1 tools
-`get_ground_ops_status` and `get_takeoff_readiness`. All tools execute backend-internally against the
-session-memory `AircraftStateStore`; no `tool.request` message is sent to the
-client. `get_aircraft_state` requires an explicit normalized field list; raw
+`get_ground_ops_status` and `get_takeoff_readiness`, and the In-Flight
+Operations v1 tools `get_flight_status` and `get_hornet_knowledge`. All tools
+execute backend-internally against the session-memory `AircraftStateStore`; no
+`tool.request` message is sent to the client. `get_aircraft_state` requires an
+explicit normalized field list; raw
 values, warning-light maps, and unrecognized fields are rejected. Results
 preserve `AVAILABLE`, `STALE`, and `UNAVAILABLE` status; unavailable values are
 returned as `null`, never inferred. `get_active_issues` reports `coverage` so

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from dcs_copilot_cloud.state.models import FlightPhase
 from dcs_copilot_cloud.state.store import AircraftStateStore
 from dcs_copilot_cloud.tools import (
     AircraftToolName,
@@ -128,4 +129,70 @@ def test_takeoff_readiness_rejects_unknown_operation() -> None:
         AircraftToolRequest.create(
             AircraftToolName.GET_TAKEOFF_READINESS,
             {"operation": "SPACE"},
+        )
+
+
+def test_flight_status_consolidates_departure_cleanup_and_issue_coverage() -> None:
+    now = 100.0
+    store = AircraftStateStore()
+    for identifier, value in (
+        ("EXT_WOW_NOSE", 0),
+        ("EXT_WOW_LEFT", 0),
+        ("EXT_WOW_RIGHT", 0),
+        ("GEAR_LEVER", 0),
+        ("FLP_LG_NOSE_GEAR_LT", 0),
+        ("FLP_LG_LEFT_GEAR_LT", 0),
+        ("FLP_LG_RIGHT_GEAR_LT", 0),
+        ("FLAP_SW", 0),
+        ("LAUNCH_BAR_SW", 0),
+    ):
+        set_int(store.raw, identifier, value, now=now)
+    store.update(aircraft="FA-18C_hornet", connected=True, now=now)
+    store.current.flight_phase = FlightPhase.CLIMB
+    executor = BackendAircraftToolExecutor(store, clock=lambda: now + 4.0)
+    request = AircraftToolRequest.create(AircraftToolName.GET_FLIGHT_STATUS, {})
+
+    result = executor.execute(request)
+
+    validate_tool_result(request.tool, result)
+    assert result["flight_stage"] == "DEPARTURE"
+    assert result["departure_cleanup"]["status"] == "READY"
+    assert result["issues_coverage"] in {"AVAILABLE", "PARTIAL"}
+
+
+def test_hornet_knowledge_tool_returns_pinned_source_metadata() -> None:
+    executor = BackendAircraftToolExecutor(None)
+    request = AircraftToolRequest.create(
+        AircraftToolName.GET_HORNET_KNOWLEDGE,
+        {"topic": "tacan_navigation"},
+    )
+
+    result = executor.execute(request)
+
+    validate_tool_result(request.tool, result)
+    assert result["corpus_version"] == "fa18c-ed-2026.08.2"
+    assert result["card"]["source"]["publisher"] == "Eagle Dynamics"
+    assert result["card"]["source"]["pages"] == "136-138"
+
+
+def test_case_i_knowledge_tool_returns_guidable_steps() -> None:
+    executor = BackendAircraftToolExecutor(None)
+    request = AircraftToolRequest.create(
+        AircraftToolName.GET_HORNET_KNOWLEDGE,
+        {"topic": "case_i_recovery"},
+    )
+
+    result = executor.execute(request)
+
+    validate_tool_result(request.tool, result)
+    assert result["card"]["title"] == "CASE I carrier recovery overview"
+    assert len(result["card"]["steps"]) == 7
+    assert result["card"]["source"]["pages"] == "108-113"
+
+
+def test_hornet_knowledge_rejects_unsupported_topics() -> None:
+    with pytest.raises(ToolProtocolError, match="must be one of"):
+        AircraftToolRequest.create(
+            AircraftToolName.GET_HORNET_KNOWLEDGE,
+            {"topic": "weapon_employment"},
         )

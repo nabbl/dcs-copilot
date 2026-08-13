@@ -11,12 +11,19 @@ from uuid import uuid4
 
 from .checklists.models import ChecklistItemResult, ChecklistResult
 from .events.models import CloudManagedEvent
+from .flight_ops import FlightOpsSnapshot
 from .ground_ops import (
     GroundOpsSnapshot,
     ReadinessItem,
     ReadinessReport,
     ReadinessStatus,
     TakeoffOperation,
+)
+from .hornet_knowledge import (
+    HORNET_KNOWLEDGE_VERSION,
+    HornetKnowledgeCard,
+    HornetKnowledgeTopic,
+    get_hornet_knowledge_card,
 )
 from .state.models import AircraftState, FlightPhase, TelemetryValue
 from .state.store import AircraftStateStore
@@ -25,6 +32,8 @@ MAX_STATE_FIELDS = 16
 MAX_RECENT_EVENTS = 20
 MAX_RECENT_EVENT_SECONDS = 300.0
 MAX_CHECKLIST_ITEMS = 64
+MAX_KNOWLEDGE_STEPS = 8
+MAX_KNOWLEDGE_CAUTIONS = 4
 
 EVENT_STATUSES = frozenset({"RAISED", "RESOLVED", "DISABLED"})
 EVENT_SEVERITIES = frozenset({"INFO", "ADVISORY", "WARNING", "CRITICAL"})
@@ -65,6 +74,8 @@ class AircraftToolName(StrEnum):
     STOP_GUIDED_CHECKLIST = "stop_guided_checklist"
     GET_GROUND_OPS_STATUS = "get_ground_ops_status"
     GET_TAKEOFF_READINESS = "get_takeoff_readiness"
+    GET_FLIGHT_STATUS = "get_flight_status"
+    GET_HORNET_KNOWLEDGE = "get_hornet_knowledge"
 
 
 AIRCRAFT_TOOL_NAMES = tuple(item.value for item in AircraftToolName)
@@ -169,6 +180,7 @@ def validate_tool_arguments(
         AircraftToolName.GET_ACTIVE_ISSUES,
         AircraftToolName.GET_FLIGHT_PHASE,
         AircraftToolName.GET_GROUND_OPS_STATUS,
+        AircraftToolName.GET_FLIGHT_STATUS,
     }:
         _require_exact_keys(arguments, set(), f"{tool.value} arguments")
         return {}
@@ -188,6 +200,24 @@ def validate_tool_arguments(
         }:
             raise ToolProtocolError("takeoff operation must be AUTO, LAND, or CARRIER")
         return {"operation": operation}
+
+    if tool is AircraftToolName.GET_HORNET_KNOWLEDGE:
+        _require_exact_keys(
+            arguments,
+            {"topic"},
+            "get_hornet_knowledge arguments",
+        )
+        topic = arguments.get("topic")
+        if not isinstance(topic, str):
+            raise ToolProtocolError("Hornet knowledge topic must be a string")
+        try:
+            parsed_topic = HornetKnowledgeTopic(topic)
+        except ValueError as exc:
+            allowed = ", ".join(item.value for item in HornetKnowledgeTopic)
+            raise ToolProtocolError(
+                f"Hornet knowledge topic must be one of: {allowed}"
+            ) from exc
+        return {"topic": parsed_topic.value}
 
     if tool is AircraftToolName.GET_RECENT_EVENTS:
         _require_exact_keys(
@@ -507,6 +537,62 @@ def validate_tool_result(
         )
         return result.copy()
 
+    if tool is AircraftToolName.GET_FLIGHT_STATUS:
+        _require_exact_keys(
+            result,
+            {
+                "available",
+                "aircraft",
+                "flight_phase",
+                "flight_stage",
+                "key_state",
+                "issues_coverage",
+                "active_issue_count",
+                "highest_issue_severity",
+                "departure_cleanup",
+            },
+            "get_flight_status result",
+        )
+        _require_boolean(result.get("available"), "flight status available")
+        for key in ("aircraft", "flight_phase", "flight_stage"):
+            value = result.get(key)
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ToolProtocolError(f"flight status {key} must be a string or null")
+        key_state = result.get("key_state")
+        if not isinstance(key_state, dict):
+            raise ToolProtocolError("flight status key_state must be an object")
+        _require_exact_keys(
+            key_state,
+            {"indicated_airspeed", "altitude_msl", "heading", "fuel_quantity"},
+            "flight status key_state",
+        )
+        for name, item in key_state.items():
+            _validate_telemetry_result(item, f"flight status {name}")
+        if result.get("issues_coverage") not in {
+            "AVAILABLE",
+            "PARTIAL",
+            "UNAVAILABLE",
+        }:
+            raise ToolProtocolError("flight status issues coverage is invalid")
+        issue_count = result.get("active_issue_count")
+        if (
+            not isinstance(issue_count, int)
+            or isinstance(issue_count, bool)
+            or issue_count < 0
+        ):
+            raise ToolProtocolError(
+                "flight status active_issue_count must be non-negative"
+            )
+        severity = result.get("highest_issue_severity")
+        if severity is not None and severity not in EVENT_SEVERITIES:
+            raise ToolProtocolError("flight status highest issue severity is invalid")
+        _validate_readiness_report(result.get("departure_cleanup"), "departure cleanup")
+        return result.copy()
+
+    if tool is AircraftToolName.GET_HORNET_KNOWLEDGE:
+        _validate_hornet_knowledge_result(result)
+        return result.copy()
+
     raise ToolAuthorizationError(f"aircraft tool is not allowed: {tool}")
 
 
@@ -522,6 +608,75 @@ def _parse_tool_name(value: object) -> AircraftToolName:
 def _require_boolean(value: object, label: str) -> None:
     if not isinstance(value, bool):
         raise ToolProtocolError(f"{label} must be a boolean")
+
+
+def _validate_telemetry_result(value: object, label: str) -> None:
+    if not isinstance(value, dict):
+        raise ToolProtocolError(f"{label} must be an object")
+    _require_exact_keys(value, {"status", "value", "updated_at", "source"}, label)
+    if value.get("status") not in {"AVAILABLE", "STALE", "UNAVAILABLE"}:
+        raise ToolProtocolError(f"{label} status is invalid")
+    if value.get("status") == "UNAVAILABLE" and value.get("value") is not None:
+        raise ToolProtocolError(f"{label} unavailable value must be null")
+
+
+def _validate_hornet_knowledge_result(result: dict[str, Any]) -> None:
+    _require_exact_keys(
+        result,
+        {"available", "corpus_version", "card"},
+        "get_hornet_knowledge result",
+    )
+    _require_boolean(result.get("available"), "Hornet knowledge available")
+    _require_string(result.get("corpus_version"), "Hornet knowledge corpus_version")
+    card = result.get("card")
+    if not isinstance(card, dict):
+        raise ToolProtocolError("Hornet knowledge card must be an object")
+    _require_exact_keys(
+        card,
+        {
+            "id",
+            "topic",
+            "title",
+            "aircraft",
+            "applicability",
+            "summary",
+            "steps",
+            "cautions",
+            "source",
+        },
+        "Hornet knowledge card",
+    )
+    for key in ("id", "topic", "title", "aircraft", "applicability", "summary"):
+        _require_string(card.get(key), f"Hornet knowledge card {key}")
+    if card.get("topic") not in {item.value for item in HornetKnowledgeTopic}:
+        raise ToolProtocolError("Hornet knowledge card topic is invalid")
+    for key in ("steps", "cautions"):
+        values = card.get(key)
+        if not isinstance(values, list) or any(
+            not isinstance(item, str) or not item for item in values
+        ):
+            raise ToolProtocolError(f"Hornet knowledge card {key} must be strings")
+        limit = MAX_KNOWLEDGE_STEPS if key == "steps" else MAX_KNOWLEDGE_CAUTIONS
+        if not values or len(values) > limit:
+            raise ToolProtocolError(
+                f"Hornet knowledge card {key} must contain 1 to {limit} items"
+            )
+    source = card.get("source")
+    if not isinstance(source, dict):
+        raise ToolProtocolError("Hornet knowledge source must be an object")
+    source_keys = {
+        "publisher",
+        "title",
+        "section",
+        "pages",
+        "url",
+        "document_sha256",
+        "document_created_at",
+        "reviewed_on",
+    }
+    _require_exact_keys(source, source_keys, "Hornet knowledge source")
+    for key in source_keys:
+        _require_string(source.get(key), f"Hornet knowledge source {key}")
 
 
 def _require_string(value: object, label: str) -> None:
@@ -685,6 +840,14 @@ class BackendAircraftToolExecutor:
             return self._get_ground_ops_status()
         if tool is AircraftToolName.GET_TAKEOFF_READINESS:
             return self._get_takeoff_readiness(request.arguments["operation"])
+        if tool is AircraftToolName.GET_FLIGHT_STATUS:
+            return self._get_flight_status()
+        if tool is AircraftToolName.GET_HORNET_KNOWLEDGE:
+            return _hornet_knowledge_result(
+                get_hornet_knowledge_card(
+                    HornetKnowledgeTopic(request.arguments["topic"])
+                )
+            )
         if tool is AircraftToolName.GET_CHECKLIST_STATUS:
             return self._get_checklist_status(
                 checklist_id=request.arguments["checklist_id"],
@@ -865,6 +1028,49 @@ class BackendAircraftToolExecutor:
             "available": state.connected,
             "operation": selected.value,
             **_readiness_result(report),
+        }
+
+    def _get_flight_status(self) -> dict[str, Any]:
+        state = self._state
+        if self._store is None:
+            snapshot: FlightOpsSnapshot | None = None
+        else:
+            snapshot = self._store.flight_ops.evaluate(state)
+        issue_result = self._get_active_issues()
+        issues = issue_result["issues"]
+        severity_rank = {"INFO": 0, "ADVISORY": 1, "WARNING": 2, "CRITICAL": 3}
+        highest = max(
+            (issue["severity"] for issue in issues),
+            key=severity_rank.__getitem__,
+            default=None,
+        )
+        telemetry = state.telemetry()
+        return {
+            "available": snapshot.available if snapshot is not None else False,
+            "aircraft": state.aircraft,
+            "flight_phase": (
+                state.flight_phase.value
+                if state.flight_phase is not FlightPhase.UNKNOWN
+                else None
+            ),
+            "flight_stage": snapshot.stage.value if snapshot is not None else None,
+            "key_state": {
+                name: _telemetry_value(telemetry[name])
+                for name in (
+                    "indicated_airspeed",
+                    "altitude_msl",
+                    "heading",
+                    "fuel_quantity",
+                )
+            },
+            "issues_coverage": issue_result["coverage"],
+            "active_issue_count": len(issues),
+            "highest_issue_severity": highest,
+            "departure_cleanup": _readiness_result(
+                snapshot.departure_cleanup
+                if snapshot is not None
+                else ReadinessReport(ReadinessStatus.UNKNOWN, ())
+            ),
         }
 
     def _get_checklist_status(
@@ -1054,4 +1260,32 @@ def _ground_ops_result(snapshot: GroundOpsSnapshot | None) -> dict[str, Any]:
         "takeoff_operation": snapshot.takeoff_operation.value,
         "before_taxi": _readiness_result(snapshot.before_taxi),
         "takeoff": _readiness_result(snapshot.takeoff),
+    }
+
+
+def _hornet_knowledge_result(card: HornetKnowledgeCard) -> dict[str, Any]:
+    source = card.source
+    return {
+        "available": True,
+        "corpus_version": HORNET_KNOWLEDGE_VERSION,
+        "card": {
+            "id": card.id,
+            "topic": card.topic.value,
+            "title": card.title,
+            "aircraft": card.aircraft,
+            "applicability": card.applicability,
+            "summary": card.summary,
+            "steps": list(card.steps),
+            "cautions": list(card.cautions),
+            "source": {
+                "publisher": source.publisher,
+                "title": source.title,
+                "section": source.section,
+                "pages": source.pages,
+                "url": source.url,
+                "document_sha256": source.document_sha256,
+                "document_created_at": source.document_created_at,
+                "reviewed_on": source.reviewed_on,
+            },
+        },
     }

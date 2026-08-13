@@ -15,6 +15,7 @@ from ..checklists.engine import ChecklistEngine
 from ..checklists.fa18c import fa18c_checklists
 from ..events.manager import EventManager
 from ..events.models import CloudManagedEvent
+from ..flight_ops import FlightOpsCoordinator
 from ..ground_ops import GroundOpsCoordinator
 from ..habits.manager import FlightStatsManager
 from ..rules.engine import RuleEngine
@@ -65,6 +66,7 @@ class AircraftStateStore:
             raise ValueError("flight_stats must observe this store's rule_engine")
         self.flight_stats = flight_stats or FlightStatsManager(self.rule_engine)
         self.ground_ops = GroundOpsCoordinator()
+        self.flight_ops = FlightOpsCoordinator()
         self.generic_adapter = GenericAircraftAdapter()
         selected_adapters = adapters or [FA18CAdapter()]
         self._adapters = {
