@@ -23,6 +23,14 @@ class VerificationType(StrEnum):
     MANUAL = "manual"
 
 
+class VerificationSource(StrEnum):
+    TELEMETRY = "telemetry"
+    DERIVED_TELEMETRY = "derived_telemetry"
+    OBSERVED_ACTION = "observed_action"
+    PILOT_CONFIRMATION = "pilot_confirmation"
+    PILOT_OVERRIDE = "pilot_override"
+
+
 @dataclass(frozen=True, slots=True)
 class ChecklistItem:
     id: str
@@ -62,6 +70,7 @@ class ChecklistItemResult:
     actual: Any | None
     reason: str
     verification_type: VerificationType
+    verification_source: VerificationSource
     observed_at: float | None = None
 
 
@@ -91,11 +100,11 @@ class ChecklistSession:
     checklist_id: str | None = None
     stage_id: str | None = None
     progress_checklist_id: str | None = None
-    confirmed_manual_items: set[str] = field(default_factory=set)
+    pilot_confirmed_items: dict[str, float] = field(default_factory=dict)
 
     def start(self, checklist_id: str, stage_id: str | None = None) -> None:
         if self.progress_checklist_id not in {None, checklist_id}:
-            self.confirmed_manual_items.clear()
+            self.pilot_confirmed_items.clear()
         self.checklist_id = checklist_id
         self.stage_id = stage_id
         self.progress_checklist_id = checklist_id
@@ -107,4 +116,4 @@ class ChecklistSession:
     def reset(self) -> None:
         self.stop()
         self.progress_checklist_id = None
-        self.confirmed_manual_items.clear()
+        self.pilot_confirmed_items.clear()

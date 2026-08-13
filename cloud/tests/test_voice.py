@@ -64,6 +64,9 @@ def test_copilot_prompt_separates_live_state_from_general_knowledge() -> None:
     assert "walked through" in COPILOT_INSTRUCTION
     assert "one subsequent step" in COPILOT_INSTRUCTION
     assert "Never claim land-runway alignment" in COPILOT_INSTRUCTION
+    assert "explicit pilot report" in COPILOT_INSTRUCTION
+    assert "confirm_checklist_item" in COPILOT_INSTRUCTION
+    assert "Do not argue with the pilot" in COPILOT_INSTRUCTION
 
 
 def test_missing_server_key_and_unknown_provider_fail_closed() -> None:
@@ -91,7 +94,7 @@ def test_pipecat_context_exposes_allowlisted_aircraft_tools() -> None:
         "get_missing_checklist_items",
         "start_guided_checklist",
         "get_next_checklist_item",
-        "confirm_manual_checklist_item",
+        "confirm_checklist_item",
         "stop_guided_checklist",
     }
     checklist = next(

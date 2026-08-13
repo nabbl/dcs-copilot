@@ -66,13 +66,18 @@ def test_checklist_start_advance_confirm_stop_locally() -> None:
     )
     next_result = executor.execute(next_request)
     assert next_result["item"] is not None
+    current_id = next_result["item"]["id"]
     confirm_request = AircraftToolRequest.create(
-        AircraftToolName.CONFIRM_MANUAL_CHECKLIST_ITEM,
-        {"item_id": "flight_controls_check"},
+        AircraftToolName.CONFIRM_CHECKLIST_ITEM,
+        {"item_id": current_id},
     )
     confirm_result = executor.execute(confirm_request)
+    validate_tool_result(confirm_request.tool, confirm_result)
     assert confirm_result["confirmed"] is True
-    assert confirm_result["item_id"] == "flight_controls_check"
+    assert confirm_result["item_id"] == current_id
+    assert confirm_result["confirmation_source"] == "pilot_override"
+    assert confirm_result["next_item"] is not None
+    assert confirm_result["next_item"]["id"] != current_id
 
     stop_request = AircraftToolRequest.create(
         AircraftToolName.STOP_GUIDED_CHECKLIST, {}

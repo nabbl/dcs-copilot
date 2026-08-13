@@ -45,8 +45,8 @@ launch-bar position.
 MARA now advertises all backend guided-checklist tools to the voice model. A
 guide defaults to the checklist's configured target stage, which is `BEFORE
 TAXI` for the Hornet startup checklist. The model can start or resume a guide,
-request the next unresolved item, confirm an explicitly manual item, and stop
-spoken guidance.
+request the next unresolved item, record an explicit pilot confirmation, and
+stop spoken guidance.
 
 Observed cockpit progress is independent of whether spoken guidance is active.
 Stopping the guide preserves progress; a new cockpit epoch resets it.
@@ -56,9 +56,12 @@ latched once it was verified during pre-start, so releasing it for taxi does not
 regress that step. Live requirements such as battery and Master Arm are not
 latched and can become incomplete again if their state changes.
 
-Manual confirmation is fail-closed: the backend rejects attempts to verbally
-confirm telemetry-verifiable items. The first manual Hornet item is the
-before-taxi flight-controls check.
+Pilot confirmation is deliberately scoped to the current unresolved item. When
+the pilot explicitly reports a visible or physical state, such as the APU READY
+light being illuminated, MARA records either `pilot_confirmation` for a manual
+item or `pilot_override` for a telemetry-verifiable item and advances. It cannot
+confirm a future item or infer confirmation from silence or implication. The
+first inherently manual Hornet item is the before-taxi flight-controls check.
 
 ## Alignment boundary
 
@@ -74,7 +77,10 @@ launch-bar/carrier signal is active.
 - `READY` requires positive verification of every gate.
 - Stale and unavailable values remain unknown.
 - The LLM phrases deterministic results but never calculates readiness.
-- A manual item changes state only after an explicit pilot confirmation.
+- A checklist override requires explicit pilot confirmation of the current item
+  and retains its verification source for auditability.
+- Pilot overrides do not rewrite telemetry or suppress independent live safety
+  warnings.
 - Land-runway alignment is not inferred from heading, speed, or throttle alone.
 
 ## Remaining Ground Operations v1 work

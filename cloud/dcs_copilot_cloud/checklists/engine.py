@@ -18,6 +18,7 @@ from .models import (
     ChecklistResult,
     ChecklistSession,
     ChecklistStage,
+    VerificationSource,
     VerificationType,
 )
 
@@ -90,9 +91,13 @@ class ChecklistEngine:
         evaluated: dict[str, ChecklistItemResult] = {}
         for selected_stage in self._stage_chain(definition, stage):
             for item in selected_stage.items:
-                evaluated[item.id] = self._latched_item_results.get(
-                    (definition.id, item.id)
-                ) or self._evaluate_item(item, state, history, now=now)
+                confirmed_at = self.session.pilot_confirmed_items.get(item.id)
+                evaluated[item.id] = (
+                    _pilot_confirmed_result(item, confirmed_at)
+                    if confirmed_at is not None
+                    else self._latched_item_results.get((definition.id, item.id))
+                    or self._evaluate_item(item, state, history, now=now)
+                )
         results = tuple(evaluated.values())
         complete = tuple(
             item for item in results if item.status is ChecklistItemStatus.COMPLETE
@@ -196,10 +201,33 @@ class ChecklistEngine:
             raise ValueError(f"unknown checklist item: {item_id}")
         if item.verification is not VerificationType.MANUAL:
             raise ValueError(f"checklist item is not manually confirmable: {item_id}")
-        self.session.confirmed_manual_items.add(item_id)
+        self.session.pilot_confirmed_items[item_id] = 0.0
+
+    def confirm_current_item(
+        self,
+        item_id: str,
+        state: AircraftState,
+        history: StateHistory,
+        *,
+        now: float,
+    ) -> tuple[ChecklistItemResult, bool]:
+        """Confirm only the current guided item from an explicit pilot report."""
+
+        if not item_id.strip():
+            raise ValueError("checklist item id is required")
+        current = self.next_item(state, history, now=now)
+        if current is None:
+            raise ValueError("the guided checklist has no unresolved item")
+        if current.id != item_id:
+            raise ValueError(
+                f"only the current guided checklist item can be confirmed: {current.id}"
+            )
+        self.session.pilot_confirmed_items[item_id] = now
+        overridden = current.verification_type is not VerificationType.MANUAL
+        return current, overridden
 
     def manual_item_confirmed(self, item_id: str) -> bool:
-        return item_id in self.session.confirmed_manual_items
+        return item_id in self.session.pilot_confirmed_items
 
     def next_item(
         self,
@@ -344,7 +372,7 @@ class ChecklistEngine:
         if item.verification is VerificationType.MANUAL:
             status = (
                 ChecklistItemStatus.COMPLETE
-                if item.id in self.session.confirmed_manual_items
+                if item.id in self.session.pilot_confirmed_items
                 else ChecklistItemStatus.UNCONFIRMED
             )
             return _result(
@@ -527,6 +555,7 @@ def _result(
     reason: str,
     *,
     observed_at: float | None = None,
+    verification_source: VerificationSource | None = None,
 ) -> ChecklistItemResult:
     return ChecklistItemResult(
         id=item.id,
@@ -536,7 +565,40 @@ def _result(
         actual=actual,
         reason=reason,
         verification_type=item.verification,
+        verification_source=verification_source or _verification_source(item),
         observed_at=observed_at,
+    )
+
+
+def _verification_source(item: ChecklistItem) -> VerificationSource:
+    return {
+        VerificationType.STATE: VerificationSource.TELEMETRY,
+        VerificationType.DERIVED: VerificationSource.DERIVED_TELEMETRY,
+        VerificationType.ACTION: VerificationSource.OBSERVED_ACTION,
+        VerificationType.MANUAL: VerificationSource.PILOT_CONFIRMATION,
+    }[item.verification]
+
+
+def _pilot_confirmed_result(
+    item: ChecklistItem, confirmed_at: float
+) -> ChecklistItemResult:
+    overridden = item.verification is not VerificationType.MANUAL
+    return _result(
+        item,
+        ChecklistItemStatus.COMPLETE,
+        "explicit pilot confirmation",
+        "confirmed",
+        (
+            "pilot explicitly confirmed this item; this overrides checklist telemetry"
+            if overridden
+            else "pilot explicitly confirmed this manual checklist item"
+        ),
+        observed_at=confirmed_at,
+        verification_source=(
+            VerificationSource.PILOT_OVERRIDE
+            if overridden
+            else VerificationSource.PILOT_CONFIRMATION
+        ),
     )
 
 

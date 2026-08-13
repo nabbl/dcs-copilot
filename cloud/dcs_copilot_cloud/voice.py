@@ -553,10 +553,12 @@ def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
             handler=handler,
         ),
         FunctionSchema(
-            name="confirm_manual_checklist_item",
+            name="confirm_checklist_item",
             description=(
-                "Confirm an active checklist item only after the pilot explicitly reports "
-                "that the manual action is complete."
+                "Confirm the current unresolved guided-checklist item only after the "
+                "pilot explicitly reports that it is satisfied. This may record a "
+                "pilot override when telemetry is unavailable or disagrees, and returns "
+                "the next item. Never call from silence, implication, or for a future item."
             ),
             properties={
                 "item_id": {"type": "string", "minLength": 1, "maxLength": 128}

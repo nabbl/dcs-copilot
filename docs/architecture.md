@@ -209,7 +209,7 @@ conversation context while explicit account memories remain available.
 MARA's allowlist is `get_aircraft_state`, `get_active_issues`,
 `get_recent_events`, `get_flight_phase`, `get_checklist_status`,
 `get_missing_checklist_items`, `start_guided_checklist`,
-`get_next_checklist_item`, `confirm_manual_checklist_item`, and
+`get_next_checklist_item`, `confirm_checklist_item`, and
 `stop_guided_checklist`, plus the Ground Operations v1 tools
 `get_ground_ops_status` and `get_takeoff_readiness`, and the In-Flight
 Operations v1 tools `get_flight_status` and `get_hornet_knowledge`. All tools

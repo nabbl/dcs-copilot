@@ -71,7 +71,7 @@ def test_aircraft_tool_names_are_complete() -> None:
         "get_missing_checklist_items",
         "start_guided_checklist",
         "get_next_checklist_item",
-        "confirm_manual_checklist_item",
+        "confirm_checklist_item",
         "stop_guided_checklist",
         "get_ground_ops_status",
         "get_takeoff_readiness",

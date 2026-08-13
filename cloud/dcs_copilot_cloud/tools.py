@@ -70,7 +70,7 @@ class AircraftToolName(StrEnum):
     GET_MISSING_CHECKLIST_ITEMS = "get_missing_checklist_items"
     START_GUIDED_CHECKLIST = "start_guided_checklist"
     GET_NEXT_CHECKLIST_ITEM = "get_next_checklist_item"
-    CONFIRM_MANUAL_CHECKLIST_ITEM = "confirm_manual_checklist_item"
+    CONFIRM_CHECKLIST_ITEM = "confirm_checklist_item"
     STOP_GUIDED_CHECKLIST = "stop_guided_checklist"
     GET_GROUND_OPS_STATUS = "get_ground_ops_status"
     GET_TAKEOFF_READINESS = "get_takeoff_readiness"
@@ -282,11 +282,11 @@ def validate_tool_arguments(
             "stage": _optional_string(arguments.get("stage"), "stage"),
         }
 
-    if tool is AircraftToolName.CONFIRM_MANUAL_CHECKLIST_ITEM:
+    if tool is AircraftToolName.CONFIRM_CHECKLIST_ITEM:
         _require_exact_keys(
             arguments,
             {"item_id"},
-            "confirm_manual_checklist_item arguments",
+            "confirm_checklist_item arguments",
         )
         item_id = arguments.get("item_id")
         if not isinstance(item_id, str) or not item_id.strip():
@@ -421,12 +421,32 @@ def validate_tool_result(
             _validate_checklist_item(item)
         return result.copy()
 
-    if tool is AircraftToolName.CONFIRM_MANUAL_CHECKLIST_ITEM:
+    if tool is AircraftToolName.CONFIRM_CHECKLIST_ITEM:
         _require_exact_keys(
-            result, {"confirmed", "item_id"}, "confirm_manual_checklist_item result"
+            result,
+            {
+                "confirmed",
+                "item_id",
+                "confirmation_source",
+                "previous_status",
+                "previous_reason",
+                "next_item",
+            },
+            "confirm_checklist_item result",
         )
-        _require_boolean(result.get("confirmed"), "manual item confirmed")
+        _require_boolean(result.get("confirmed"), "checklist item confirmed")
         _require_string(result.get("item_id"), "item_id")
+        if result.get("confirmation_source") not in {
+            "pilot_confirmation",
+            "pilot_override",
+        }:
+            raise ToolProtocolError("checklist confirmation source is invalid")
+        if result.get("previous_status") not in {"incomplete", "unconfirmed"}:
+            raise ToolProtocolError("checklist confirmation previous status is invalid")
+        _require_string(result.get("previous_reason"), "previous_reason")
+        next_item = result.get("next_item")
+        if next_item is not None:
+            _validate_checklist_item(next_item)
         return result.copy()
 
     if tool is AircraftToolName.STOP_GUIDED_CHECKLIST:
@@ -733,6 +753,7 @@ def _validate_checklist_item(item: object) -> None:
             "actual",
             "reason",
             "verification_type",
+            "verification_source",
             "observed_at",
         },
         "checklist item",
@@ -748,6 +769,14 @@ def _validate_checklist_item(item: object) -> None:
         raise ToolProtocolError("checklist item status is invalid")
     if item.get("verification_type") not in {"state", "action", "derived", "manual"}:
         raise ToolProtocolError("checklist item verification_type is invalid")
+    if item.get("verification_source") not in {
+        "telemetry",
+        "derived_telemetry",
+        "observed_action",
+        "pilot_confirmation",
+        "pilot_override",
+    }:
+        raise ToolProtocolError("checklist item verification_source is invalid")
     _require_string(item.get("reason"), "checklist item reason")
     observed_at = item.get("observed_at")
     if observed_at is not None and (
@@ -866,8 +895,8 @@ class BackendAircraftToolExecutor:
             )
         if tool is AircraftToolName.GET_NEXT_CHECKLIST_ITEM:
             return self._advance_guided_checklist()
-        if tool is AircraftToolName.CONFIRM_MANUAL_CHECKLIST_ITEM:
-            return self._confirm_manual_checklist_item(request.arguments["item_id"])
+        if tool is AircraftToolName.CONFIRM_CHECKLIST_ITEM:
+            return self._confirm_checklist_item(request.arguments["item_id"])
         if tool is AircraftToolName.STOP_GUIDED_CHECKLIST:
             return self._stop_guided_checklist()
         raise ToolAuthorizationError(f"aircraft tool is not allowed: {tool}")
@@ -1132,11 +1161,31 @@ class BackendAircraftToolExecutor:
         )
         return {"item": _checklist_item(item) if item is not None else None}
 
-    def _confirm_manual_checklist_item(self, item_id: str) -> dict[str, Any]:
+    def _confirm_checklist_item(self, item_id: str) -> dict[str, Any]:
         if self._store is None:
             raise ToolAuthorizationError("checklist engine is unavailable")
-        self._store.checklist_engine.confirm_manual_item(item_id)
-        return {"confirmed": True, "item_id": item_id}
+        state = self._state
+        previous, overridden = self._store.checklist_engine.confirm_current_item(
+            item_id,
+            state,
+            self._store.history,
+            now=self._clock(),
+        )
+        next_item = self._store.checklist_engine.next_item(
+            state,
+            self._store.history,
+            now=self._clock(),
+        )
+        return {
+            "confirmed": True,
+            "item_id": item_id,
+            "confirmation_source": (
+                "pilot_override" if overridden else "pilot_confirmation"
+            ),
+            "previous_status": previous.status.value,
+            "previous_reason": previous.reason,
+            "next_item": _checklist_item(next_item) if next_item is not None else None,
+        }
 
     def _stop_guided_checklist(self) -> dict[str, Any]:
         if self._store is not None:
@@ -1219,6 +1268,7 @@ def _checklist_item(item: ChecklistItemResult) -> dict[str, Any]:
         "actual": _json_value(item.actual),
         "reason": item.reason,
         "verification_type": item.verification_type.value,
+        "verification_source": item.verification_source.value,
         "observed_at": item.observed_at,
     }
 

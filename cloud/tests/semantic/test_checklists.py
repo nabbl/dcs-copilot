@@ -10,6 +10,7 @@ from dcs_copilot_cloud.checklists.models import (
     ChecklistItem,
     ChecklistItemStatus,
     ChecklistStage,
+    VerificationSource,
     VerificationType,
 )
 from dcs_copilot_cloud.state.history import StateHistory
@@ -216,3 +217,71 @@ def test_non_manual_checklist_item_cannot_be_voice_confirmed() -> None:
     engine.start("fa18c_startup")
     with pytest.raises(ValueError, match="not manually confirmable"):
         engine.confirm_manual_item("parking_brake")
+
+
+def _pilot_override_checklist() -> ChecklistDefinition:
+    return ChecklistDefinition(
+        id="pilot_override",
+        aircraft="FA-18C_hornet",
+        label="Pilot override",
+        default_stage="only",
+        stages=(
+            ChecklistStage(
+                id="only",
+                label="Only",
+                items=(
+                    ChecklistItem(
+                        id="apu_ready",
+                        label="APU READY light",
+                        verification=VerificationType.DERIVED,
+                        condition={"apu_ready": True},
+                    ),
+                    ChecklistItem(
+                        id="right_engine",
+                        label="Crank right engine",
+                        verification=VerificationType.STATE,
+                        expected={"field": "engine_rpm_right", "greater_than": 60},
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def test_explicit_pilot_report_overrides_current_item_and_advances() -> None:
+    engine = ChecklistEngine([_pilot_override_checklist()])
+    state = _cold_dark_state()
+    history = StateHistory()
+    engine.start("pilot_override")
+
+    current = engine.next_item(state, history, now=10.0)
+    assert current is not None
+    assert current.id == "apu_ready"
+    assert current.status is ChecklistItemStatus.INCOMPLETE
+
+    previous, overridden = engine.confirm_current_item(
+        "apu_ready", state, history, now=12.0
+    )
+    assert previous.id == "apu_ready"
+    assert overridden is True
+
+    result = engine.evaluate(state, history, now=13.0)
+    apu = next(item for item in result.items if item.id == "apu_ready")
+    assert apu.status is ChecklistItemStatus.COMPLETE
+    assert apu.verification_source is VerificationSource.PILOT_OVERRIDE
+    assert apu.observed_at == 12.0
+    next_item = engine.next_item(state, history, now=13.0)
+    assert next_item is not None
+    assert next_item.id == "right_engine"
+
+
+def test_pilot_override_cannot_skip_ahead_of_current_item() -> None:
+    engine = ChecklistEngine([_pilot_override_checklist()])
+    state = _cold_dark_state()
+    history = StateHistory()
+    engine.start("pilot_override")
+
+    with pytest.raises(ValueError, match="only the current guided checklist item"):
+        engine.confirm_current_item("right_engine", state, history, now=12.0)
+
+    assert not engine.manual_item_confirmed("right_engine")
