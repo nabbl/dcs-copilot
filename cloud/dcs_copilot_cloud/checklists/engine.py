@@ -34,10 +34,12 @@ class ChecklistEngine:
         self.definitions = {definition.id: definition for definition in definitions}
         self._validate_definitions()
         self.session = ChecklistSession()
+        self._latched_item_results: dict[tuple[str, str], ChecklistItemResult] = {}
 
     def _validate_definitions(self) -> None:
         for definition in self.definitions.values():
             stage_ids: set[str] = set()
+            definition_item_ids: set[str] = set()
             for stage in definition.stages:
                 if stage.id in stage_ids:
                     raise ValueError(f"duplicate stage id: {stage.id}")
@@ -46,12 +48,20 @@ class ChecklistEngine:
                 for item in stage.items:
                     if item.id in item_ids:
                         raise ValueError(f"duplicate item id: {item.id}")
+                    if item.id in definition_item_ids:
+                        raise ValueError(
+                            f"duplicate item id across checklist stages: {item.id}"
+                        )
                     item_ids.add(item.id)
+                    definition_item_ids.add(item.id)
             for stage in definition.stages:
                 for dependency_id in stage.depends_on:
                     if dependency_id not in stage_ids:
                         raise ValueError(f"unknown dependency: {dependency_id}")
-            if definition.default_stage is not None and definition.default_stage not in stage_ids:
+            if (
+                definition.default_stage is not None
+                and definition.default_stage not in stage_ids
+            ):
                 raise ValueError(f"unknown dependency: {definition.default_stage}")
             for stage in definition.stages:
                 self._stage_chain(definition, stage)
@@ -80,9 +90,9 @@ class ChecklistEngine:
         evaluated: dict[str, ChecklistItemResult] = {}
         for selected_stage in self._stage_chain(definition, stage):
             for item in selected_stage.items:
-                evaluated[item.id] = self._evaluate_item(
-                    item, state, history, now=now
-                )
+                evaluated[item.id] = self._latched_item_results.get(
+                    (definition.id, item.id)
+                ) or self._evaluate_item(item, state, history, now=now)
         results = tuple(evaluated.values())
         complete = tuple(
             item for item in results if item.status is ChecklistItemStatus.COMPLETE
@@ -94,7 +104,9 @@ class ChecklistEngine:
             item for item in results if item.status is ChecklistItemStatus.UNCONFIRMED
         )
         not_applicable = tuple(
-            item for item in results if item.status is ChecklistItemStatus.NOT_APPLICABLE
+            item
+            for item in results
+            if item.status is ChecklistItemStatus.NOT_APPLICABLE
         )
         return ChecklistResult(
             checklist_id=definition.id,
@@ -132,17 +144,62 @@ class ChecklistEngine:
         selected_stage = (
             self._stage_for(definition, stage_id)
             if stage_id is not None
-            else definition.stages[0]
+            else self._stage_for(definition, definition.default_stage)
         )
         self.session.start(checklist_id, selected_stage.id)
 
     def stop(self) -> None:
         self.session.stop()
 
+    def reset(self) -> None:
+        self.session.reset()
+        self._latched_item_results.clear()
+
+    def observe(
+        self,
+        state: AircraftState,
+        history: StateHistory,
+        *,
+        now: float,
+    ) -> None:
+        """Latch only items explicitly defined as historical observations."""
+
+        for definition in self.definitions.values():
+            if definition.aircraft != state.aircraft:
+                continue
+            for stage in definition.stages:
+                for item in stage.items:
+                    key = (definition.id, item.id)
+                    if not item.latch_completion or key in self._latched_item_results:
+                        continue
+                    result = self._evaluate_item(item, state, history, now=now)
+                    if result.status is ChecklistItemStatus.COMPLETE:
+                        self._latched_item_results[key] = result
+
     def confirm_manual_item(self, item_id: str) -> None:
         if not item_id.strip():
             raise ValueError("manual checklist item id is required")
+        checklist_id = self.session.checklist_id
+        if checklist_id is None:
+            raise ValueError("no guided checklist is active")
+        definition = self.definitions[checklist_id]
+        item = next(
+            (
+                candidate
+                for stage in definition.stages
+                for candidate in stage.items
+                if candidate.id == item_id
+            ),
+            None,
+        )
+        if item is None:
+            raise ValueError(f"unknown checklist item: {item_id}")
+        if item.verification is not VerificationType.MANUAL:
+            raise ValueError(f"checklist item is not manually confirmable: {item_id}")
         self.session.confirmed_manual_items.add(item_id)
+
+    def manual_item_confirmed(self, item_id: str) -> bool:
+        return item_id in self.session.confirmed_manual_items
 
     def next_item(
         self,
@@ -151,6 +208,8 @@ class ChecklistEngine:
         *,
         now: float,
     ) -> ChecklistItemResult | None:
+        if self.session.checklist_id is None or self.session.stage_id is None:
+            raise ValueError("no guided checklist is active")
         result = self.evaluate(
             state,
             history,
@@ -389,7 +448,9 @@ class ChecklistEngine:
                 else ChecklistItemStatus.INCOMPLETE,
                 f"<= {target:g}",
                 actual,
-                f"{field} is within limit" if passed else f"{field} is above {target:g}",
+                f"{field} is within limit"
+                if passed
+                else f"{field} is above {target:g}",
                 observed_at=telemetry.updated_at,
             )
         if "greater_than" in expected:
@@ -402,7 +463,9 @@ class ChecklistEngine:
                 else ChecklistItemStatus.INCOMPLETE,
                 f"> {target:g}",
                 actual,
-                f"{field} is above {target:g}" if passed else f"{field} is not above {target:g}",
+                f"{field} is above {target:g}"
+                if passed
+                else f"{field} is not above {target:g}",
                 observed_at=telemetry.updated_at,
             )
         return _result(
@@ -483,7 +546,9 @@ def _values_equal(actual: Any, expected: Any) -> bool:
     return actual == expected
 
 
-def _condition_actual(condition: dict[str, Any], state: AircraftState) -> dict[str, Any]:
+def _condition_actual(
+    condition: dict[str, Any], state: AircraftState
+) -> dict[str, Any]:
     telemetry = state.telemetry()
     fields = [
         field

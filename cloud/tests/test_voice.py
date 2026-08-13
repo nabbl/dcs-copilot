@@ -51,6 +51,8 @@ def test_copilot_prompt_separates_live_state_from_general_knowledge() -> None:
     assert "general aviation knowledge" in COPILOT_INSTRUCTION
     assert "empty issue list" in COPILOT_INSTRUCTION
     assert "include every returned gap" in COPILOT_INSTRUCTION
+    assert "get_takeoff_readiness" in COPILOT_INSTRUCTION
+    assert "Never claim land-runway alignment" in COPILOT_INSTRUCTION
 
 
 def test_missing_server_key_and_unknown_provider_fail_closed() -> None:
@@ -70,7 +72,14 @@ def test_pipecat_context_exposes_allowlisted_aircraft_tools() -> None:
         "get_active_issues",
         "get_recent_events",
         "get_flight_phase",
+        "get_ground_ops_status",
+        "get_takeoff_readiness",
+        "get_checklist_status",
         "get_missing_checklist_items",
+        "start_guided_checklist",
+        "get_next_checklist_item",
+        "confirm_manual_checklist_item",
+        "stop_guided_checklist",
     }
     checklist = next(
         schema for schema in schemas if schema.name == "get_missing_checklist_items"
@@ -94,7 +103,7 @@ def test_pipecat_context_separates_allowlisted_account_and_aircraft_tools() -> N
         "get_flight_history",
         "get_pilot_habits",
     }
-    assert len(copilot_tool_schemas(handler)) == 12
+    assert len(copilot_tool_schemas(handler)) == 19
     assert all(schema.handler is handler for schema in account_schemas)
 
 

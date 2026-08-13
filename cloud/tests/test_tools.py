@@ -48,7 +48,9 @@ def authenticate_and_start(websocket) -> None:
 
 
 def test_aircraft_tool_request_validates_known_names() -> None:
-    request = AircraftToolRequest.create("get_aircraft_state", {"fields": ["connected"]})
+    request = AircraftToolRequest.create(
+        "get_aircraft_state", {"fields": ["connected"]}
+    )
     assert request.tool == "get_aircraft_state"
 
     try:
@@ -71,6 +73,8 @@ def test_aircraft_tool_names_are_complete() -> None:
         "get_next_checklist_item",
         "confirm_manual_checklist_item",
         "stop_guided_checklist",
+        "get_ground_ops_status",
+        "get_takeoff_readiness",
     }
     assert "get_aircraft_state" in AIRCRAFT_TOOL_NAMES
     assert "get_missing_checklist_items" in AIRCRAFT_TOOL_NAMES

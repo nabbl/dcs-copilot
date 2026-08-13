@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import pytest
-
-from dcs_copilot_cloud.aircraft.raw import RawTelemetryKey
 from dcs_copilot_cloud.state.store import AircraftStateStore
 from dcs_copilot_cloud.tools import (
     AircraftToolName,
     AircraftToolRequest,
     BackendAircraftToolExecutor,
     ToolProtocolError,
+    validate_tool_result,
 )
 
-from .helpers import minimal_gear_down, minimal_wow_grounded, set_int
+from .helpers import minimal_wow_grounded, set_int
 
 
 def _connected_store(now: float) -> AircraftStateStore:
@@ -61,21 +60,22 @@ def test_checklist_start_advance_confirm_stop_locally() -> None:
     assert start_result["started"] is True
     assert start_result["stage"] == "pre-start"
 
-    next_request = AircraftToolRequest.create(AircraftToolName.GET_NEXT_CHECKLIST_ITEM, {})
+    next_request = AircraftToolRequest.create(
+        AircraftToolName.GET_NEXT_CHECKLIST_ITEM, {}
+    )
     next_result = executor.execute(next_request)
     assert next_result["item"] is not None
-    item_id = next_result["item"]["id"]
-
     confirm_request = AircraftToolRequest.create(
-        AircraftToolName.CONFIRM_MANUAL_CHECKLIST_ITEM, {"item_id": item_id}
+        AircraftToolName.CONFIRM_MANUAL_CHECKLIST_ITEM,
+        {"item_id": "flight_controls_check"},
     )
-    # This item is a STATE item (not manual), confirming has no effect on its
-    # own evaluated status, but the call itself must succeed synchronously.
     confirm_result = executor.execute(confirm_request)
     assert confirm_result["confirmed"] is True
-    assert confirm_result["item_id"] == item_id
+    assert confirm_result["item_id"] == "flight_controls_check"
 
-    stop_request = AircraftToolRequest.create(AircraftToolName.STOP_GUIDED_CHECKLIST, {})
+    stop_request = AircraftToolRequest.create(
+        AircraftToolName.STOP_GUIDED_CHECKLIST, {}
+    )
     stop_result = executor.execute(stop_request)
     assert stop_result["stopped"] is True
 
@@ -99,3 +99,33 @@ def test_execute_get_flight_phase_returns_result_synchronously() -> None:
     request = AircraftToolRequest.create(AircraftToolName.GET_FLIGHT_PHASE, {})
     result = executor.execute(request)
     assert "flight_phase" in result
+
+
+def test_ground_ops_and_takeoff_readiness_tools_are_bounded_and_validated() -> None:
+    store = _connected_store(100.0)
+    executor = BackendAircraftToolExecutor(store, clock=lambda: 100.0)
+
+    ground_request = AircraftToolRequest.create(
+        AircraftToolName.GET_GROUND_OPS_STATUS, {}
+    )
+    ground = executor.execute(ground_request)
+    validate_tool_result(ground_request.tool, ground)
+    assert ground["available"] is True
+    assert ground["lineup_state"] == "UNCONFIRMED"
+
+    takeoff_request = AircraftToolRequest.create(
+        AircraftToolName.GET_TAKEOFF_READINESS,
+        {"operation": "LAND"},
+    )
+    takeoff = executor.execute(takeoff_request)
+    validate_tool_result(takeoff_request.tool, takeoff)
+    assert takeoff["status"] in {"BLOCKED", "UNKNOWN"}
+    assert takeoff["operation"] == "LAND"
+
+
+def test_takeoff_readiness_rejects_unknown_operation() -> None:
+    with pytest.raises(ToolProtocolError, match="AUTO, LAND, or CARRIER"):
+        AircraftToolRequest.create(
+            AircraftToolName.GET_TAKEOFF_READINESS,
+            {"operation": "SPACE"},
+        )

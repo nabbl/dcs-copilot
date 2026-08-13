@@ -361,7 +361,7 @@ class PipecatVoicePipeline:
 
 
 def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
-    """Provider-neutral Pipecat schemas for local read-only aircraft tools."""
+    """Provider-neutral schemas for backend-authoritative aircraft tools."""
 
     no_arguments: dict[str, Any] = {}
     state_fields = sorted(ALLOWED_AIRCRAFT_STATE_FIELDS)
@@ -425,6 +425,46 @@ def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
             handler=handler,
         ),
         FunctionSchema(
+            name="get_ground_ops_status",
+            description=(
+                "Read MARA's deterministic ground-operations phase plus before-taxi "
+                "and takeoff readiness. Use for ground progress and readiness questions."
+            ),
+            properties=no_arguments,
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="get_takeoff_readiness",
+            description=(
+                "Run the deterministic final takeoff gate. A READY result is the only "
+                "basis for saying takeoff configuration is ready. AUTO remains UNKNOWN "
+                "when land versus carrier operation cannot be established."
+            ),
+            properties={
+                "operation": {
+                    "type": "string",
+                    "enum": ["AUTO", "LAND", "CARRIER"],
+                    "default": "AUTO",
+                }
+            },
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="get_checklist_status",
+            description=(
+                "Read deterministic checklist status, optionally including completed items."
+            ),
+            properties={
+                "checklist_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "stage": {"type": "string", "minLength": 1, "maxLength": 128},
+                "include_complete": {"type": "boolean", "default": False},
+            },
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
             name="get_missing_checklist_items",
             description=(
                 "Read only incomplete or unconfirmed items from the deterministic "
@@ -451,6 +491,53 @@ def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
                     ),
                 },
             },
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="start_guided_checklist",
+            description=(
+                "Start or resume one deterministic guided checklist through a target stage. "
+                "Use fa18c_startup and normally omit stage to guide through BEFORE TAXI."
+            ),
+            properties={
+                "checklist_id": {
+                    "type": "string",
+                    "enum": ["fa18c_startup"],
+                },
+                "stage": {"type": "string", "minLength": 1, "maxLength": 128},
+            },
+            required=["checklist_id"],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="get_next_checklist_item",
+            description=(
+                "Read the next unresolved item from the active guided checklist. "
+                "Call after starting a guide and after an observed action."
+            ),
+            properties=no_arguments,
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="confirm_manual_checklist_item",
+            description=(
+                "Confirm an active checklist item only after the pilot explicitly reports "
+                "that the manual action is complete."
+            ),
+            properties={
+                "item_id": {"type": "string", "minLength": 1, "maxLength": 128}
+            },
+            required=["item_id"],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="stop_guided_checklist",
+            description=(
+                "Stop spoken checklist guidance while preserving observed cockpit progress."
+            ),
+            properties=no_arguments,
             required=[],
             handler=handler,
         ),

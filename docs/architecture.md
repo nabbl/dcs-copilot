@@ -210,13 +210,22 @@ MARA's allowlist is `get_aircraft_state`, `get_active_issues`,
 `get_recent_events`, `get_flight_phase`, `get_checklist_status`,
 `get_missing_checklist_items`, `start_guided_checklist`,
 `get_next_checklist_item`, `confirm_manual_checklist_item`, and
-`stop_guided_checklist`. All tools execute backend-internally against the
+`stop_guided_checklist`, plus the Ground Operations v1 tools
+`get_ground_ops_status` and `get_takeoff_readiness`. All tools execute backend-internally against the
 session-memory `AircraftStateStore`; no `tool.request` message is sent to the
 client. `get_aircraft_state` requires an explicit normalized field list; raw
 values, warning-light maps, and unrecognized fields are rejected. Results
 preserve `AVAILABLE`, `STALE`, and `UNAVAILABLE` status; unavailable values are
 returned as `null`, never inferred. `get_active_issues` reports `coverage` so
 an empty list never silently implies an all-clear.
+
+Ground-operations readiness is separate from active rule violations. A takeoff
+readiness result is `READY` only when every required current-state and manual
+gate is positively verified. Known wrong values produce `BLOCKED`; unavailable
+telemetry, missing manual confirmation, or unknown land-versus-carrier context
+produce `UNKNOWN`. Land-runway alignment is never inferred from cockpit-only
+telemetry. The launch-bar/carrier sequence is the only positive alignment signal
+in the first slice.
 
 ## Milestone 5 proactive-speech contract
 

@@ -11,6 +11,13 @@ from uuid import uuid4
 
 from .checklists.models import ChecklistItemResult, ChecklistResult
 from .events.models import CloudManagedEvent
+from .ground_ops import (
+    GroundOpsSnapshot,
+    ReadinessItem,
+    ReadinessReport,
+    ReadinessStatus,
+    TakeoffOperation,
+)
 from .state.models import AircraftState, FlightPhase, TelemetryValue
 from .state.store import AircraftStateStore
 
@@ -31,6 +38,20 @@ class ToolAuthorizationError(ToolProtocolError):
     pass
 
 
+def aircraft_tool_error_result(exc: Exception) -> dict[str, Any]:
+    """Convert a rejected backend tool call into bounded data for the LLM."""
+
+    code = (
+        "invalid_aircraft_tool"
+        if isinstance(exc, ToolProtocolError)
+        else "aircraft_tool_failed"
+    )
+    return {
+        "available": False,
+        "error": {"code": code, "detail": str(exc)},
+    }
+
+
 class AircraftToolName(StrEnum):
     GET_AIRCRAFT_STATE = "get_aircraft_state"
     GET_ACTIVE_ISSUES = "get_active_issues"
@@ -42,6 +63,8 @@ class AircraftToolName(StrEnum):
     GET_NEXT_CHECKLIST_ITEM = "get_next_checklist_item"
     CONFIRM_MANUAL_CHECKLIST_ITEM = "confirm_manual_checklist_item"
     STOP_GUIDED_CHECKLIST = "stop_guided_checklist"
+    GET_GROUND_OPS_STATUS = "get_ground_ops_status"
+    GET_TAKEOFF_READINESS = "get_takeoff_readiness"
 
 
 AIRCRAFT_TOOL_NAMES = tuple(item.value for item in AircraftToolName)
@@ -115,6 +138,7 @@ class AircraftToolRequest:
             request_id or str(uuid4()),
         )
 
+
 def validate_tool_arguments(
     tool: AircraftToolName,
     arguments: dict[str, Any],
@@ -123,7 +147,9 @@ def validate_tool_arguments(
         _require_exact_keys(arguments, {"fields"}, "get_aircraft_state arguments")
         fields = arguments.get("fields")
         if not isinstance(fields, list) or not fields:
-            raise ToolProtocolError("get_aircraft_state fields must be a non-empty list")
+            raise ToolProtocolError(
+                "get_aircraft_state fields must be a non-empty list"
+            )
         if len(fields) > MAX_STATE_FIELDS:
             raise ToolProtocolError(
                 f"get_aircraft_state accepts at most {MAX_STATE_FIELDS} fields"
@@ -142,9 +168,26 @@ def validate_tool_arguments(
     if tool in {
         AircraftToolName.GET_ACTIVE_ISSUES,
         AircraftToolName.GET_FLIGHT_PHASE,
+        AircraftToolName.GET_GROUND_OPS_STATUS,
     }:
         _require_exact_keys(arguments, set(), f"{tool.value} arguments")
         return {}
+
+    if tool is AircraftToolName.GET_TAKEOFF_READINESS:
+        _require_exact_keys(
+            arguments,
+            {"operation"},
+            "get_takeoff_readiness arguments",
+            optional={"operation"},
+        )
+        operation = arguments.get("operation", TakeoffOperation.AUTO.value)
+        if not isinstance(operation, str) or operation not in {
+            TakeoffOperation.AUTO.value,
+            TakeoffOperation.LAND.value,
+            TakeoffOperation.CARRIER.value,
+        }:
+            raise ToolProtocolError("takeoff operation must be AUTO, LAND, or CARRIER")
+        return {"operation": operation}
 
     if tool is AircraftToolName.GET_RECENT_EVENTS:
         _require_exact_keys(
@@ -238,7 +281,9 @@ def validate_tool_result(
         _require_exact_keys(result, {"fields"}, "get_aircraft_state result")
         fields = result.get("fields")
         if not isinstance(fields, dict) or not fields:
-            raise ToolProtocolError("aircraft state result fields must be a non-empty object")
+            raise ToolProtocolError(
+                "aircraft state result fields must be a non-empty object"
+            )
         if len(fields) > MAX_STATE_FIELDS:
             raise ToolProtocolError(
                 f"aircraft state result accepts at most {MAX_STATE_FIELDS} fields"
@@ -249,7 +294,9 @@ def validate_tool_result(
                     f"aircraft state result field is not allowed: {name}"
                 )
             if not isinstance(item, dict):
-                raise ToolProtocolError(f"aircraft state field {name} must be an object")
+                raise ToolProtocolError(
+                    f"aircraft state field {name} must be an object"
+                )
             _require_exact_keys(
                 item,
                 {"status", "value", "updated_at", "source"},
@@ -257,7 +304,9 @@ def validate_tool_result(
             )
             status = item.get("status")
             if status not in {"AVAILABLE", "STALE", "UNAVAILABLE"}:
-                raise ToolProtocolError(f"aircraft state field {name} has invalid status")
+                raise ToolProtocolError(
+                    f"aircraft state field {name} has invalid status"
+                )
             if status == "UNAVAILABLE" and item.get("value") is not None:
                 raise ToolProtocolError(
                     f"unavailable aircraft state field {name} must have a null value"
@@ -266,10 +315,14 @@ def validate_tool_result(
             if updated_at is not None and (
                 not isinstance(updated_at, (int, float)) or isinstance(updated_at, bool)
             ):
-                raise ToolProtocolError(f"aircraft state field {name} has invalid updated_at")
+                raise ToolProtocolError(
+                    f"aircraft state field {name} has invalid updated_at"
+                )
             source = item.get("source")
             if source is not None and not isinstance(source, str):
-                raise ToolProtocolError(f"aircraft state field {name} has invalid source")
+                raise ToolProtocolError(
+                    f"aircraft state field {name} has invalid source"
+                )
         return result.copy()
 
     if tool is AircraftToolName.GET_ACTIVE_ISSUES:
@@ -315,12 +368,16 @@ def validate_tool_result(
         AircraftToolName.GET_CHECKLIST_STATUS,
         AircraftToolName.GET_MISSING_CHECKLIST_ITEMS,
     }:
-        _validate_checklist_result(result, require_complete=tool is AircraftToolName.GET_CHECKLIST_STATUS)
+        _validate_checklist_result(
+            result, require_complete=tool is AircraftToolName.GET_CHECKLIST_STATUS
+        )
         return result.copy()
 
     if tool is AircraftToolName.START_GUIDED_CHECKLIST:
         _require_exact_keys(
-            result, {"started", "checklist_id", "stage"}, "start_guided_checklist result"
+            result,
+            {"started", "checklist_id", "stage"},
+            "start_guided_checklist result",
         )
         _require_boolean(result.get("started"), "checklist started")
         _require_string(result.get("checklist_id"), "checklist_id")
@@ -335,7 +392,9 @@ def validate_tool_result(
         return result.copy()
 
     if tool is AircraftToolName.CONFIRM_MANUAL_CHECKLIST_ITEM:
-        _require_exact_keys(result, {"confirmed", "item_id"}, "confirm_manual_checklist_item result")
+        _require_exact_keys(
+            result, {"confirmed", "item_id"}, "confirm_manual_checklist_item result"
+        )
         _require_boolean(result.get("confirmed"), "manual item confirmed")
         _require_string(result.get("item_id"), "item_id")
         return result.copy()
@@ -409,6 +468,45 @@ def validate_tool_result(
             raise ToolProtocolError("unavailable flight phase must be null")
         return result.copy()
 
+    if tool is AircraftToolName.GET_GROUND_OPS_STATUS:
+        _require_exact_keys(
+            result,
+            {
+                "available",
+                "phase",
+                "lineup_state",
+                "takeoff_operation",
+                "before_taxi",
+                "takeoff",
+            },
+            "get_ground_ops_status result",
+        )
+        _require_boolean(result.get("available"), "ground operations available")
+        _require_string(result.get("phase"), "ground operations phase")
+        _require_string(result.get("lineup_state"), "lineup state")
+        _require_string(result.get("takeoff_operation"), "takeoff operation")
+        _validate_readiness_report(result.get("before_taxi"), "before-taxi readiness")
+        _validate_readiness_report(result.get("takeoff"), "takeoff readiness")
+        return result.copy()
+
+    if tool is AircraftToolName.GET_TAKEOFF_READINESS:
+        _require_exact_keys(
+            result,
+            {"available", "operation", "status", "blocking_items", "unknown_items"},
+            "get_takeoff_readiness result",
+        )
+        _require_boolean(result.get("available"), "takeoff readiness available")
+        _require_string(result.get("operation"), "takeoff operation")
+        _validate_readiness_report(
+            {
+                "status": result.get("status"),
+                "blocking_items": result.get("blocking_items"),
+                "unknown_items": result.get("unknown_items"),
+            },
+            "takeoff readiness",
+        )
+        return result.copy()
+
     raise ToolAuthorizationError(f"aircraft tool is not allowed: {tool}")
 
 
@@ -439,7 +537,9 @@ def _optional_string(value: object, label: str) -> str | None:
     return value.strip()
 
 
-def _validate_checklist_result(result: dict[str, Any], *, require_complete: bool) -> None:
+def _validate_checklist_result(
+    result: dict[str, Any], *, require_complete: bool
+) -> None:
     required = {
         "available",
         "checklist_id",
@@ -501,6 +601,35 @@ def _validate_checklist_item(item: object) -> None:
         raise ToolProtocolError("checklist item observed_at is invalid")
 
 
+def _validate_readiness_report(value: object, label: str) -> None:
+    if not isinstance(value, dict):
+        raise ToolProtocolError(f"{label} must be an object")
+    _require_exact_keys(
+        value,
+        {"status", "blocking_items", "unknown_items"},
+        label,
+    )
+    if value.get("status") not in {"READY", "BLOCKED", "UNKNOWN", "NOT_APPLICABLE"}:
+        raise ToolProtocolError(f"{label} status is invalid")
+    for key in ("blocking_items", "unknown_items"):
+        items = value.get(key)
+        if not isinstance(items, list) or len(items) > MAX_CHECKLIST_ITEMS:
+            raise ToolProtocolError(f"{label} {key} must be a bounded list")
+        for item in items:
+            if not isinstance(item, dict):
+                raise ToolProtocolError(f"{label} {key} item must be an object")
+            _require_exact_keys(
+                item,
+                {"id", "label", "status", "expected", "actual", "reason"},
+                f"{label} item",
+            )
+            _require_string(item.get("id"), f"{label} item id")
+            _require_string(item.get("label"), f"{label} item label")
+            if item.get("status") not in {"incomplete", "unconfirmed"}:
+                raise ToolProtocolError(f"{label} item status is invalid")
+            _require_string(item.get("reason"), f"{label} item reason")
+
+
 def _require_exact_keys(
     value: dict[str, Any],
     allowed: set[str],
@@ -515,7 +644,9 @@ def _require_exact_keys(
     if missing:
         raise ToolProtocolError(f"{label} missing fields: {', '.join(missing)}")
     if unknown:
-        raise ToolProtocolError(f"{label} contains unknown fields: {', '.join(unknown)}")
+        raise ToolProtocolError(
+            f"{label} contains unknown fields: {', '.join(unknown)}"
+        )
 
 
 class BackendAircraftToolExecutor:
@@ -550,6 +681,10 @@ class BackendAircraftToolExecutor:
             )
         if tool is AircraftToolName.GET_FLIGHT_PHASE:
             return self._get_flight_phase()
+        if tool is AircraftToolName.GET_GROUND_OPS_STATUS:
+            return self._get_ground_ops_status()
+        if tool is AircraftToolName.GET_TAKEOFF_READINESS:
+            return self._get_takeoff_readiness(request.arguments["operation"])
         if tool is AircraftToolName.GET_CHECKLIST_STATUS:
             return self._get_checklist_status(
                 checklist_id=request.arguments["checklist_id"],
@@ -586,9 +721,13 @@ class BackendAircraftToolExecutor:
         values: dict[str, dict[str, Any]] = {}
         for field in fields:
             if field not in ALLOWED_AIRCRAFT_STATE_FIELDS:
-                raise ToolAuthorizationError(f"aircraft state field is not allowed: {field}")
+                raise ToolAuthorizationError(
+                    f"aircraft state field is not allowed: {field}"
+                )
             if field == "aircraft":
-                values[field] = _plain_value(state.aircraft, available=state.aircraft is not None)
+                values[field] = _plain_value(
+                    state.aircraft, available=state.aircraft is not None
+                )
             elif field == "connected":
                 values[field] = _plain_value(state.connected, available=True)
             else:
@@ -694,6 +833,40 @@ class BackendAircraftToolExecutor:
             "flight_phase": state.flight_phase.value if available else None,
         }
 
+    def _get_ground_ops_status(self) -> dict[str, Any]:
+        if self._store is None:
+            return _ground_ops_result(None)
+        snapshot = self._store.ground_ops.evaluate(
+            self._state,
+            self._store.history,
+            self._store.checklist_engine,
+            now=self._clock(),
+        )
+        return _ground_ops_result(snapshot)
+
+    def _get_takeoff_readiness(self, operation: str) -> dict[str, Any]:
+        if self._store is None:
+            return {
+                "available": False,
+                "operation": TakeoffOperation.UNKNOWN.value,
+                **_readiness_result(
+                    ReadinessReport(status=ReadinessStatus.UNKNOWN, items=())
+                ),
+            }
+        state = self._state
+        requested = TakeoffOperation(operation)
+        selected = self._store.ground_ops.resolve_operation(state, requested)
+        report = self._store.ground_ops.takeoff_readiness(
+            state,
+            self._store.checklist_engine,
+            operation=requested,
+        )
+        return {
+            "available": state.connected,
+            "operation": selected.value,
+            **_readiness_result(report),
+        }
+
     def _get_checklist_status(
         self,
         *,
@@ -739,9 +912,8 @@ class BackendAircraftToolExecutor:
         if self._store is None:
             raise ToolAuthorizationError("checklist engine is unavailable")
         self._store.checklist_engine.start(checklist_id, stage)
-        active_stage = stage or self._store.checklist_engine.definitions[
-            checklist_id
-        ].stages[0].id
+        definition = self._store.checklist_engine.definitions[checklist_id]
+        active_stage = stage or definition.default_stage or definition.stages[0].id
         return {"started": True, "checklist_id": checklist_id, "stage": active_stage}
 
     def _advance_guided_checklist(self) -> dict[str, Any]:
@@ -842,4 +1014,44 @@ def _checklist_item(item: ChecklistItemResult) -> dict[str, Any]:
         "reason": item.reason,
         "verification_type": item.verification_type.value,
         "observed_at": item.observed_at,
+    }
+
+
+def _readiness_item(item: ReadinessItem) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "label": item.label,
+        "status": item.status.value,
+        "expected": _json_value(item.expected),
+        "actual": _json_value(item.actual),
+        "reason": item.reason,
+    }
+
+
+def _readiness_result(report: ReadinessReport) -> dict[str, Any]:
+    return {
+        "status": report.status.value,
+        "blocking_items": [_readiness_item(item) for item in report.blocking_items],
+        "unknown_items": [_readiness_item(item) for item in report.unknown_items],
+    }
+
+
+def _ground_ops_result(snapshot: GroundOpsSnapshot | None) -> dict[str, Any]:
+    if snapshot is None:
+        unavailable = {"status": "UNKNOWN", "blocking_items": [], "unknown_items": []}
+        return {
+            "available": False,
+            "phase": "UNKNOWN",
+            "lineup_state": "UNCONFIRMED",
+            "takeoff_operation": "UNKNOWN",
+            "before_taxi": unavailable,
+            "takeoff": unavailable.copy(),
+        }
+    return {
+        "available": snapshot.available,
+        "phase": snapshot.phase.value,
+        "lineup_state": snapshot.lineup_state.value,
+        "takeoff_operation": snapshot.takeoff_operation.value,
+        "before_taxi": _readiness_result(snapshot.before_taxi),
+        "takeoff": _readiness_result(snapshot.takeoff),
     }
