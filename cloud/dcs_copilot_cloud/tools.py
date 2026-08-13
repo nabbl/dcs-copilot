@@ -32,6 +32,8 @@ MAX_STATE_FIELDS = 16
 MAX_RECENT_EVENTS = 20
 MAX_RECENT_EVENT_SECONDS = 300.0
 MAX_CHECKLIST_ITEMS = 64
+MAX_KNOWLEDGE_STEPS = 8
+MAX_KNOWLEDGE_CAUTIONS = 4
 
 EVENT_STATUSES = frozenset({"RAISED", "RESOLVED", "DISABLED"})
 EVENT_SEVERITIES = frozenset({"INFO", "ADVISORY", "WARNING", "CRITICAL"})
@@ -654,6 +656,11 @@ def _validate_hornet_knowledge_result(result: dict[str, Any]) -> None:
             not isinstance(item, str) or not item for item in values
         ):
             raise ToolProtocolError(f"Hornet knowledge card {key} must be strings")
+        limit = MAX_KNOWLEDGE_STEPS if key == "steps" else MAX_KNOWLEDGE_CAUTIONS
+        if not values or len(values) > limit:
+            raise ToolProtocolError(
+                f"Hornet knowledge card {key} must contain 1 to {limit} items"
+            )
     source = card.get("source")
     if not isinstance(source, dict):
         raise ToolProtocolError("Hornet knowledge source must be an object")

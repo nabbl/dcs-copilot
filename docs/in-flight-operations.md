@@ -31,18 +31,31 @@ is `NOT_APPLICABLE`.
 
 - departure cleanup;
 - TACAN navigation;
-- coupled autopilot navigation.
+- waypoint navigation;
+- coupled autopilot navigation;
+- autopilot relief modes;
+- carrier launch;
+- CASE I carrier recovery;
+- airfield VFR landing.
 
 The source of record is Eagle Dynamics' English **DCS: F/A-18C Early Access
 Guide**. The current source file has PDF creation date `2024-03-24` and is
 pinned as SHA-256
 `063873fac43245154bd772241fce89fe4985128cd962cb3e43fc9cefbc35d74c`.
-The MARA corpus version is `fa18c-ed-2026.08.1`.
+The MARA corpus version is `fa18c-ed-2026.08.2`.
 
 Every card includes its aircraft applicability, original summary, short steps,
 cautions, official manual section and pages, source URL, document hash, and
 review date. The cloud ships these structured cards; it does not ingest the
 entire PDF into a vector database or ask the LLM to recall the manual.
+
+For a question such as “How does a CASE I carrier landing look again?”, MARA
+returns a compact pattern overview from the reviewed CASE I card. On an explicit
+request to be walked through it, MARA presents one card step at a time and waits
+for the pilot to request the next step. This conversational guide does not mark
+steps complete and cannot verify ship position, deck status, pattern geometry,
+IFLOLS, or LSO direction. Telemetry-aware carrier approach coaching remains a
+future safety milestone.
 
 Chuck's Guide is not included in the shipped corpus. It is an excellent pilot
 learning resource and can be used by maintainers as a cross-check, but MARA
@@ -57,3 +70,7 @@ pinned source revision, and tests. If no curated card exists, MARA says the
 procedure is not yet verified instead of presenting general model knowledge as
 an authoritative Hornet procedure. Combat employment is intentionally outside
 this milestone.
+
+The official guide does not contain a complete aerial-refueling procedure, so
+an AAR card is intentionally deferred until a suitable authoritative source can
+be pinned and reviewed.

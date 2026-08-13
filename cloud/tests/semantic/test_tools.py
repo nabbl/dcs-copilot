@@ -170,9 +170,24 @@ def test_hornet_knowledge_tool_returns_pinned_source_metadata() -> None:
     result = executor.execute(request)
 
     validate_tool_result(request.tool, result)
-    assert result["corpus_version"] == "fa18c-ed-2026.08.1"
+    assert result["corpus_version"] == "fa18c-ed-2026.08.2"
     assert result["card"]["source"]["publisher"] == "Eagle Dynamics"
     assert result["card"]["source"]["pages"] == "136-138"
+
+
+def test_case_i_knowledge_tool_returns_guidable_steps() -> None:
+    executor = BackendAircraftToolExecutor(None)
+    request = AircraftToolRequest.create(
+        AircraftToolName.GET_HORNET_KNOWLEDGE,
+        {"topic": "case_i_recovery"},
+    )
+
+    result = executor.execute(request)
+
+    validate_tool_result(request.tool, result)
+    assert result["card"]["title"] == "CASE I carrier recovery overview"
+    assert len(result["card"]["steps"]) == 7
+    assert result["card"]["source"]["pages"] == "108-113"
 
 
 def test_hornet_knowledge_rejects_unsupported_topics() -> None:

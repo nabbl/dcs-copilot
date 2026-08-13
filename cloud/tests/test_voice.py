@@ -54,6 +54,8 @@ def test_copilot_prompt_separates_live_state_from_general_knowledge() -> None:
     assert "get_takeoff_readiness" in COPILOT_INSTRUCTION
     assert "get_flight_status" in COPILOT_INSTRUCTION
     assert "get_hornet_knowledge" in COPILOT_INSTRUCTION
+    assert "walked through" in COPILOT_INSTRUCTION
+    assert "one subsequent step" in COPILOT_INSTRUCTION
     assert "Never claim land-runway alignment" in COPILOT_INSTRUCTION
 
 
@@ -90,6 +92,11 @@ def test_pipecat_context_exposes_allowlisted_aircraft_tools() -> None:
     )
     assert checklist.required == []
     assert set(checklist.properties) == {"checklist_id", "stage"}
+    knowledge = next(
+        schema for schema in schemas if schema.name == "get_hornet_knowledge"
+    )
+    assert "case_i_recovery" in knowledge.properties["topic"]["enum"]
+    assert "airfield_vfr_landing" in knowledge.properties["topic"]["enum"]
     assert all(schema.handler is handler for schema in schemas)
 
 

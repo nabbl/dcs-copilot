@@ -473,6 +473,10 @@ def aircraft_tool_schemas(handler: Any) -> list[FunctionSchema]:
                 "topic": {
                     "type": "string",
                     "enum": [item.value for item in HornetKnowledgeTopic],
+                    "description": (
+                        "Verified Hornet topic. CASE I, Case 1, carrier break, "
+                        "and daytime visual carrier landing map to case_i_recovery."
+                    ),
                 }
             },
             required=["topic"],
