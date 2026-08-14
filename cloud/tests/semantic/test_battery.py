@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dcs_copilot_cloud.aircraft.fa18c import FA18CAdapter, MODULE
-from dcs_copilot_cloud.aircraft.raw import RawTelemetryKey, RawTelemetryStore
+from dcs_copilot_cloud.aircraft.fa18c import FA18CAdapter
+from dcs_copilot_cloud.aircraft.raw import RawTelemetryStore
 from dcs_copilot_cloud.state.models import TelemetryStatus
 
 from .helpers import set_int
 
 
-def test_battery_on_when_switch_is_zero() -> None:
+def test_battery_on_when_switch_is_normal_on_position() -> None:
     raw = RawTelemetryStore()
     now = 100.0
     set_int(raw, "BATTERY_SW", 0, now=now)
@@ -29,6 +29,17 @@ def test_battery_off_when_switch_is_one() -> None:
     battery_on = result.values["battery_on"]
     assert battery_on.usable
     assert battery_on.value is False
+
+
+def test_battery_on_when_switch_is_override_position() -> None:
+    raw = RawTelemetryStore()
+    now = 100.0
+    set_int(raw, "BATTERY_SW", 2, now=now)
+    adapter = FA18CAdapter()
+    result = adapter.normalize(raw, now=now)
+    battery_on = result.values["battery_on"]
+    assert battery_on.usable
+    assert battery_on.value is True
 
 
 def test_stale_battery_switch_is_not_usable() -> None:

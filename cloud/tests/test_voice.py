@@ -67,8 +67,6 @@ def test_copilot_prompt_separates_live_state_from_general_knowledge() -> None:
     assert "explicit pilot report" in COPILOT_INSTRUCTION
     assert "confirm_checklist_item" in COPILOT_INSTRUCTION
     assert "Do not argue with the pilot" in COPILOT_INSTRUCTION
-    assert "full-and-free stick" in COPILOT_INSTRUCTION
-    assert "Do not present it as missing cockpit telemetry" in COPILOT_INSTRUCTION
 
 
 def test_missing_server_key_and_unknown_provider_fail_closed() -> None:

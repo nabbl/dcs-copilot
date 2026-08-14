@@ -111,7 +111,7 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                         ),
                         ChecklistItem(
                             id="bleed_air_normal",
-                            label="Bleed air",
+                            label="Bleed air supply",
                             verification=VerificationType.STATE,
                             expected={
                                 "field": "bleed_air_normal",
@@ -164,15 +164,6 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                                 "equals": True,
                             },
                             source_reference="T/O TRIM button transition",
-                        ),
-                        ChecklistItem(
-                            id="flight_controls_check",
-                            label="Flight controls — full-and-free stick and rudder check",
-                            verification=VerificationType.MANUAL,
-                            source_reference=(
-                                "Pilot confirms full-and-free stick and rudder movement "
-                                "after checking the FCS indications"
-                            ),
                         ),
                     ),
                     depends_on=("post-start",),

@@ -199,17 +199,16 @@ def test_live_pre_start_items_still_regress_after_parking_brake_latches() -> Non
     assert battery.status is ChecklistItemStatus.INCOMPLETE
 
 
-def test_default_guided_checklist_targets_before_taxi_and_preserves_progress() -> None:
+def test_default_guided_checklist_targets_before_taxi_and_resets_cleanly() -> None:
     engine = ChecklistEngine(fa18c_checklists())
     engine.start("fa18c_startup")
     assert engine.session.stage_id == "before-taxi"
 
-    engine.confirm_manual_item("flight_controls_check")
     engine.stop()
-    assert engine.manual_item_confirmed("flight_controls_check")
+    assert engine.session.checklist_id is None
 
     engine.reset()
-    assert not engine.manual_item_confirmed("flight_controls_check")
+    assert engine.session.progress_checklist_id is None
 
 
 def test_non_manual_checklist_item_cannot_be_voice_confirmed() -> None:

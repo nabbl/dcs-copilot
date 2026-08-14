@@ -51,7 +51,6 @@ def ready_hornet() -> tuple[AircraftState, ChecklistEngine]:
     state.carrier_launch_sequence = tv(False)
     checklist = ChecklistEngine(fa18c_checklists())
     checklist.start("fa18c_startup")
-    checklist.confirm_manual_item("flight_controls_check")
     return state, checklist
 
 
@@ -75,20 +74,6 @@ def test_takeoff_gate_separates_blocking_and_unknown_items() -> None:
     assert report.status is ReadinessStatus.BLOCKED
     assert {item.id for item in report.blocking_items} == {"flaps_half"}
     assert {item.id for item in report.unknown_items} == {"takeoff_trim"}
-
-
-def test_unconfirmed_flight_controls_explains_the_required_manual_check() -> None:
-    state, checklist = ready_hornet()
-    checklist.reset()
-    report = GroundOpsCoordinator().takeoff_readiness(
-        state, checklist, operation=TakeoffOperation.LAND
-    )
-    flight_controls = next(
-        item for item in report.unknown_items if item.id == "flight_controls_check"
-    )
-
-    assert "full-and-free stick and rudder" in flight_controls.label
-    assert "FCS indications" in flight_controls.reason
 
 
 def test_auto_operation_refuses_to_guess_land_runway_context() -> None:

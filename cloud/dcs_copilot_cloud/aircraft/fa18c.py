@@ -159,19 +159,15 @@ class FA18CAdapter:
             else self._map_bool(parking_raw, lambda value: value != 2)
         )
         battery_raw = read_int("BATTERY_SW")
-        battery_on = self._map_bool(battery_raw, lambda value: value == 0)
+        # DCS exports OFF as the center position. Both end positions energize
+        # the battery circuit (normal ON or guarded ORIDE).
+        battery_on = self._map_bool(battery_raw, lambda value: value != 1)
         apu_ready_raw = read_int("APU_READY_LT")
         apu_ready = self._map_bool(apu_ready_raw, bool)
-        left_generator_raw = read_int("L_GEN_SW")
-        left_generator_normal = self._map_bool(
-            left_generator_raw, lambda value: value == 0
-        )
-        right_generator_raw = read_int("R_GEN_SW")
-        right_generator_normal = self._map_bool(
-            right_generator_raw, lambda value: value == 0
-        )
+        read_int("L_GEN_SW")
+        read_int("R_GEN_SW")
         bleed_air_raw = read_int("BLEED_AIR_KNOB")
-        bleed_air_normal = self._map_bool(bleed_air_raw, lambda value: value == 1)
+        bleed_air_normal = self._map_bool(bleed_air_raw, lambda value: value != 3)
         ins_mode = reader.read(
             MODULE,
             "INS_SW",
@@ -236,6 +232,12 @@ class FA18CAdapter:
         warning_lights: dict[str, TelemetryValue[bool]] = {}
         for semantic_name, identifier in WARNING_LIGHTS.items():
             warning_lights[semantic_name] = self._map_bool(read_int(identifier), bool)
+        left_generator_normal = self._generator_online(
+            rpm_left, warning_lights["left_generator"]
+        )
+        right_generator_normal = self._generator_online(
+            rpm_right, warning_lights["right_generator"]
+        )
         ias = result.values.get("indicated_airspeed")
         carrier_launch_sequence = combine_values(
             [wow, launch_bar],
@@ -310,6 +312,21 @@ class FA18CAdapter:
         result.warning_lights.update(warning_lights)
         result.raw.update(raw_values)
         return result
+
+    @staticmethod
+    def _generator_online(
+        rpm: TelemetryValue[Any], caution: TelemetryValue[bool]
+    ) -> TelemetryValue[bool]:
+        online = (
+            float(rpm.value) > 60 and not bool(caution.value)
+            if rpm.available and rpm.value is not None and caution.available
+            else None
+        )
+        return combine_values(
+            [rpm, caution],
+            online,
+            "derived:FA-18C_hornet/generator-online",
+        )
 
     def _update_takeoff_trim_confirmed(
         self,

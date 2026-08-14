@@ -227,10 +227,10 @@ it prevents stable cockpit controls from aging past the cloud's thirty-second
 freshness window while preserving the cloud as the normalization authority.
 
 Ground-operations readiness is separate from active rule violations. A takeoff
-readiness result is `READY` only when every required current-state and manual
-gate is positively verified. Known wrong values produce `BLOCKED`; unavailable
-telemetry, missing manual confirmation, or unknown land-versus-carrier context
-produce `UNKNOWN`. Land-runway alignment is never inferred from cockpit-only
+readiness result is `READY` only when every required current-state and operation
+context gate is positively verified. Known wrong values produce `BLOCKED`;
+unavailable telemetry or unknown land-versus-carrier context produce `UNKNOWN`.
+Land-runway alignment is never inferred from cockpit-only
 telemetry. The launch-bar/carrier sequence is the only positive alignment signal
 in the first slice.
 
