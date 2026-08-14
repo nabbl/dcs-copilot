@@ -27,6 +27,7 @@ FA18C_FRACTION_CONTROLS = {
     "EXT_WING_FOLDING",
     "INT_THROTTLE_LEFT",
     "INT_THROTTLE_RIGHT",
+    "HUD_SYM_BRT",
 }
 
 WARNING_LIGHTS = {
@@ -188,6 +189,8 @@ class FA18CAdapter:
         raw_values["INS_SW"] = ins_mode
         taxi_light_raw = read_int("LDG_TAXI_SW")
         taxi_light = self._map_bool(taxi_light_raw, bool)
+        hud_brightness = reader.fraction(MODULE, "HUD_SYM_BRT")
+        raw_values["HUD_SYM_BRT"] = hud_brightness
 
         speed_brake = reader.fraction(MODULE, "EXT_SPEED_BRAKE")
         raw_values["EXT_SPEED_BRAKE"] = speed_brake
@@ -201,7 +204,8 @@ class FA18CAdapter:
         hook_commanded_down = self._map_bool(hook_command_raw, bool)
 
         seat_raw = read_int("EJECTION_SEAT_ARMED")
-        seat = self._map_bool(seat_raw, bool)
+        # Live Hornet export: SAFE is 1 and ARMED is 0 for this handle.
+        seat = self._map_bool(seat_raw, lambda value: value == 0)
         obogs_raw = read_int("OBOGS_SW")
         obogs = self._map_bool(obogs_raw, bool)
         launch_bar_raw = read_int("LAUNCH_BAR_SW")
@@ -287,6 +291,7 @@ class FA18CAdapter:
                 "bleed_air_normal": bleed_air_normal,
                 "ins_mode": ins_mode,
                 "taxi_light_on": taxi_light,
+                "hud_brightness": hud_brightness,
                 "speed_brake": speed_brake,
                 "refueling_probe": probe,
                 "hook_position": hook,

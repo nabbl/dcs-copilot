@@ -184,6 +184,7 @@ def normalization_registry(tmp_path: Path) -> DcsBiosControlRegistry:
         "EXT_WING_FOLDING": 65535,
         "INT_THROTTLE_LEFT": 65535,
         "INT_THROTTLE_RIGHT": 65535,
+        "HUD_SYM_BRT": 65535,
     }.items():
         integer_specs[identifier] = (next_address, maximum)
         next_address += 2

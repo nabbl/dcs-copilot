@@ -50,3 +50,27 @@ def test_bleed_air_supply_is_inactive_in_explicit_off_position() -> None:
     result = FA18CAdapter().normalize(raw, now=100.0)
 
     assert result.values["bleed_air_normal"].value is False
+
+
+def test_ejection_seat_safe_and_armed_export_directions() -> None:
+    safe_raw = RawTelemetryStore()
+    set_int(safe_raw, "EJECTION_SEAT_ARMED", 1, now=100.0)
+    armed_raw = RawTelemetryStore()
+    set_int(armed_raw, "EJECTION_SEAT_ARMED", 0, now=100.0)
+
+    safe = FA18CAdapter().normalize(safe_raw, now=100.0)
+    armed = FA18CAdapter().normalize(armed_raw, now=100.0)
+
+    assert safe.values["ejection_seat_armed"].value is False
+    assert armed.values["ejection_seat_armed"].value is True
+
+
+def test_taxi_light_and_hud_brightness_are_normalized() -> None:
+    raw = RawTelemetryStore()
+    set_int(raw, "LDG_TAXI_SW", 1, now=100.0)
+    set_int(raw, "HUD_SYM_BRT", 32768, now=100.0)
+
+    result = FA18CAdapter().normalize(raw, now=100.0)
+
+    assert result.values["taxi_light_on"].value is True
+    assert 0.49 < result.values["hud_brightness"].value < 0.51

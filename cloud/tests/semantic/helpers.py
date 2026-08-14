@@ -13,11 +13,14 @@ FRACTION_IDENTIFIERS = {
     "EXT_WING_FOLDING",
     "INT_THROTTLE_LEFT",
     "INT_THROTTLE_RIGHT",
+    "HUD_SYM_BRT",
 }
 
 
 def set_int(raw: RawTelemetryStore, identifier: str, value: int, *, now: float) -> None:
-    raw.update(RawTelemetryKey(MODULE, identifier, "integer", 0), value, received_at=now)
+    raw.update(
+        RawTelemetryKey(MODULE, identifier, "integer", 0), value, received_at=now
+    )
 
 
 def set_str(raw: RawTelemetryStore, identifier: str, value: str, *, now: float) -> None:

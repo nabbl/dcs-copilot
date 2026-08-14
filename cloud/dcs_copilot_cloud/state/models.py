@@ -114,6 +114,7 @@ class AircraftState:
     bleed_air_normal: TelemetryValue[bool] = field(default_factory=unavailable)
     ins_mode: TelemetryValue[str] = field(default_factory=unavailable)
     taxi_light_on: TelemetryValue[bool] = field(default_factory=unavailable)
+    hud_brightness: TelemetryValue[float] = field(default_factory=unavailable)
     speed_brake: TelemetryValue[float] = field(default_factory=unavailable)
     refueling_probe: TelemetryValue[bool] = field(default_factory=unavailable)
     hook_position: TelemetryValue[bool] = field(default_factory=unavailable)

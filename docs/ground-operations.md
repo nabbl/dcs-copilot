@@ -51,6 +51,11 @@ stop spoken guidance.
 Observed cockpit progress is independent of whether spoken guidance is active.
 Stopping the guide preserves progress; a new cockpit epoch resets it.
 
+The parking brake has phase-specific requirements: it is latched once verified
+set for engine start, then must be released before taxi. Before-taxi readiness
+also requires the ejection seat armed, INS in NAV or IFA, HUD brightness above
+OFF, and the taxi light on.
+
 Checklist items opt into historical latching individually. The parking brake is
 latched once it was verified during pre-start, so releasing it for taxi does not
 regress that step. Live requirements such as battery and Master Arm are not

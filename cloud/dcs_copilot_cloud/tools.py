@@ -103,6 +103,7 @@ ALLOWED_AIRCRAFT_STATE_FIELDS = frozenset(
         "bleed_air_normal",
         "ins_mode",
         "taxi_light_on",
+        "hud_brightness",
         "speed_brake",
         "refueling_probe",
         "hook_position",

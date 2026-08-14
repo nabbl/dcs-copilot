@@ -141,6 +141,12 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                     label="BEFORE TAXI",
                     items=(
                         ChecklistItem(
+                            id="parking_brake_released",
+                            label="Parking brake released",
+                            verification=VerificationType.STATE,
+                            expected={"field": "parking_brake", "equals": False},
+                        ),
+                        ChecklistItem(
                             id="ejection_seat_armed",
                             label="Ejection seat",
                             verification=VerificationType.STATE,
@@ -164,6 +170,31 @@ def fa18c_checklists() -> tuple[ChecklistDefinition, ...]:
                                 "equals": True,
                             },
                             source_reference="T/O TRIM button transition",
+                        ),
+                        ChecklistItem(
+                            id="ins_navigation_ready",
+                            label="INS navigation mode",
+                            verification=VerificationType.STATE,
+                            expected={
+                                "field": "ins_mode",
+                                "one_of": ("NAV", "IFA"),
+                            },
+                        ),
+                        ChecklistItem(
+                            id="hud_on",
+                            label="HUD brightness/power",
+                            verification=VerificationType.STATE,
+                            expected={
+                                "field": "hud_brightness",
+                                "greater_than": 0.02,
+                            },
+                            source_reference="HUD SYM BRT control above OFF",
+                        ),
+                        ChecklistItem(
+                            id="taxi_light_on",
+                            label="Taxi light",
+                            verification=VerificationType.STATE,
+                            expected={"field": "taxi_light_on", "equals": True},
                         ),
                     ),
                     depends_on=("post-start",),

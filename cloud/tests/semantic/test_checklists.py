@@ -66,9 +66,13 @@ def test_before_taxi_transitively_includes_earlier_stage_items() -> None:
     assert "left_generator_normal" in all_ids
     assert "master_caution_clear" in all_ids
     # before-taxi itself
+    assert "parking_brake_released" in all_ids
     assert "ejection_seat_armed" in all_ids
     assert "canopy_closed" in all_ids
     assert "takeoff_trim" in all_ids
+    assert "ins_navigation_ready" in all_ids
+    assert "hud_on" in all_ids
+    assert "taxi_light_on" in all_ids
 
 
 def test_default_stage_is_before_taxi() -> None:
@@ -174,6 +178,35 @@ def test_latched_pre_start_does_not_regress_after_parking_brake_release() -> Non
     parking = next(item for item in result.items if item.id == "parking_brake")
     assert parking.status is ChecklistItemStatus.COMPLETE
     assert parking.actual is True
+    released = next(
+        item for item in result.items if item.id == "parking_brake_released"
+    )
+    assert released.status is ChecklistItemStatus.COMPLETE
+    assert released.actual is False
+
+
+def test_before_taxi_requires_seat_hud_taxi_light_and_navigation_mode() -> None:
+    engine = ChecklistEngine(fa18c_checklists())
+    history = StateHistory()
+    state = _cold_dark_state()
+    state.ejection_seat_armed = TelemetryValue(False, available=True, updated_at=10.0)
+    state.hud_brightness = TelemetryValue(0.0, available=True, updated_at=10.0)
+    state.taxi_light_on = TelemetryValue(False, available=True, updated_at=10.0)
+    state.ins_mode = TelemetryValue("GND", available=True, updated_at=10.0)
+
+    result = engine.evaluate(
+        state,
+        history,
+        now=10.0,
+        checklist_id="fa18c_startup",
+        stage_id="before-taxi",
+    )
+    statuses = {item.id: item.status for item in result.items}
+
+    assert statuses["ejection_seat_armed"] is ChecklistItemStatus.INCOMPLETE
+    assert statuses["hud_on"] is ChecklistItemStatus.INCOMPLETE
+    assert statuses["taxi_light_on"] is ChecklistItemStatus.INCOMPLETE
+    assert statuses["ins_navigation_ready"] is ChecklistItemStatus.INCOMPLETE
 
 
 def test_live_pre_start_items_still_regress_after_parking_brake_latches() -> None:
