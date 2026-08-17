@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..config import CloudSettings
 from .base import ProviderBundle
+from .kokoro import KokoroTTSProvider
 from .openai import OpenAILLMProvider, OpenAISTTProvider, OpenAITTSProvider
 
 
@@ -17,8 +18,15 @@ def build_provider_bundle(settings: CloudSettings) -> ProviderBundle:
         "LLM_PROVIDER": settings.llm_provider,
         "TTS_PROVIDER": settings.tts_provider,
     }
+    supported = {
+        "STT_PROVIDER": {"openai"},
+        "LLM_PROVIDER": {"openai"},
+        "TTS_PROVIDER": {"openai", "kokoro"},
+    }
     unsupported = [
-        f"{name}={value}" for name, value in providers.items() if value != "openai"
+        f"{name}={value}"
+        for name, value in providers.items()
+        if value not in supported[name]
     ]
     if unsupported:
         raise ProviderConfigurationError(
@@ -41,9 +49,13 @@ def build_provider_bundle(settings: CloudSettings) -> ProviderBundle:
             settings.llm_model,
             settings.llm_max_output_tokens,
         ),
-        tts=OpenAITTSProvider(
-            settings.openai_api_key,
-            settings.tts_model,
-            settings.tts_voice,
+        tts=(
+            KokoroTTSProvider(settings.tts_voice)
+            if settings.tts_provider == "kokoro"
+            else OpenAITTSProvider(
+                settings.openai_api_key,
+                settings.tts_model,
+                settings.tts_voice,
+            )
         ),
     )

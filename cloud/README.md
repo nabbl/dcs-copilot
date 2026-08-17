@@ -18,7 +18,7 @@ telemetry catalog/snapshot/delta -> AircraftStateStore
 
 bounded PTT turn -> gpt-transcribe STT -> Pipecat context
                   -> gpt-5.6-luna Responses LLM
-                  -> streaming cloud TTS PCM -> client
+                  -> Kokoro local or OpenAI TTS PCM -> client
 ```
 
 Raw telemetry values are held only in the authenticated connection's in-process
@@ -66,9 +66,10 @@ LLM is required to repeat it and forbidden from deriving counts from memory or
 generic flight history.
 
 STT, LLM, and TTS are selected through provider interfaces and environment
-configuration. The OpenAI key exists only in the cloud process. Copy
+configuration. Local mode defaults to Kokoro TTS; hosted mode preserves OpenAI
+TTS. The OpenAI key exists only in the backend process. Copy
 `.env.example` to `.env`, add a development API key, then run from this
-directory with `uv run dcs-copilot-cloud`.
+directory with `uv run dcs-copilot-cloud serve --port 8000`.
 
 Set `DCS_COPILOT_AUTH_SIGNING_KEY` to a strong deployment secret and
 `DCS_COPILOT_DATABASE_URL` to the PostgreSQL URL. Set

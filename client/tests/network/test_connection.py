@@ -137,7 +137,8 @@ def test_cloud_url_requires_tls_except_on_loopback() -> None:
     validate_cloud_url("ws://127.0.0.1:8000/v2/realtime")
     validate_cloud_url("ws://[::1]:8000/v2/realtime")
     validate_cloud_url("wss://copilot.example/v2/realtime")
-    with pytest.raises(ValueError, match="localhost"):
+    validate_cloud_url("ws://192.168.1.50:47100/v2/realtime")
+    with pytest.raises(ValueError, match="private LAN"):
         validate_cloud_url("ws://copilot.example/v2/realtime")
 
 

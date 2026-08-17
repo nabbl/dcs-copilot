@@ -8,12 +8,16 @@ import os
 import sys
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
 from dcs_copilot.config import Settings
 
-APP_DIR_NAME = "DCS Copilot"
-CONFIG_FILE_NAME = "config.json"
+APP_DIR_NAME = "MARA"
+LEGACY_APP_DIR_NAME = "DCS Copilot"
+CONFIG_FILE_NAME = "mara.json"
+CONFIG_SCHEMA_VERSION = 2
+LOCAL_BACKEND_URL = "ws://127.0.0.1:47100/v2/realtime"
 
 
 def default_cloud_url() -> str:
@@ -32,7 +36,30 @@ def default_cloud_url() -> str:
                     return value.strip()
         except (FileNotFoundError, OSError):
             pass
-    return "ws://127.0.0.1:8000/v2/realtime"
+    return LOCAL_BACKEND_URL
+
+
+def realtime_url(value: str) -> str:
+    """Normalize an HTTP base or WebSocket endpoint to MARA's realtime URL."""
+
+    parsed = urlparse(value.strip())
+    scheme = {"http": "ws", "https": "wss", "ws": "ws", "wss": "wss"}.get(
+        parsed.scheme.lower()
+    )
+    if scheme is None or not parsed.netloc:
+        raise ValueError(
+            "Backend URL must start with http://, https://, ws://, or wss://"
+        )
+    path = parsed.path.rstrip("/")
+    if not path or path == "/":
+        path = "/v2/realtime"
+    return urlunparse((scheme, parsed.netloc, path, "", "", ""))
+
+
+def backend_http_url(value: str) -> str:
+    parsed = urlparse(realtime_url(value))
+    scheme = "https" if parsed.scheme == "wss" else "http"
+    return urlunparse((scheme, parsed.netloc, "", "", "", "")).rstrip("/")
 
 
 def app_data_dir() -> Path:
@@ -40,6 +67,14 @@ def app_data_dir() -> Path:
         root = os.getenv("LOCALAPPDATA", "").strip()
         if root:
             return Path(root) / APP_DIR_NAME
+    return Path.home() / ".dcs-copilot"
+
+
+def legacy_app_data_dir() -> Path:
+    if sys.platform == "win32":
+        root = os.getenv("LOCALAPPDATA", "").strip()
+        if root:
+            return Path(root) / LEGACY_APP_DIR_NAME
     return Path.home() / ".dcs-copilot"
 
 
@@ -120,6 +155,8 @@ def configure_launch_at_login(enabled: bool, executable: Path) -> None:
 
 @dataclass(slots=True)
 class DesktopConfig:
+    schema_version: int = CONFIG_SCHEMA_VERSION
+    backend_mode: str = "local"
     cloud_url: str = field(default_factory=default_cloud_url)
     dcs_saved_games_path: str = ""
     email: str = ""
@@ -134,16 +171,55 @@ class DesktopConfig:
 
     @classmethod
     def load(cls, path: Path | None = None) -> DesktopConfig:
-        config_path = path or app_data_dir() / CONFIG_FILE_NAME
+        config_path = path or app_data_dir() / "config" / CONFIG_FILE_NAME
+        read_path = config_path
+        if path is None and not read_path.is_file():
+            legacy_candidates = (
+                app_data_dir() / "config.json",
+                legacy_app_data_dir() / "config.json",
+            )
+            for legacy in legacy_candidates:
+                if legacy.is_file() and legacy != read_path:
+                    read_path = legacy
+                    break
         values: dict[str, object] = {}
-        if config_path.is_file():
+        existed = read_path.is_file()
+        if existed:
             try:
-                document = json.loads(config_path.read_text(encoding="utf-8"))
+                document = json.loads(read_path.read_text(encoding="utf-8"))
                 if isinstance(document, dict):
                     values = document
             except (OSError, ValueError, json.JSONDecodeError):
                 values = {}
         defaults = cls()
+
+        backend = values.get("backend")
+        backend_values = backend if isinstance(backend, dict) else {}
+        stored_url = backend_values.get("url")
+        legacy_url = values.get("cloud_url")
+        selected_url = (
+            stored_url
+            if isinstance(stored_url, str)
+            else legacy_url
+            if isinstance(legacy_url, str)
+            else defaults.cloud_url
+        )
+        try:
+            selected_url = realtime_url(selected_url)
+        except ValueError:
+            selected_url = defaults.cloud_url
+        stored_mode = backend_values.get("mode")
+        if isinstance(stored_mode, str) and stored_mode in {"local", "remote"}:
+            backend_mode = stored_mode
+        elif existed and isinstance(legacy_url, str) and legacy_url.strip():
+            # Existing installations retain their hosted/custom endpoint.
+            backend_mode = "remote"
+        else:
+            backend_mode = (
+                "remote"
+                if os.getenv("DCS_COPILOT_CLOUD_URL", "").strip()
+                else defaults.backend_mode
+            )
 
         def text_value(name: str, default: str) -> str:
             value = values.get(name, default)
@@ -160,7 +236,9 @@ class DesktopConfig:
             )
 
         config = cls(
-            cloud_url=text_value("cloud_url", defaults.cloud_url),
+            schema_version=CONFIG_SCHEMA_VERSION,
+            backend_mode=backend_mode,
+            cloud_url=selected_url,
             dcs_saved_games_path=text_value(
                 "dcs_saved_games_path", defaults.dcs_saved_games_path
             ),
@@ -172,9 +250,7 @@ class DesktopConfig:
             assistant_mute_key=text_value(
                 "assistant_mute_key", defaults.assistant_mute_key
             ),
-            assistant_mute_device_id=optional_int_value(
-                "assistant_mute_device_id"
-            ),
+            assistant_mute_device_id=optional_int_value("assistant_mute_device_id"),
             assistant_mute_button=optional_int_value("assistant_mute_button"),
             launch_at_login=(
                 launch_value
@@ -191,11 +267,23 @@ class DesktopConfig:
         return config
 
     def save(self, path: Path | None = None) -> Path:
-        config_path = path or app_data_dir() / CONFIG_FILE_NAME
+        config_path = path or app_data_dir() / "config" / CONFIG_FILE_NAME
         config_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = config_path.with_suffix(".tmp")
+        document = asdict(self)
+        document.pop("schema_version", None)
+        document.pop("backend_mode", None)
+        document.pop("cloud_url", None)
+        document = {
+            "schema_version": CONFIG_SCHEMA_VERSION,
+            "backend": {
+                "mode": self.backend_mode,
+                "url": backend_http_url(self.cloud_url),
+            },
+            **document,
+        }
         temporary.write_text(
-            json.dumps(asdict(self), indent=2, sort_keys=True) + "\n",
+            json.dumps(document, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         temporary.replace(config_path)
@@ -227,3 +315,15 @@ class DesktopConfig:
             assistant_mute_device=self.assistant_mute_device_id,
             assistant_mute_button=self.assistant_mute_button,
         )
+
+    def validate_backend(self) -> None:
+        if self.backend_mode not in {"local", "remote"}:
+            raise ValueError("Backend mode must be local or remote")
+        self.cloud_url = realtime_url(self.cloud_url)
+        parsed = urlparse(self.cloud_url)
+        if self.backend_mode == "local" and parsed.hostname not in {
+            "127.0.0.1",
+            "localhost",
+            "::1",
+        }:
+            raise ValueError("Local backend mode requires a loopback URL")

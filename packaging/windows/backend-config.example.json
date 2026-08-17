@@ -1,0 +1,7 @@
+{
+  "deployment": "remote",
+  "host": "127.0.0.1",
+  "port": 47100,
+  "tts_provider": "kokoro",
+  "tts_voice": "af_heart"
+}
