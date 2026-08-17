@@ -28,7 +28,9 @@ control output by its symbolic name (`module`, `identifier`, `output_type`,
 or reconnect the publisher generates a fresh epoch UUID, sends the complete
 catalog in chunks, sends a complete value snapshot, then sends coalesced
 changed-value deltas at 10–20 Hz. Only own-aircraft modules and CommonData
-passive DCS-BIOS outputs are published; no Lua, filesystem, enemy, world,
+passive DCS-BIOS outputs are published on this stream. A separate packaged
+spatial provider sends normalized ownship and at most one selected lead/carrier
+only when DCS permits world-object export. No complete world dump, filesystem,
 target, or hidden mission data is forwarded and no DCS writes are ever issued.
 
 ## PTT and audio
@@ -49,17 +51,20 @@ the handshake.
 
 The Windows installer can configure every detected DCS Saved Games tree. It
 downloads a pinned DCS-Skunkworks DCS-BIOS release, verifies its SHA-256
-digest, backs up an existing DCS-BIOS folder and `Export.lua`, and adds the
-standard DCS-BIOS `dofile` exactly once. The same operation is available from
-the UI and as `dcs-copilot setup-dcs [path]`.
+digest, backs up an existing DCS-BIOS folder and `Export.lua`, installs the
+read-only `MARASpatial.lua`, and adds both `dofile` entries exactly once. The same operation is available from
+the UI and as `mara setup-dcs [path]`.
 
 ## CLI commands
 
 ```text
-dcs-copilot status [--wait N]   bounded DCS-BIOS and cloud diagnostics
-dcs-copilot run [--stdin-ptt]   DCS monitoring, cloud session, and PTT audio
-dcs-copilot watch [--module M]  decoded DCS-BIOS output changes
-dcs-copilot setup-dcs [path]    install DCS-BIOS and configure Export.lua
+mara status [--wait N]          bounded DCS-BIOS and cloud diagnostics
+mara run [--stdin-ptt] [--coach-recording FILE]
+                                DCS monitoring, cloud session, and opt-in replay data
+mara watch [--module M]         decoded DCS-BIOS output changes
+mara setup-dcs [path]           install DCS-BIOS and configure Export.lua
+mara coach replay FILE --exercise EXERCISE
+                                replay normalized Coach data (developer workspace)
 mara indications install [path] explicitly install the local development probe
 mara indications scan           snapshot raw list_indication() output
 mara indications watch [--diff] watch change-driven raw indication output
@@ -69,7 +74,10 @@ mara indications validate PATH  validate a recording before fixture use
 mara indications replay PATH    replay validated raw observations
 ```
 
-`status` reports `AI inference running locally: NO`. `--stdin-ptt` replaces the
+The legacy `dcs-copilot` command remains available as an alias.
+
+`status` also reports ownship, cockpit, world-export, and derived Coach
+availability. It reports `AI inference running locally: NO`. `--stdin-ptt` replaces the
 Windows hotkey with Enter for POSIX development.
 
 The `indications` command group is an explicit development facility, not part

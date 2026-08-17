@@ -21,6 +21,16 @@ bounded PTT turn -> gpt-transcribe STT -> Pipecat context
                   -> Kokoro local or OpenAI TTS PCM -> client
 ```
 
+The session also owns a permission-gated `CoachCoordinator`. It consumes only
+validated normalized `coach.telemetry`, runs formation/carrier/CASE I geometry
+deterministically, retains bounded exercise samples, and exposes high-level
+capability, lifecycle, feedback, and debrief tools. Cooldown-eligible exercise
+feedback uses the existing interruptible cloud TTS path; the LLM never receives
+raw spatial telemetry or calculates geometry.
+
+Record explicitly with `mara run --coach-recording FILE`; offline development
+replay uses `mara coach replay FILE --exercise EXERCISE`.
+
 Raw telemetry values are held only in the authenticated connection's in-process
 session memory. They are never persisted, logged as complete snapshots, or
 stored as raw time series. Semantic account, history, and habit records may

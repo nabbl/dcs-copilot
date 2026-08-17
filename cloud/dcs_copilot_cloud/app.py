@@ -15,6 +15,7 @@ from dcs_copilot_protocol import (
     MARA_API_VERSION,
     MARA_VERSION,
     PROTOCOL_VERSION,
+    CoachTelemetry,
     ControlMessage,
     MediaKind,
     MediaPacket,
@@ -28,6 +29,9 @@ from .accounts import ACCOUNT_TOOL_NAMES, AccountStore, AccountToolExecutor
 from .aircraft.raw import RawTelemetryKey
 from .auth import AuthService
 from .auth_api import auth_router
+from .coach.coordinator import CoachCoordinator
+from .coach.ingress import CoachTelemetryIngress
+from .coach.tools import COACH_TOOL_NAMES, CoachToolError, CoachToolExecutor
 from .config import LOCAL_DEVELOPMENT_SIGNING_KEY, CloudSettings
 from .database import Database
 from .events.models import CloudAircraftEvent, CloudManagedEvent
@@ -261,6 +265,9 @@ def create_app(
             value_stale_timeout=configured.telemetry_stale_seconds
         )
         aircraft_tools = BackendAircraftToolExecutor(aircraft_state)
+        coach = CoachCoordinator()
+        coach_ingress = CoachTelemetryIngress(coach)
+        coach_tools = CoachToolExecutor(coach)
 
         async def send_control(message: ControlMessage) -> None:
             async with send_lock:
@@ -280,6 +287,17 @@ def create_app(
                         "available": False,
                         "error": {
                             "code": "invalid_aircraft_tool",
+                            "detail": str(exc),
+                        },
+                    }
+            if tool in COACH_TOOL_NAMES:
+                try:
+                    return coach_tools.execute(tool, arguments)
+                except CoachToolError as exc:
+                    return {
+                        "available": False,
+                        "error": {
+                            "code": "invalid_coach_tool",
                             "detail": str(exc),
                         },
                     }
@@ -508,6 +526,36 @@ def create_app(
                     )
                 )
 
+        async def run_coach_feedback(text: str, *, correlation_id: str) -> None:
+            nonlocal voice
+            try:
+                if voice is None:
+                    voice = pipeline_factory(configured)
+                if (
+                    session.input_audio_format is None
+                    or session.output_audio_format is None
+                ):
+                    raise VoicePipelineError("session audio format is unavailable")
+                response = await voice.announce(
+                    VoiceAnnouncement(
+                        text,
+                        session.input_audio_format,
+                        session.output_audio_format,
+                    ),
+                    stream_audio,
+                )
+                await send_control(
+                    ControlMessage(
+                        "assistant.text",
+                        {"text": response, "proactive": True, "kind": "coach_feedback"},
+                        correlation_id=correlation_id,
+                    )
+                )
+            except asyncio.CancelledError:
+                raise
+            except (ValueError, VoicePipelineError) as exc:
+                LOGGER.warning("Coach feedback failed: %s", exc)
+
         async def persist_pending_summaries() -> None:
             for summary in aircraft_state.flight_stats.pending:
                 if session.user_id is None:
@@ -609,6 +657,7 @@ def create_app(
             nonlocal response_task
             now = time.monotonic()
             if batch.kind == "reset":
+                coach_ingress.reset()
                 aircraft_state.update(aircraft=None, connected=False, now=now)
                 await persist_pending_summaries()
                 aircraft_state.raw.reset()
@@ -672,7 +721,39 @@ def create_app(
                 try:
                     if incoming.get("text") is not None:
                         message = ControlMessage.from_json(incoming["text"])
-                        if message.type.startswith("telemetry."):
+                        if message.type == "coach.telemetry":
+                            if session.session_id is None:
+                                result = SessionResult(
+                                    responses=(
+                                        ControlMessage(
+                                            "error",
+                                            {
+                                                "code": "session_not_active",
+                                                "fatal": False,
+                                            },
+                                            correlation_id=message.message_id,
+                                        ),
+                                    )
+                                )
+                            else:
+                                feedback = coach_ingress.accept(
+                                    CoachTelemetry.from_control(message),
+                                    received_at=time.monotonic(),
+                                )
+                                if (
+                                    feedback
+                                    and not session.ptt_active
+                                    and (response_task is None or response_task.done())
+                                ):
+                                    response_task = asyncio.create_task(
+                                        run_coach_feedback(
+                                            feedback[-1].message,
+                                            correlation_id=message.message_id,
+                                        ),
+                                        name="coach-feedback",
+                                    )
+                                result = SessionResult()
+                        elif message.type.startswith("telemetry."):
                             if session.session_id is None:
                                 result = SessionResult(
                                     responses=(
@@ -774,6 +855,7 @@ def create_app(
             await persist_pending_summaries()
             aircraft_state.raw.reset()
             telemetry.disconnect()
+            coach_ingress.reset()
             if session.user_id is not None and session.session_id is not None:
                 cleanup = asyncio.create_task(
                     accounts.end_flight(

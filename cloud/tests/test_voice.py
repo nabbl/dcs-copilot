@@ -22,6 +22,7 @@ from dcs_copilot_cloud.voice import (
     _OutputObserver,
     account_tool_schemas,
     aircraft_tool_schemas,
+    coach_tool_schemas,
     copilot_tool_schemas,
 )
 from dcs_copilot_protocol import AudioFormat
@@ -124,7 +125,15 @@ def test_pipecat_context_separates_allowlisted_account_and_aircraft_tools() -> N
         "get_flight_history",
         "get_pilot_habits",
     }
-    assert len(copilot_tool_schemas(handler)) == 21
+    assert {schema.name for schema in coach_tool_schemas(handler)} == {
+        "coach_get_capabilities",
+        "coach_start_exercise",
+        "coach_stop_exercise",
+        "coach_get_status",
+        "coach_get_feedback",
+        "coach_get_last_debrief",
+    }
+    assert len(copilot_tool_schemas(handler)) == 27
     assert all(schema.handler is handler for schema in account_schemas)
 
 

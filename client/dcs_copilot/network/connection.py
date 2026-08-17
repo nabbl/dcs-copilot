@@ -180,11 +180,11 @@ class CloudSessionConnection:
 
     def send_message(self, message: ControlMessage) -> bool:
         if not self.ready:
-            if not message.type.startswith("telemetry."):
+            if not _is_stream_message(message.type):
                 self._diagnose(f"Error: {message.type} not queued; cloud unavailable")
             return False
         queued = self._enqueue(message.to_json(), audio=False)
-        if not queued and not message.type.startswith("telemetry."):
+        if not queued and not _is_stream_message(message.type):
             self._diagnose(f"Error: {message.type} not queued; outbound queue full")
         return queued
 
@@ -348,7 +348,7 @@ class CloudSessionConnection:
             )
 
     def _diagnose_control(self, direction: str, message: ControlMessage) -> None:
-        if message.type.startswith("telemetry."):
+        if _is_stream_message(message.type):
             return
         prefix = (
             "Error: cloud"
@@ -407,3 +407,7 @@ def validate_cloud_url(url: str) -> None:
 def _bounded_line(value: str, limit: int = 240) -> str:
     line = " ".join(value.split())
     return line if len(line) <= limit else f"{line[: limit - 3]}..."
+
+
+def _is_stream_message(message_type: str) -> bool:
+    return message_type.startswith("telemetry.") or message_type == "coach.telemetry"

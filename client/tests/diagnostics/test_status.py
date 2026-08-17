@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from dcs_copilot.audio.devices import AudioDeviceStatus
 from dcs_copilot.cli import status
 from dcs_copilot.config import Settings
+from dcs_copilot_protocol import CoachCapabilitiesPayload
 
 
 class FakeDcsBiosClient:
@@ -49,3 +50,23 @@ def test_status_reports_thin_client_resource_and_ai_boundary(monkeypatch) -> Non
     assert "Output: Test Headset (not opened)" in lines
     assert "AI inference running locally: NO" in lines
     assert any(line.startswith("Client RAM: ") for line in lines)
+
+
+def test_coach_diagnostics_distinguish_blocked_world_export() -> None:
+    lines = status._coach_status_lines(
+        CoachCapabilitiesPayload(
+            ownship_export=True,
+            world_object_export=False,
+            sensor_export=True,
+            cockpit_state=True,
+        ),
+        cockpit_available=True,
+        error=None,
+    )
+
+    assert "Ownship telemetry: AVAILABLE" in lines
+    assert "World object export: BLOCKED" in lines
+    assert "Formation Coach: UNAVAILABLE" in lines
+    assert "CASE I Pattern Coach: UNAVAILABLE" in lines
+    assert "Carrier Approach: UNAVAILABLE" in lines
+    assert "Procedure Coach: AVAILABLE" in lines

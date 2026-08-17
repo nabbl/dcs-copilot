@@ -21,9 +21,8 @@ DCS_BIOS_URL = (
 )
 DCS_BIOS_SHA256 = "96091c9321773b5c2d4be088e28bb596f341bc2f560f71aba8868db348a1921d"
 EXPORT_LINE = r"dofile(lfs.writedir()..[[Scripts\DCS-BIOS\BIOS.lua]])"
-INDICATION_EXPORT_LINE = (
-    r"dofile(lfs.writedir()..[[Scripts\MARA\MARAIndications.lua]])"
-)
+SPATIAL_EXPORT_LINE = r"dofile(lfs.writedir()..[[Scripts\MARA\MARASpatial.lua]])"
+INDICATION_EXPORT_LINE = r"dofile(lfs.writedir()..[[Scripts\MARA\MARAIndications.lua]])"
 
 
 class DcsSetupError(RuntimeError):
@@ -37,6 +36,7 @@ class DcsSetupResult:
     export_path: Path
     backup_paths: tuple[Path, ...]
     version: str
+    spatial_export_path: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,10 +54,13 @@ def inspect_installation(dcs_path: Path) -> tuple[bool, str]:
         return False, "DCS-BIOS is not installed"
     if not (bios / "doc" / "json" / "MetadataStart.json").is_file():
         return False, "DCS-BIOS control metadata is missing"
+    if not (dcs_path / "Scripts" / "MARA" / "MARASpatial.lua").is_file():
+        return False, "MARA spatial export is not installed"
     if not export.is_file():
         return False, "Export.lua is missing"
     try:
-        configured = EXPORT_LINE in export.read_text(encoding="utf-8-sig")
+        export_text = export.read_text(encoding="utf-8-sig")
+        configured = EXPORT_LINE in export_text and SPATIAL_EXPORT_LINE in export_text
     except OSError as exc:
         return False, f"Export.lua cannot be read: {exc}"
     return (
@@ -65,7 +68,7 @@ def inspect_installation(dcs_path: Path) -> tuple[bool, str]:
         if configured
         else (
             False,
-            "DCS-BIOS is not enabled in Export.lua",
+            "DCS-BIOS or MARA spatial export is not enabled in Export.lua",
         )
     )
 
@@ -102,9 +105,7 @@ def install_indication_probe(dcs_path: Path) -> IndicationProbeSetupResult:
     probe_dir.mkdir(parents=True, exist_ok=True)
     probe_path = probe_dir / "MARAIndications.lua"
     packaged = (
-        files("dcs_copilot.resources")
-        .joinpath("MARAIndications.lua")
-        .read_bytes()
+        files("dcs_copilot.resources").joinpath("MARAIndications.lua").read_bytes()
     )
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     backups: list[Path] = []
@@ -176,9 +177,26 @@ def install_dcs_bios(dcs_path: Path, archive: bytes | None = None) -> DcsSetupRe
 
     scripts = dcs_path / "Scripts"
     scripts.mkdir(parents=True, exist_ok=True)
-    bios_path = scripts / "DCS-BIOS"
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     backups: list[Path] = []
+    mara_dir = scripts / "MARA"
+    mara_dir.mkdir(parents=True, exist_ok=True)
+    spatial_export_path = mara_dir / "MARASpatial.lua"
+    spatial_payload = (
+        files("dcs_copilot.resources").joinpath("MARASpatial.lua").read_bytes()
+    )
+    if (
+        not spatial_export_path.is_file()
+        or spatial_export_path.read_bytes() != spatial_payload
+    ):
+        if spatial_export_path.is_file():
+            backup = _available_backup(mara_dir / f"MARASpatial.lua.backup-{timestamp}")
+            shutil.copy2(spatial_export_path, backup)
+            backups.append(backup)
+        temporary_spatial = spatial_export_path.with_suffix(".lua.tmp")
+        temporary_spatial.write_bytes(spatial_payload)
+        temporary_spatial.replace(spatial_export_path)
+    bios_path = scripts / "DCS-BIOS"
 
     with tempfile.TemporaryDirectory(prefix="dcs-copilot-bios-") as temporary:
         staging = Path(temporary)
@@ -202,13 +220,16 @@ def install_dcs_bios(dcs_path: Path, archive: bytes | None = None) -> DcsSetupRe
     existing = ""
     if export_path.is_file():
         existing = export_path.read_text(encoding="utf-8-sig")
-        if EXPORT_LINE not in existing:
+        if EXPORT_LINE not in existing or SPATIAL_EXPORT_LINE not in existing:
             backup = _available_backup(scripts / f"Export.lua.backup-{timestamp}")
             shutil.copy2(export_path, backup)
             backups.append(backup)
-    if EXPORT_LINE not in existing:
+    missing_lines = [
+        line for line in (EXPORT_LINE, SPATIAL_EXPORT_LINE) if line not in existing
+    ]
+    if missing_lines:
         separator = "" if not existing or existing.endswith(("\n", "\r")) else "\n"
-        updated = existing + separator + EXPORT_LINE + "\n"
+        updated = existing + separator + "\n".join(missing_lines) + "\n"
         temporary_export = export_path.with_suffix(".lua.tmp")
         temporary_export.write_text(updated, encoding="utf-8", newline="\n")
         temporary_export.replace(export_path)
@@ -222,6 +243,7 @@ def install_dcs_bios(dcs_path: Path, archive: bytes | None = None) -> DcsSetupRe
         export_path,
         tuple(backups),
         DCS_BIOS_VERSION,
+        spatial_export_path,
     )
 
 

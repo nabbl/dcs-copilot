@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+
 def _load_dotenv(path: Path) -> None:
     """Load a small, dependency-free subset of dotenv syntax."""
 
@@ -36,6 +37,9 @@ class Settings:
     port: int = 5010
     interface: str = "127.0.0.1"
     stale_timeout: float = 2.0
+    spatial_export_host: str = "127.0.0.1"
+    spatial_export_port: int = 7780
+    spatial_export_stale_timeout: float = 2.0
     indication_control_port: int = 7779
     cloud_url: str = "ws://127.0.0.1:8000/v2/realtime"
     access_token: str = field(default="local-dev-token", repr=False)
@@ -69,6 +73,11 @@ class Settings:
             port=int(os.getenv("DCS_BIOS_PORT", "5010")),
             interface=os.getenv("DCS_BIOS_INTERFACE", "127.0.0.1"),
             stale_timeout=float(os.getenv("DCS_BIOS_STALE_TIMEOUT", "2.0")),
+            spatial_export_host=os.getenv("DCS_SPATIAL_EXPORT_HOST", "127.0.0.1"),
+            spatial_export_port=int(os.getenv("DCS_SPATIAL_EXPORT_PORT", "7780")),
+            spatial_export_stale_timeout=float(
+                os.getenv("DCS_SPATIAL_EXPORT_STALE_TIMEOUT", "2.0")
+            ),
             indication_control_port=int(os.getenv("MARA_INDICATION_PORT", "7779")),
             cloud_url=os.getenv(
                 "DCS_COPILOT_CLOUD_URL",

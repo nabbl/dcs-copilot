@@ -24,6 +24,9 @@ remote/hosted backend topology. The current build includes:
   habit statistics that never ask an LLM to calculate a count.
 - the first MARA Ground Operations v1 slice: durable guided-checklist progress,
   deterministic ground phases, and explicit land/carrier takeoff readiness gates.
+- permission-gated MARA Spatial Coach foundations through replay: selected
+  lead/carrier observations, formation coaching, carrier approach trends,
+  CASE I segmentation, deterministic debriefs, tools, speech, and diagnostics.
 
 The DCS host bridge/client contains no Pipecat or neural provider code. Those
 dependencies remain isolated in the single backend implementation, whether it

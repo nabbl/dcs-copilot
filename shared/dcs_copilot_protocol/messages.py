@@ -35,6 +35,7 @@ KNOWN_CONTROL_TYPES = frozenset(
         "telemetry.catalog",
         "telemetry.snapshot",
         "telemetry.delta",
+        "coach.telemetry",
     }
 )
 
@@ -63,9 +64,7 @@ class ControlMessage:
                 f"control message type must be 1 to {_MAX_ID_LENGTH} characters"
             )
         if not self.message_id or len(self.message_id) > _MAX_ID_LENGTH:
-            raise ProtocolError(
-                f"message_id must be 1 to {_MAX_ID_LENGTH} characters"
-            )
+            raise ProtocolError(f"message_id must be 1 to {_MAX_ID_LENGTH} characters")
         if self.correlation_id is not None and (
             not isinstance(self.correlation_id, str)
             or len(self.correlation_id) > _MAX_ID_LENGTH

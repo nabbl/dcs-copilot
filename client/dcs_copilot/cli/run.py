@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from dcs_copilot.config import Settings
 from dcs_copilot.desktop.auth import AuthError, StoredAuthSession
@@ -10,7 +11,12 @@ from dcs_copilot.desktop.config_store import DesktopConfig
 from dcs_copilot.runtime import run_client_runtime
 
 
-def run_client(settings: Settings, *, stdin_ptt: bool) -> int:
+def run_client(
+    settings: Settings,
+    *,
+    stdin_ptt: bool,
+    coach_recording_path: Path | None = None,
+) -> int:
     provider = None
     desktop = DesktopConfig.load()
     if (
@@ -33,6 +39,7 @@ def run_client(settings: Settings, *, stdin_ptt: bool) -> int:
                 settings,
                 stdin_ptt=stdin_ptt,
                 access_token_provider=provider,
+                coach_recording_path=coach_recording_path,
             )
         )
     except KeyboardInterrupt:

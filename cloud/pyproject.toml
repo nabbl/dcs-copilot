@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 dcs-copilot-cloud = "dcs_copilot_cloud.main:main"
+mara-coach = "dcs_copilot_cloud.coach.cli:main"
 
 [dependency-groups]
 dev = [

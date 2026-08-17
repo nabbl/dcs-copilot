@@ -1,1 +1,1 @@
-"""Packaged DCS-side resources."""
+"""Packaged DCS-side MARA runtime resources."""
