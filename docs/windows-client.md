@@ -2,11 +2,12 @@
 
 ## Customer flow
 
-`DCS-Copilot-Setup-<version>.exe` installs two bundled applications without
+`MARA-Setup-<version>.exe` installs three bundled applications without
 requiring Python:
 
 - **DCS Copilot** is the normal windowed client;
 - **dcs-copilot** is the diagnostics and DCS setup command-line helper.
+- **MaraBackend** is the packaged FastAPI/Pipecat/Coach/Kokoro backend.
 
 The installer offers to install/repair DCS-BIOS in every detected `DCS`,
 `DCS.openbeta`, or `DCS.openalpha` Saved Games directory. If DCS has not yet
@@ -16,9 +17,10 @@ unexpected or unsafe archive layouts. Existing DCS-BIOS and `Export.lua` files
 receive timestamped sibling backups. Uninstalling DCS Copilot deliberately does
 not delete DCS-BIOS, `Export.lua`, their backups, or account data in the cloud.
 
-The first app screen signs in or creates an account. The main screen then shows
-account, DCS-BIOS, and runtime state; settings expose the Saved Games path,
-service URL, keyboard or detected USB joystick/HOTAS push-to-talk button,
+Fresh installs enter local mode without requiring a MARA account. Remote mode
+retains the sign-in/create-account flow. The main screen shows account,
+DCS-BIOS, backend, and runtime state; settings expose the Saved Games path,
+backend mode/URL/compatibility, secure local OpenAI-key entry, keyboard or detected USB joystick/HOTAS push-to-talk button,
 speech mode, and optional Windows login launch. Controller discovery uses the
 native Windows game-controller API and supports buttons 1–32. The activity view contains local runtime output. It must not display
 tokens, passwords, raw audio, or cockpit snapshots.
@@ -32,11 +34,12 @@ On a Windows x64 build host, install `uv` and Inno Setup 6, then run:
   -ServiceUrl "wss://api.example.com/v2/realtime"
 ```
 
-The script synchronizes the workspace, builds separate PyInstaller windowed and
-console bundles, then invokes Inno Setup. Output is written below
+The script synchronizes the workspace, builds client, CLI, and backend
+PyInstaller bundles, creates the standalone backend ZIP, then invokes Inno
+Setup. Output is written below
 `dist/windows/`. The GitHub Actions workflow performs the same build and uploads
-the installer artifact. Configure its `DCS_COPILOT_SERVICE_URL` repository
-variable for release builds; a production client URL must use `wss://`.
+the installer, backend ZIP, and checksums. The normal release defaults to local
+mode at port 47100; remote endpoints are selected in app settings.
 
 Qt Essentials is intentionally used instead of the full Qt distribution. The
 desktop bundle still has a larger footprint than the previous CLI, but avoids

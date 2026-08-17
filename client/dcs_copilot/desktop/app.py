@@ -37,6 +37,12 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped]
     QWidget,
 )
 
+from dcs_copilot.backend import (
+    BackendError,
+    BackendInfo,
+    LocalBackendManager,
+    probe_backend,
+)
 from dcs_copilot.cli.run import run_client
 from dcs_copilot.input.ptt import (
     JoystickButtonSelection,
@@ -48,6 +54,7 @@ from dcs_copilot.logging import configure_logging
 
 from .activity import ActivityOutputFilter
 from .auth import AuthError, StoredAuthSession, TokenPair
+from .backend_credentials import KeyringBackendCredentialStore
 from .config_store import DesktopConfig, configure_launch_at_login
 from .dcs_setup import inspect_installation, install_dcs_bios
 
@@ -61,6 +68,10 @@ MUTED = "#8ea0b8"
 class WorkerSignals(QObject):
     succeeded = Signal(object)
     failed = Signal(str)
+
+
+class BackendStatusSignals(QObject):
+    changed = Signal(str)
 
 
 class Worker(QRunnable):
@@ -204,6 +215,8 @@ class DashboardPage(QWidget):
     logout_requested = Signal()
     learn_ptt_requested = Signal()
     learn_mute_requested = Signal()
+    test_backend_requested = Signal()
+    restart_backend_requested = Signal()
 
     def __init__(self, config: DesktopConfig) -> None:
         super().__init__()
@@ -215,13 +228,13 @@ class DashboardPage(QWidget):
         brand.setObjectName("brand")
         self.account = QLabel("")
         self.account.setObjectName("muted")
-        logout = QPushButton("Sign out")
-        logout.setObjectName("link")
-        logout.clicked.connect(self.logout_requested)
+        self.logout = QPushButton("Sign out")
+        self.logout.setObjectName("link")
+        self.logout.clicked.connect(self.logout_requested)
         header.addWidget(brand)
         header.addStretch()
         header.addWidget(self.account)
-        header.addWidget(logout)
+        header.addWidget(self.logout)
         outer.addLayout(header)
 
         tabs = QTabWidget()
@@ -244,9 +257,11 @@ class DashboardPage(QWidget):
         cards = QHBoxLayout()
         self.account_card = StatusCard("Account")
         self.dcs_card = StatusCard("DCS-BIOS")
+        self.backend_card = StatusCard("Backend")
         self.runtime_card = StatusCard("MARA")
         cards.addWidget(self.account_card)
         cards.addWidget(self.dcs_card)
+        cards.addWidget(self.backend_card)
         cards.addWidget(self.runtime_card)
         actions = QHBoxLayout()
         self.install = QPushButton("Install / repair DCS-BIOS")
@@ -284,6 +299,25 @@ class DashboardPage(QWidget):
         path_row.addWidget(self.dcs_path)
         path_row.addWidget(browse)
         self.cloud_url = QLineEdit(self.config.cloud_url)
+        self.backend_mode = QComboBox()
+        self.backend_mode.addItem("Local (recommended)", "local")
+        self.backend_mode.addItem("Remote", "remote")
+        self.backend_mode.setCurrentIndex(
+            max(0, self.backend_mode.findData(self.config.backend_mode))
+        )
+        backend_actions = QHBoxLayout()
+        test_backend = QPushButton("Test connection")
+        test_backend.clicked.connect(self.test_backend_requested)
+        restart_backend = QPushButton("Restart Backend")
+        restart_backend.clicked.connect(self.restart_backend_requested)
+        backend_actions.addWidget(test_backend)
+        backend_actions.addWidget(restart_backend)
+        backend_actions.addStretch()
+        self.openai_key = QLineEdit()
+        self.openai_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.openai_key.setPlaceholderText(
+            "Stored securely; leave blank to keep current key"
+        )
         ptt_device_row = QHBoxLayout()
         self.ptt_device = QComboBox()
         self.ptt_control = QComboBox()
@@ -294,7 +328,9 @@ class DashboardPage(QWidget):
         ptt_device_row.addWidget(self.ptt_device)
         ptt_device_row.addWidget(refresh_ptt)
         ptt_device_row.addWidget(self.learn_ptt)
-        self.ptt_hint = QLabel("Tip: click Detect button, then press your HOTAS/PTT button.")
+        self.ptt_hint = QLabel(
+            "Tip: click Detect button, then press your HOTAS/PTT button."
+        )
         self.ptt_hint.setObjectName("muted")
         self.ptt_hint.setWordWrap(True)
         self._ptt_devices: dict[int, JoystickDevice] = {}
@@ -321,7 +357,10 @@ class DashboardPage(QWidget):
         self.launch_login = QCheckBox("Start DCS Copilot when I sign in to Windows")
         self.launch_login.setChecked(self.config.launch_at_login)
         form.addRow("DCS Saved Games folder", path_row)
-        form.addRow("Service URL", self.cloud_url)
+        form.addRow("Backend mode", self.backend_mode)
+        form.addRow("Backend URL", self.cloud_url)
+        form.addRow("Backend", backend_actions)
+        form.addRow("OpenAI API key (local only)", self.openai_key)
         form.addRow("PTT input device", ptt_device_row)
         form.addRow("PTT key / button", self.ptt_control)
         form.addRow("", self.ptt_hint)
@@ -439,7 +478,9 @@ class DashboardPage(QWidget):
             max(0, self.ptt_device.findData(selection.device.device_id))
         )
         self._update_ptt_controls()
-        self.ptt_control.setCurrentIndex(max(0, self.ptt_control.findData(selection.button)))
+        self.ptt_control.setCurrentIndex(
+            max(0, self.ptt_control.findData(selection.button))
+        )
         self.ptt_hint.setText(
             f"Detected {selection.device.name}, button {selection.button}."
         )
@@ -535,7 +576,9 @@ class DashboardPage(QWidget):
 
     def update_config(self) -> None:
         self.config.dcs_saved_games_path = self.dcs_path.text().strip()
+        self.config.backend_mode = str(self.backend_mode.currentData())
         self.config.cloud_url = self.cloud_url.text().strip()
+        self.config.validate_backend()
         device_id = self.ptt_device.currentData()
         self.config.ptt_device_id = device_id
         if device_id is None:
@@ -587,6 +630,17 @@ class DashboardPage(QWidget):
             good=running,
         )
 
+    def set_backend_info(self, info: BackendInfo, *, owned: bool = False) -> None:
+        ownership = "managed locally" if owned else info.deployment
+        self.backend_card.set_status(
+            "Connected",
+            f"v{info.mara_version} · API {info.api_version} · {info.latency_ms:.0f} ms · {ownership}",
+            good=True,
+        )
+
+    def set_backend_error(self, detail: str) -> None:
+        self.backend_card.set_status("Unavailable", detail, good=False)
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -603,6 +657,10 @@ class MainWindow(QMainWindow):
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self._activity_filter = ActivityOutputFilter()
+        self.backend_status = BackendStatusSignals()
+        self.backend_status.changed.connect(self._backend_status_changed)
+        self.backend_credentials = KeyringBackendCredentialStore()
+        self.backend_manager: LocalBackendManager | None = None
 
         self.stack = QStackedWidget()
         self.login = LoginPage()
@@ -622,6 +680,8 @@ class MainWindow(QMainWindow):
         self.dashboard.logout_requested.connect(self._logout)
         self.dashboard.learn_ptt_requested.connect(self._learn_ptt_button)
         self.dashboard.learn_mute_requested.connect(self._learn_mute_button)
+        self.dashboard.test_backend_requested.connect(self._test_backend)
+        self.dashboard.restart_backend_requested.connect(self._restart_backend)
         self._restore_session()
 
     def _worker(
@@ -636,7 +696,81 @@ class MainWindow(QMainWindow):
         self.pool.start(worker)
 
     def _restore_session(self) -> None:
+        if self.config.backend_mode == "local":
+            self._enter_local_mode()
+            self._ensure_local_backend()
+            return
         self._worker(self.auth.restore, self._signed_in, lambda _error: None)
+
+    def _enter_local_mode(self) -> None:
+        self.token = TokenPair("local-dev-token", "", 2**31, "local-pilot")
+        self.dashboard.account.setText("Local mode")
+        self.dashboard.account_card.set_status(
+            "Local", "No MARA account required.", good=True
+        )
+        self.dashboard.logout.setVisible(False)
+        self.dashboard.refresh_setup_status()
+        self.dashboard.set_running(False)
+        self.stack.setCurrentWidget(self.dashboard)
+
+    def _ensure_local_backend(self) -> None:
+        self.dashboard.backend_card.set_status(
+            "Starting…", "Checking the local backend.", good=False
+        )
+        self.backend_manager = LocalBackendManager(
+            self.config.cloud_url, on_status=self.backend_status.changed.emit
+        )
+        self._worker(
+            self.backend_manager.start,
+            self._backend_ready,
+            self.dashboard.set_backend_error,
+        )
+
+    def _backend_ready(self, result: object) -> None:
+        if isinstance(result, BackendInfo):
+            owned = bool(self.backend_manager and self.backend_manager.owned)
+            self.dashboard.set_backend_info(result, owned=owned)
+
+    def _backend_status_changed(self, detail: str) -> None:
+        healthy = any(
+            marker in detail for marker in ("ready", "recovered", "connected")
+        )
+        self.dashboard.backend_card.set_status(
+            "Connected" if healthy else "Attention",
+            detail,
+            good=healthy,
+        )
+
+    def _test_backend(self) -> None:
+        try:
+            self.dashboard.update_config()
+        except ValueError as exc:
+            self.dashboard.set_backend_error(str(exc))
+            return
+        self.dashboard.backend_card.set_status(
+            "Checking…", self.config.cloud_url, good=False
+        )
+        self._worker(
+            lambda: probe_backend(self.config.cloud_url),
+            self._backend_ready,
+            self.dashboard.set_backend_error,
+        )
+
+    def _restart_backend(self) -> None:
+        if self.config.backend_mode != "local":
+            self.dashboard.set_backend_error(
+                "Remote backends are not managed by this app."
+            )
+            return
+        if self.backend_manager is None:
+            self._ensure_local_backend()
+            return
+        self.dashboard.backend_card.set_status("Restarting…", "", good=False)
+        self._worker(
+            self.backend_manager.restart,
+            self._backend_ready,
+            self.dashboard.set_backend_error,
+        )
 
     def _authenticate(self, email: str, password: str, register: bool) -> None:
         if not email or not password:
@@ -657,6 +791,7 @@ class MainWindow(QMainWindow):
             self.config.save()
         self.login.finish()
         self.dashboard.account.setText(self.config.email or "Signed in")
+        self.dashboard.logout.setVisible(True)
         self.dashboard.account_card.set_status(
             "Authenticated", self.config.email or "This device is connected.", good=True
         )
@@ -734,7 +869,7 @@ class MainWindow(QMainWindow):
     def _save_settings(self) -> None:
         try:
             unchanged_account = self._save_settings_silently()
-        except (AuthError, OSError, ValueError) as exc:
+        except (AuthError, BackendError, OSError, ValueError) as exc:
             QMessageBox.critical(self, APP_NAME, f"Settings could not be saved: {exc}")
             return
         if not unchanged_account:
@@ -750,7 +885,7 @@ class MainWindow(QMainWindow):
     def _start_runtime(self) -> None:
         try:
             unchanged_account = self._save_settings_silently()
-        except (AuthError, OSError, ValueError) as exc:
+        except (AuthError, BackendError, OSError, ValueError) as exc:
             QMessageBox.critical(self, APP_NAME, f"Settings could not be saved: {exc}")
             return
         if not unchanged_account:
@@ -822,16 +957,78 @@ class MainWindow(QMainWindow):
         self.dashboard.set_running(False)
 
     def _save_settings_silently(self) -> bool:
-        self.dashboard.update_config()
-        service_changed = self.config.cloud_url != self.auth_url
-        if service_changed:
-            self.auth = StoredAuthSession(self.config.cloud_url, self.config.device_id)
+        previous_mode = self.config.backend_mode
+        previous_url = self.config.cloud_url
+        candidate: LocalBackendManager | None = None
+        candidate_info: BackendInfo | None = None
+        try:
+            self.dashboard.update_config()
+            service_changed = self.config.cloud_url != self.auth_url
+            topology_changed = (
+                previous_mode != self.config.backend_mode
+                or previous_url != self.config.cloud_url
+            )
+            if topology_changed:
+                if self.config.backend_mode == "remote":
+                    candidate_info = probe_backend(self.config.cloud_url)
+                else:
+                    candidate = LocalBackendManager(
+                        self.config.cloud_url,
+                        on_status=self.backend_status.changed.emit,
+                    )
+                    candidate_info = candidate.start()
+            key = self.dashboard.openai_key.text().strip()
+            if key:
+                if self.config.backend_mode != "local":
+                    raise ValueError(
+                        "A local OpenAI key is never sent to a remote backend"
+                    )
+                self.backend_credentials.set_openai_key(key)
+                self.dashboard.openai_key.clear()
+                manager = candidate or self.backend_manager
+                if manager is not None and manager.owned:
+                    candidate_info = manager.restart()
+            replacement_auth = (
+                StoredAuthSession(self.config.cloud_url, self.config.device_id)
+                if service_changed
+                else None
+            )
+            self.config.save()
+            if getattr(sys, "frozen", False):
+                configure_launch_at_login(
+                    self.config.launch_at_login, Path(sys.executable)
+                )
+        except Exception:
+            if candidate is not None:
+                candidate.stop()
+            self.config.backend_mode = previous_mode
+            self.config.cloud_url = previous_url
+            self.dashboard.backend_mode.setCurrentIndex(
+                max(0, self.dashboard.backend_mode.findData(previous_mode))
+            )
+            self.dashboard.cloud_url.setText(previous_url)
+            raise
+        if topology_changed:
+            previous_manager = self.backend_manager
+            if previous_manager is not None and previous_manager is not candidate:
+                previous_manager.stop()
+            self.backend_manager = (
+                candidate if self.config.backend_mode == "local" else None
+            )
+        if candidate_info is not None:
+            self.dashboard.set_backend_info(
+                candidate_info,
+                owned=bool(self.backend_manager and self.backend_manager.owned),
+            )
+        if replacement_auth is not None:
+            self.auth = replacement_auth
             self.auth_url = self.config.cloud_url
             self.token = None
-        self.config.save()
-        if getattr(sys, "frozen", False):
-            configure_launch_at_login(self.config.launch_at_login, Path(sys.executable))
-        if service_changed:
+        if self.config.backend_mode == "local":
+            self.auth_url = self.config.cloud_url
+            self._enter_local_mode()
+            return True
+        if service_changed or previous_mode == "local":
             self.stack.setCurrentWidget(self.login)
             return False
         return True
@@ -847,6 +1044,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: Any) -> None:
         self._stop_runtime()
+        if self.backend_manager is not None:
+            self.backend_manager.stop()
         super().closeEvent(event)
 
 
@@ -880,7 +1079,10 @@ def _stylesheet() -> str:
 
 def _runtime() -> int:
     config = DesktopConfig.load()
-    settings = config.runtime_settings("stored-account")
+    access_token = (
+        "local-dev-token" if config.backend_mode == "local" else "stored-account"
+    )
+    settings = config.runtime_settings(access_token)
     configure_logging(settings.log_level)
     return run_client(settings, stdin_ptt=False)
 

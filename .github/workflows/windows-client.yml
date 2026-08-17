@@ -11,8 +11,10 @@ on:
     branches: [main]
     paths:
       - "client/**"
+      - "cloud/**"
       - "shared/**"
       - "packaging/windows/**"
+      - "THIRD_PARTY_NOTICES.md"
       - ".github/workflows/windows-client.yml"
 
 jobs:
@@ -33,9 +35,36 @@ jobs:
         run: >-
           ./packaging/windows/build.ps1
           -Version "${{ inputs.version || '0.1.0' }}"
-          -ServiceUrl "${{ vars.DCS_COPILOT_SERVICE_URL || 'ws://127.0.0.1:8000/v2/realtime' }}"
+          -ServiceUrl "${{ vars.DCS_COPILOT_SERVICE_URL || 'ws://127.0.0.1:47100/v2/realtime' }}"
+      - name: Smoke test packaged backend
+        shell: pwsh
+        run: |
+          $backend = Resolve-Path "dist/windows/MaraBackend/MaraBackend.exe"
+          $data = Join-Path $env:RUNNER_TEMP "mara-smoke"
+          $env:MARA_DATA_DIR = $data
+          $env:MARA_PROVISION_MODELS = "0"
+          $process = Start-Process $backend -ArgumentList "serve --host 127.0.0.1 --port 47100" -PassThru
+          try {
+            $ready = $false
+            1..60 | ForEach-Object {
+              if (-not $ready) {
+                try {
+                  $response = Invoke-RestMethod "http://127.0.0.1:47100/ready" -TimeoutSec 1
+                  $ready = $response.status -eq "ready"
+                } catch { Start-Sleep -Milliseconds 500 }
+              }
+            }
+            if (-not $ready) { throw "Packaged backend did not become ready." }
+            $info = Invoke-RestMethod "http://127.0.0.1:47100/api/system/info"
+            if ($info.api_version -ne "1") { throw "Unexpected API version." }
+          } finally {
+            Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
+          }
       - uses: actions/upload-artifact@v4
         with:
-          name: dcs-copilot-windows
-          path: dist/windows/DCS-Copilot-Setup-*.exe
+          name: mara-windows
+          path: |
+            dist/windows/MARA-Setup-*.exe
+            dist/windows/MARA-Backend-*-windows-x64.zip
+            dist/windows/checksums.txt
           if-no-files-found: error

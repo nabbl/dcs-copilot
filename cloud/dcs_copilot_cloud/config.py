@@ -6,6 +6,14 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .credentials import (
+    ChainedCredentialStore,
+    CredentialStore,
+    EnvironmentCredentialStore,
+    KeyringCredentialStore,
+)
+from .runtime_paths import RuntimePaths
+
 LOCAL_DEVELOPMENT_SIGNING_KEY = "local-development-signing-key-change-me"
 
 
@@ -38,6 +46,8 @@ class CloudSettings:
     log_level: str = "info"
     max_utterance_seconds: float = 60.0
     telemetry_stale_seconds: float = 30.0
+    deployment: str = "local"
+    provision_models: bool = False
     openai_api_key: str = field(default="", repr=False)
     stt_provider: str = "openai"
     stt_model: str = "gpt-transcribe"
@@ -54,15 +64,29 @@ class CloudSettings:
         return bool(self.openai_api_key.strip())
 
     @classmethod
-    def from_env(cls, dotenv_path: Path | None = None) -> CloudSettings:
+    def from_env(
+        cls,
+        dotenv_path: Path | None = None,
+        *,
+        credential_store: CredentialStore | None = None,
+    ) -> CloudSettings:
         _load_dotenv(dotenv_path or Path.cwd() / ".env")
+        deployment = os.getenv("MARA_DEPLOYMENT", "local").strip().lower()
+        if deployment not in {"local", "remote", "hosted"}:
+            raise ValueError("MARA_DEPLOYMENT must be local, remote, or hosted")
+        paths = RuntimePaths.discover()
+        credentials = credential_store or ChainedCredentialStore(
+            EnvironmentCredentialStore(), KeyringCredentialStore()
+        )
+        default_tts_provider = "kokoro" if deployment == "local" else "openai"
+        default_tts_voice = "af_heart" if default_tts_provider == "kokoro" else "marin"
         return cls(
             host=os.getenv("CLOUD_HOST", "127.0.0.1"),
             port=int(os.getenv("CLOUD_PORT", "8000")),
             dev_access_token=os.getenv("DCS_COPILOT_DEV_TOKEN", "local-dev-token"),
             database_url=os.getenv(
                 "DCS_COPILOT_DATABASE_URL",
-                "sqlite+aiosqlite:///./dcs-copilot.db",
+                paths.database_url,
             ).strip(),
             auth_signing_key=os.getenv(
                 "DCS_COPILOT_AUTH_SIGNING_KEY",
@@ -80,14 +104,23 @@ class CloudSettings:
             telemetry_stale_seconds=float(
                 os.getenv("CLOUD_TELEMETRY_STALE_SECONDS", "30")
             ),
-            openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+            deployment=deployment,
+            provision_models=os.getenv(
+                "MARA_PROVISION_MODELS", "1" if deployment == "local" else "0"
+            )
+            .strip()
+            .lower()
+            not in {"0", "false", "no"},
+            openai_api_key=credentials.get_openai_key() or "",
             stt_provider=os.getenv("STT_PROVIDER", "openai").strip().lower(),
             stt_model=os.getenv("STT_MODEL", "gpt-transcribe").strip(),
             stt_language=os.getenv("STT_LANGUAGE", "en").strip().lower(),
             llm_provider=os.getenv("LLM_PROVIDER", "openai").strip().lower(),
             llm_model=os.getenv("LLM_MODEL", "gpt-5.6-luna").strip(),
             llm_max_output_tokens=int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "80")),
-            tts_provider=os.getenv("TTS_PROVIDER", "openai").strip().lower(),
+            tts_provider=os.getenv("TTS_PROVIDER", default_tts_provider)
+            .strip()
+            .lower(),
             tts_model=os.getenv("TTS_MODEL", "gpt-4o-mini-tts").strip(),
-            tts_voice=os.getenv("TTS_VOICE", "marin").strip().lower(),
+            tts_voice=os.getenv("TTS_VOICE", default_tts_voice).strip().lower(),
         )

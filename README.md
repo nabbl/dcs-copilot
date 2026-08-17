@@ -3,8 +3,8 @@
 DCS Copilot's in-cockpit assistant is **MARA — Mission-Aware Realtime
 Assistant**.
 
-DCS Copilot is a commercial thin-client/cloud service in development. The
-current build implements the reset Milestones 1 through 7:
+DCS Copilot supports both a self-contained local installation and the existing
+remote/hosted backend topology. The current build includes:
 
 - passive local DCS-BIOS ingestion and a generic decoded-telemetry publisher;
 - a versioned client/cloud protocol (v2, `/v2/realtime`);
@@ -25,8 +25,9 @@ current build implements the reset Milestones 1 through 7:
 - the first MARA Ground Operations v1 slice: durable guided-checklist progress,
   deterministic ground phases, and explicit land/carrier takeoff readiness gates.
 
-There is no Pipecat, STT, LLM, TTS, OpenAI key, or neural model on the customer
-client. All AI inference and its dependencies are isolated in `cloud/`.
+The DCS host bridge/client contains no Pipecat or neural provider code. Those
+dependencies remain isolated in the single backend implementation, whether it
+runs as bundled `MaraBackend.exe`, on another LAN PC, or in the hosted service.
 
 The customer build is a native Windows desktop application with account login,
 Saved Games discovery, DCS-BIOS installation/repair, `Export.lua` setup,
@@ -44,14 +45,13 @@ docs/     architecture, protocol, privacy and validation decisions
 ## Local development
 
 Install `uv`. Copy `cloud/.env.example` to `cloud/.env`, set a development
-`OPENAI_API_KEY` there, and start the gateway from the cloud directory. The key
-must never be placed in `client/.env` or on a customer gaming PC.
+`OPENAI_API_KEY` there, and start the backend from the cloud directory.
 
 Start the gateway:
 
 ```bash
 cd cloud
-uv run dcs-copilot-cloud
+uv run dcs-copilot-cloud serve --port 8000
 ```
 
 In another terminal, copy `client/.env.example` to `client/.env`, optionally set
@@ -122,6 +122,8 @@ matrix](docs/multiplayer-validation.md).
 
 See [the Windows client and release guide](docs/windows-client.md) for local
 packaging, the installer flow, code-signing requirements, and first-run setup.
+See [the deployment architecture](docs/deployment-architecture.md) for the
+local/remote lifecycle, credentials, migration, and artifact design.
 
 ## Docker deployment
 
