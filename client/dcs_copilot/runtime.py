@@ -6,15 +6,18 @@ import asyncio
 import logging
 import sys
 from collections.abc import Awaitable, Callable, Coroutine
+from pathlib import Path
 from typing import Any
 
-from dcs_copilot_protocol import AudioFormat, ControlMessage
+from dcs_copilot_protocol import AudioFormat, CoachTelemetry, ControlMessage
 
 from .audio.feedback import mute_tone, unmute_tone
 from .audio.portaudio import PortAudioCapture, PortAudioPlayback
 from .cli.status import _load_registry
 from .config import Settings
 from .dcs.bios_client import DcsBiosClient
+from .dcs.spatial_export import DcsSpatialClient
+from .dcs.spatial_recording import SpatialRecordingWriter
 from .desktop.activity import ConversationActivity
 from .input.controller import PttSessionController
 from .input.ptt import (
@@ -35,6 +38,7 @@ async def run_client_runtime(
     *,
     stdin_ptt: bool = False,
     access_token_provider: Callable[[], Awaitable[str]] | None = None,
+    coach_recording_path: Path | None = None,
 ) -> int:
     input_audio_format = AudioFormat(
         sample_rate=settings.audio_sample_rate,
@@ -99,6 +103,30 @@ async def run_client_runtime(
     )
     if registry is not None:
         telemetry = TelemetryPublisher(dcs_client, connection.send_message)
+    recording = (
+        SpatialRecordingWriter(coach_recording_path)
+        if coach_recording_path is not None
+        else None
+    )
+
+    def publish_spatial_observation(observation: CoachTelemetry) -> None:
+        nonlocal recording
+        if recording is not None:
+            try:
+                recording.write(observation)
+            except (OSError, RuntimeError) as exc:
+                LOGGER.error("Coach recording stopped: %s", exc)
+                recording.close()
+                recording = None
+        connection.send_message(observation.to_control())
+
+    spatial = DcsSpatialClient(
+        host=settings.spatial_export_host,
+        port=settings.spatial_export_port,
+        stale_timeout=settings.spatial_export_stale_timeout,
+        cockpit_state_provider=lambda: dcs_client.connected,
+        on_observation=publish_spatial_observation,
+    )
     controller = PttSessionController(
         connection, capture, playback, on_notice=emit_activity
     )
@@ -215,9 +243,12 @@ async def run_client_runtime(
             print(f"Mute hotkey unavailable: {exc}")
             return 2
 
+    if recording is not None:
+        recording.open()
     telemetry_task = asyncio.create_task(
         dcs_client.run(stop), name="dcs-bios-telemetry"
     )
+    spatial_task = asyncio.create_task(spatial.run(stop), name="dcs-spatial-export")
     telemetry_publish_task = (
         asyncio.create_task(telemetry.run(stop), name="cloud-telemetry-publisher")
         if telemetry is not None
@@ -241,7 +272,7 @@ async def run_client_runtime(
         "Press Ctrl-C to stop."
     )
     try:
-        tasks = [telemetry_task, cloud_task]
+        tasks = [telemetry_task, spatial_task, cloud_task]
         if telemetry_publish_task is not None:
             tasks.append(telemetry_publish_task)
         if ptt_task is not None:
@@ -257,19 +288,28 @@ async def run_client_runtime(
             await asyncio.sleep(0)
         await controller.release()
         await playback.close()
-        for task in (telemetry_task, telemetry_publish_task, cloud_task, ptt_task):
+        for task in (
+            telemetry_task,
+            spatial_task,
+            telemetry_publish_task,
+            cloud_task,
+            ptt_task,
+        ):
             if task is not None:
                 task.cancel()
         for task in tuple(scheduled):
             task.cancel()
         await asyncio.gather(
             telemetry_task,
+            spatial_task,
             *(task for task in (telemetry_publish_task,) if task is not None),
             cloud_task,
             *(task for task in (ptt_task, *scheduled) if task is not None),
             return_exceptions=True,
         )
         dcs_client.close()
+        if recording is not None:
+            recording.close()
     return 0
 
 

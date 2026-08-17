@@ -51,15 +51,21 @@ DCS -> DCS-BIOS -> thin client            authenticated session gateway
                                                 `- Pipecat / STT / LLM / TTS
 ```
 
-Client-to-cloud data is limited to PTT audio and the own-cockpit telemetry
-stream (catalog + initial snapshot + changed-value deltas). The telemetry stream
+Client-to-cloud data is limited to PTT audio, the own-cockpit telemetry stream
+(catalog + initial snapshot + changed-value deltas), and bounded normalized
+Coach observations containing ownship plus at most one selected lead and carrier.
+The telemetry stream
 is held bounded in authenticated session memory; it is never persisted or logged
 as full snapshots or raw time series. Semantic account, history, and habit
 records may persist as documented in `docs/accounts.md`.
 
 Only own-aircraft modules and CommonData passive DCS-BIOS outputs are accepted
-on the telemetry stream. No Lua, filesystem, enemy, world, target, or hidden
-mission state is accepted. The client never writes to DCS.
+on the cockpit stream. The separate Coach stream is produced by the packaged
+read-only `MARASpatial.lua` provider. It calls `LoGetWorldObjects()` only while
+`LoIsObjectExportAllowed()` is true and emits only normalized ownship and the
+selected Coach references—not a world-object dump. No filesystem, target,
+sensor substitute, or hidden mission state is accepted. The client never writes
+to DCS.
 
 ## Existing-code disposition
 
@@ -71,6 +77,7 @@ Retain in the client:
 - generated-control registry loading and `_ACFT_NAME` aircraft detection;
 - the telemetry publisher (catalog, snapshot, coalesced delta generation);
 - PTT capture, audio transport, and playback;
+- permission-gated DCS spatial acquisition and bounded normalized publishing;
 - authenticated cloud connection and session lifecycle.
 
 Remove from the client / move to backend:
@@ -106,16 +113,16 @@ by themselves.
 
 ## Safety and multiplayer boundary
 
-The client is read-only. It does not send DCS-BIOS or DCS commands, modify
-aircraft files, or inspect world objects, targets, enemy units, or hidden
-mission state. In particular, it does not use `LoGetWorldObjects`,
-`LoGetObjectById`, `LoGetTargetInformation`, or
-`LoGetLockedTargetInformation`.
+The client is read-only. It does not send DCS-BIOS or DCS commands or modify
+protected aircraft files. Its spatial provider may inspect world objects only
+after `LoIsObjectExportAllowed()` returns true, solely to select a nearby
+friendly formation lead and carrier. It does not export the complete collection
+or use target/sensor APIs, mission state, or Tacview as a permission bypass.
 
-Only own-aircraft module outputs and CommonData passive exports are forwarded to
-the cloud. CommonData and other server-restricted values require explicit
-validity proof; if multiplayer restrictions remove a value, the backend marks
-the dependent capability unavailable. Compatibility and Integrity Check claims
+Only own-aircraft cockpit outputs and the bounded normalized Coach observation
+are forwarded. If world-object permission disappears, the client immediately
+publishes the denied capability without references and the backend clears its
+registry and stops dependent exercises. Compatibility and Integrity Check claims
 require the live test matrix in `docs/multiplayer-validation.md`.
 
 ## Dependency and deployment policy

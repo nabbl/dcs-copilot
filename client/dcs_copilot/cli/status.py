@@ -9,6 +9,7 @@ from dcs_copilot.audio.devices import inspect_audio_devices
 from dcs_copilot.config import Settings
 from dcs_copilot.dcs.bios_client import DcsBiosClient
 from dcs_copilot.dcs.bios_registry import DcsBiosControlRegistry
+from dcs_copilot.dcs.spatial_export import DcsSpatialClient
 from dcs_copilot.diagnostics.cloud import CloudProbeResult, probe_cloud
 from dcs_copilot.diagnostics.resources import ResourceSnapshot, format_bytes
 from dcs_copilot.input.ptt import function_key_virtual_code
@@ -48,6 +49,14 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         stale_timeout=settings.stale_timeout,
         registry=registry,
     )
+    spatial_stop = asyncio.Event()
+    spatial = DcsSpatialClient(
+        host=settings.spatial_export_host,
+        port=settings.spatial_export_port,
+        stale_timeout=settings.spatial_export_stale_timeout,
+        cockpit_state_provider=lambda: client.connected,
+    )
+    spatial_task = asyncio.create_task(spatial.run(spatial_stop))
     socket_error: str | None = None
     try:
         await client.listen_for(wait)
@@ -62,6 +71,8 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         available_outputs = len(client.decoded_snapshot())
         active_outputs = len(client.active_definitions())
         client.close()
+        spatial_stop.set()
+        spatial_result = await asyncio.gather(spatial_task, return_exceptions=True)
     resource_end = ResourceSnapshot.capture()
     cloud = (
         await cloud_task
@@ -100,6 +111,16 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
     audio_devices = inspect_audio_devices(
         settings.audio_input_device, settings.audio_output_device
     )
+    spatial_observation = spatial.last_observation
+    spatial_error = next(
+        (str(value) for value in spatial_result if isinstance(value, Exception)),
+        None,
+    )
+    spatial_lines = _coach_status_lines(
+        spatial_observation.capabilities if spatial_observation else None,
+        cockpit_available=connected,
+        error=spatial_error,
+    )
 
     lines = [
         f"DCS-BIOS: {dcs_status}",
@@ -111,6 +132,7 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         f"Parser errors: {parser_errors}",
         f"Active catalog outputs: {active_outputs}",
         f"Available decoded outputs: {available_outputs}",
+        *spatial_lines,
         f"Cloud: {cloud.detail}",
         f"Authenticated: {'yes' if cloud.authenticated else 'no'}",
         f"PTT: {ptt_status}",
@@ -122,6 +144,29 @@ async def collect_status(settings: Settings, wait: float) -> tuple[list[str], in
         "AI inference running locally: NO",
     ]
     return lines, 0 if not socket_error else 1
+
+
+def _coach_status_lines(
+    capabilities, *, cockpit_available: bool, error: str | None
+) -> list[str]:
+    ownship = bool(capabilities and capabilities.ownship_export)
+    world = bool(capabilities and capabilities.world_object_export)
+    spatial = ownship and world
+    world_detail = "AVAILABLE" if world else "BLOCKED"
+    if capabilities is None:
+        world_detail = "UNAVAILABLE"
+    if error:
+        world_detail = f"UNAVAILABLE ({error})"
+    return [
+        "MARA Coach",
+        f"Ownship telemetry: {'AVAILABLE' if ownship else 'UNAVAILABLE'}",
+        f"Cockpit telemetry: {'AVAILABLE' if cockpit_available else 'UNAVAILABLE'}",
+        f"World object export: {world_detail}",
+        f"Formation Coach: {'AVAILABLE' if spatial else 'UNAVAILABLE'}",
+        f"CASE I Pattern Coach: {'AVAILABLE' if spatial else 'UNAVAILABLE'}",
+        f"Carrier Approach: {'AVAILABLE' if spatial else 'UNAVAILABLE'}",
+        f"Procedure Coach: {'AVAILABLE' if cockpit_available else 'UNAVAILABLE'}",
+    ]
 
 
 def _input_binding_status(

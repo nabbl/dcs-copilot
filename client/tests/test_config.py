@@ -11,6 +11,7 @@ def test_settings_load_dotenv_without_overriding_environment(
     env_file = tmp_path / ".env"
     env_file.write_text(
         "DCS_BIOS_PORT=6000\n"
+        "DCS_SPATIAL_EXPORT_PORT=7790\n"
         "DCS_COPILOT_CLOUD_URL=ws://localhost:9000/v2/realtime\n"
         "COPILOT_PTT_KEY=f14\n"
         "COPILOT_PTT_DEVICE=2\n"
@@ -23,6 +24,7 @@ def test_settings_load_dotenv_without_overriding_environment(
     monkeypatch.setenv("DCS_BIOS_PORT", "7000")
     settings = Settings.from_env(env_file)
     assert settings.port == 7000
+    assert settings.spatial_export_port == 7790
     assert settings.cloud_url == "ws://localhost:9000/v2/realtime"
     assert settings.copilot_ptt_key == "F14"
     assert settings.copilot_ptt_device == 2

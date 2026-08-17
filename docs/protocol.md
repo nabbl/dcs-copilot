@@ -11,8 +11,8 @@ rejected by the client unless the host is loopback.
 
 ## Architecture overview
 
-In protocol version 2 the client is a generic read-only DCS-BIOS and audio
-transport. It continuously sends a decoded own-cockpit control catalog, an
+In protocol version 2 the client is a generic read-only DCS and audio transport.
+It continuously sends a decoded own-cockpit control catalog, an
 initial value snapshot, and changed-value deltas — independent of PTT. The
 backend receives the raw decoded telemetry stream, holds it bounded in
 authenticated session memory, and owns all normalization, phase detection,
@@ -21,9 +21,11 @@ statistics, and MARA tool execution. Raw telemetry is never persisted or logged
 as full snapshots or time series; semantic account, history, and habit records
 may persist as documented in `docs/accounts.md`.
 
-Only own-aircraft modules and CommonData passive DCS-BIOS outputs are accepted.
-No Lua, filesystem, enemy, world, target, or hidden mission data crosses this
-interface. The client never writes to DCS.
+Only own-aircraft modules and CommonData passive DCS-BIOS outputs are accepted
+on the cockpit stream. `coach.telemetry` separately carries bounded normalized
+ownship and selected-reference observations. References are legal only when the
+same message reports DCS world-object export as allowed. No complete world dump,
+filesystem data, targets, or hidden mission state crosses the interface.
 
 ## Control envelope
 
@@ -44,10 +46,24 @@ Every response to a request uses the request's `message_id` as its
 message type produces an `unsupported_message` error without closing an
 otherwise valid session.
 
+## Coach telemetry
+
+`coach.telemetry` schema version 1 contains a sequence, observation timestamp,
+the four explicit DCS capability flags, optional normalized ownship data, and at
+most two references: one `LEAD_AIRCRAFT` and one `CARRIER`. The shared validator
+rejects references whenever `world_object_export` is false and rejects ownship
+data whenever `ownship_export` is false. Client and cloud fail closed when the
+loopback DCS export becomes stale.
+
+The language model never receives this message. A backend Coach coordinator
+converts it into deterministic relative observations, semantic feedback, and
+bounded debrief facts exposed through high-level Coach tools.
+
 The v2 message type registry: `hello`, `authenticate`, `session.start`,
 `session.end`, `ptt.start`, `ptt.end`, `pilot.text`, `assistant.text`,
 `audio.input`, `audio.output`, `assistant.interrupt`, `connection.status`,
 `error`, `event`, `telemetry.catalog`, `telemetry.snapshot`, `telemetry.delta`.
+The registry also includes the separately validated `coach.telemetry` stream.
 
 ## Session sequence
 

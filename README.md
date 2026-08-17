@@ -24,6 +24,9 @@ current build implements the reset Milestones 1 through 7:
   habit statistics that never ask an LLM to calculate a count.
 - the first MARA Ground Operations v1 slice: durable guided-checklist progress,
   deterministic ground phases, and explicit land/carrier takeoff readiness gates.
+- permission-gated MARA Spatial Coach foundations through replay: selected
+  lead/carrier observations, formation coaching, carrier approach trends,
+  CASE I segmentation, deterministic debriefs, tools, speech, and diagnostics.
 
 There is no Pipecat, STT, LLM, TTS, OpenAI key, or neural model on the customer
 client. All AI inference and its dependencies are isolated in `cloud/`.

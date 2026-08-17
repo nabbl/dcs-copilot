@@ -12,6 +12,8 @@ from dcs_copilot_cloud.tools import (
 from dcs_copilot_cloud.voice import VoiceTurn, VoiceTurnResult
 from dcs_copilot_protocol import (
     AudioFormat,
+    CoachCapabilitiesPayload,
+    CoachTelemetry,
     ControlMessage,
     MediaKind,
     MediaPacket,
@@ -196,3 +198,64 @@ def test_unknown_tool_returns_not_allowlisted_error() -> None:
         assert receive_control(websocket).payload == {"text": "What tools exist?"}
         response = receive_control(websocket)
         assert response.payload == {"text": "That tool isn't available."}
+
+
+class CoachCapabilitiesVoicePipeline:
+    async def respond(
+        self, turn: VoiceTurn, on_audio, request_tool=None
+    ) -> VoiceTurnResult:
+        assert request_tool is not None
+        result = await request_tool("coach_get_capabilities", {})
+        assert result["formation"] is False
+        assert "world-object export is disabled" in result["restriction"]
+        await on_audio(b"\x30\x40" * 240)
+        return VoiceTurnResult(
+            "Coach formation.",
+            "Formation coaching isn't available because world-object export is disabled.",
+        )
+
+    async def announce(self, announcement, on_audio) -> str:
+        return announcement.text
+
+    async def interrupt(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
+def test_coach_telemetry_and_tools_stay_backend_internal() -> None:
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: CoachCapabilitiesVoicePipeline(),
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v2/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+        websocket.send_text(
+            CoachTelemetry(
+                sequence=0,
+                observed_at_ms=0,
+                capabilities=CoachCapabilitiesPayload(True, False, False, True),
+            )
+            .to_control()
+            .to_json()
+        )
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_bytes(
+            MediaPacket(MediaKind.AUDIO_INPUT, 0, 1, b"\x01\x02" * 320).to_bytes()
+        )
+        websocket.send_text(ControlMessage("ptt.end").to_json())
+        assert receive_control(websocket).payload["event_type"] == "utterance.received"
+
+        assert (
+            MediaPacket.from_bytes(websocket.receive_bytes()).kind
+            is MediaKind.AUDIO_OUTPUT
+        )
+        assert receive_control(websocket).payload == {"text": "Coach formation."}
+        assert (
+            "world-object export is disabled"
+            in receive_control(websocket).payload["text"]
+        )

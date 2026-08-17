@@ -40,6 +40,7 @@ from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
+from .coach.exercises.base import ExerciseId
 from .hornet_knowledge import HornetKnowledgeTopic
 from .providers import ProviderBundle
 from .tools import ALLOWED_AIRCRAFT_STATE_FIELDS
@@ -710,5 +711,72 @@ def account_tool_schemas(handler: Any) -> list[FunctionSchema]:
     ]
 
 
+def coach_tool_schemas(handler: Any) -> list[FunctionSchema]:
+    """High-level spatial Coach tools; raw world data is never exposed."""
+
+    no_arguments: dict[str, Any] = {}
+    return [
+        FunctionSchema(
+            name="coach_get_capabilities",
+            description=(
+                "Check whether formation, CASE I, and carrier approach coaching "
+                "are permitted by the current DCS server."
+            ),
+            properties=no_arguments,
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="coach_start_exercise",
+            description="Start one deterministic MARA spatial-coaching exercise.",
+            properties={
+                "exercise": {
+                    "type": "string",
+                    "enum": [item.value for item in ExerciseId],
+                },
+                "reference": {
+                    "type": "string",
+                    "maxLength": 128,
+                    "description": "Optional spoken reference label such as lead.",
+                },
+            },
+            required=["exercise"],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="coach_stop_exercise",
+            description="Stop the active Coach exercise and finalize its debrief.",
+            properties=no_arguments,
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="coach_get_status",
+            description="Read the active Coach exercise and availability state.",
+            properties=no_arguments,
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="coach_get_feedback",
+            description="Read deterministic semantic feedback from the active exercise.",
+            properties=no_arguments,
+            required=[],
+            handler=handler,
+        ),
+        FunctionSchema(
+            name="coach_get_last_debrief",
+            description="Read the last deterministic spatial-exercise debrief facts.",
+            properties=no_arguments,
+            required=[],
+            handler=handler,
+        ),
+    ]
+
+
 def copilot_tool_schemas(handler: Any) -> list[FunctionSchema]:
-    return aircraft_tool_schemas(handler) + account_tool_schemas(handler)
+    return (
+        aircraft_tool_schemas(handler)
+        + coach_tool_schemas(handler)
+        + account_tool_schemas(handler)
+    )

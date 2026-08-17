@@ -1,6 +1,6 @@
 # MARA spatial-coaching integration
 
-Status: proposed integration contract; Milestones 1 and 2 implemented first.
+Status: implemented integration contract; Milestones 1 through 8 complete.
 
 ## Existing architecture
 
@@ -59,11 +59,10 @@ tool layers. Pipecat receives only bounded semantic Coach results.
 ```text
 cloud/dcs_copilot_cloud/coach/
     capabilities.py       authoritative DCS flags and derived Coach flags
-    observations.py       sourced, timestamped ownship/reference observations
-    providers/             live/replay normalized provider interfaces
+    models.py             sourced, timestamped ownship/reference observations
+    providers/            permission-gated live normalized observation store
     spatial/               shared vectors, transforms, and relative geometry
-    exercises/             formation, carrier approach, and CASE I state machines
-    speech.py              hysteresis and cooldown policy
+    exercises/            state machines, standards, hysteresis, and cooldowns
     replay.py              normalized exercise JSONL reader/writer
     tools.py               bounded high-level Coach tool executor
 ```
@@ -71,9 +70,9 @@ cloud/dcs_copilot_cloud/coach/
 Milestone 1 introduces `capabilities.py`. Its state is closed by default. A
 single update derives every higher-level capability and publishes a transition.
 When `world_object_export` changes from true to false, the transition is marked
-as permission loss. Future reference registries and exercise coordinators must
-subscribe to that transition and synchronously clear external objects, stop
-dependent exercises, and suppress relative observations.
+as permission loss. The reference registry and exercise coordinator subscribe
+to that transition and synchronously clear external objects, stop dependent
+exercises, and suppress relative observations.
 
 Milestone 2 introduces the dependency-free `spatial` package. DCS local
 coordinates are treated as `x = north/forward at zero heading`, `y = up`, and
@@ -100,9 +99,10 @@ is decreasing.
 - Diagnostics will render the capability snapshot. A denied DCS permission is
   `UNAVAILABLE`, not an error, and existing cockpit/procedure Coach behavior
   remains available when cockpit telemetry is present.
-- Exercise recordings will contain only normalized ownship, the selected
-  reference, capability state, and derived exercise values. They will not be
-  written to account memory or the existing generic flight-session table.
+- Explicit opt-in exercise recordings contain only normalized ownship, the
+  selected reference, and capability state. Replay derives exercise values;
+  neither recordings nor samples are written to account memory or the existing
+  generic flight-session table.
 
 ## Permission invariants
 
@@ -117,11 +117,12 @@ is decreasing.
 6. Stale ownship or reference observations pause calculations rather than
    combining old and current data.
 
-## Incremental delivery
+## Delivered milestones
 
-This change implements only Milestone 1 (the explicit capability model and
-status snapshot) and Milestone 2 (tested spatial primitives). Live Lua export,
-wire schemas, providers, reference selection, exercises, voice tools,
-diagnostics UI, and replay are deliberately left behind the interfaces above so
-they can be added in the requested order without weakening the permission
-boundary.
+The implementation now includes the explicit capability model, shared spatial
+math, permission-gated DCS provider, selected reference registry, configurable
+left/right echelon exercises, moving-carrier approach geometry and trends,
+ordered CASE I segmentation, deterministic statistics/debriefs, normalized
+JSONL replay, high-level MARA tools, existing-pipeline speech, and diagnostics.
+Live validation remains intentionally separate from implementation and must use
+the multiplayer matrix before making Integrity Check compatibility claims.

@@ -32,12 +32,16 @@ def test_install_preserves_export_and_is_repeatable(
     text = export.read_text(encoding="utf-8")
     assert "Tacview.lua" in text
     assert text.count(setup.EXPORT_LINE) == 1
+    assert text.count(setup.SPATIAL_EXPORT_LINE) == 1
+    assert first.spatial_export_path.is_file()
+    assert "LoIsObjectExportAllowed" in first.spatial_export_path.read_text()
     assert any(
         path.name.startswith("Export.lua.backup-") for path in first.backup_paths
     )
 
     second = setup.install_dcs_bios(dcs, payload)
     assert export.read_text(encoding="utf-8").count(setup.EXPORT_LINE) == 1
+    assert export.read_text(encoding="utf-8").count(setup.SPATIAL_EXPORT_LINE) == 1
     assert any(path.name.startswith("DCS-BIOS.backup-") for path in second.backup_paths)
 
 

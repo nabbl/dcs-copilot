@@ -7,14 +7,22 @@ local VAD, background transcription, or continuous microphone analysis.
 The client continuously sends decoded own-cockpit DCS-BIOS outputs to the cloud
 as `telemetry.catalog`, `telemetry.snapshot`, and `telemetry.delta` messages.
 Only own-aircraft module outputs and CommonData passive DCS-BIOS exports are
-accepted. No Lua, filesystem, enemy, world, target, or hidden mission data
-crosses this interface. The client never writes to DCS. Only controls whose
+accepted on that stream. The separate `coach.telemetry` stream contains
+normalized ownship data and at most one selected lead and carrier when DCS
+explicitly permits object export. It never contains the complete world-object
+collection, targets, sensors, filesystem data, or hidden mission state. The
+client never writes to DCS. Only controls whose
 values have changed are retransmitted after the initial snapshot.
 
 The backend holds the raw decoded telemetry values bounded in the authenticated
 connection's in-process session memory. It does not persist, log, or archive
 full cockpit snapshots or raw telemetry time series. When the session
 disconnects the in-memory telemetry state is discarded.
+
+Spatial exercise samples and debrief statistics are likewise session-bounded.
+They are not written to account memory or the generic flight-session database.
+The explicit opt-in developer recorder writes only normalized ownship, selected
+references, and capabilities; deterministic replay derives the exercise data.
 
 The backend uses the telemetry stream to run normalization, phase detection,
 deterministic rules, checklists, event management, and speech policy entirely in

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .cli.coach import run_coach_replay
 from .cli.run import run_client
 from .cli.status import run_status
 from .cli.watch import run_watch
@@ -15,7 +16,7 @@ from .logging import configure_logging
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="dcs-copilot")
+    parser = argparse.ArgumentParser(prog="mara")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     status = subparsers.add_parser("status", help="show a bounded diagnostics snapshot")
@@ -33,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--stdin-ptt",
         action="store_true",
         help="development only: use Enter to toggle PTT instead of a Windows hotkey",
+    )
+    run.add_argument(
+        "--coach-recording",
+        type=Path,
+        help="developer only: record normalized Coach telemetry as JSONL",
     )
 
     watch = subparsers.add_parser("watch", help="show decoded DCS-BIOS output changes")
@@ -53,6 +59,23 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="DCS Saved Games folder; auto-detected when omitted",
     )
+
+    coach = subparsers.add_parser("coach", help="spatial Coach developer tools")
+    coach_commands = coach.add_subparsers(dest="coach_command", required=True)
+    coach_replay = coach_commands.add_parser(
+        "replay", help="replay normalized Coach JSONL"
+    )
+    coach_replay.add_argument("path", type=Path)
+    coach_replay.add_argument(
+        "--exercise",
+        required=True,
+        choices=[
+            "LEFT_ECHELON",
+            "RIGHT_ECHELON",
+            "CASE1_PATTERN",
+            "CARRIER_APPROACH",
+        ],
+    )
     return parser
 
 
@@ -63,7 +86,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         return run_status(settings, max(0.0, args.wait))
     if args.command == "run":
-        return run_client(settings, stdin_ptt=args.stdin_ptt)
+        return run_client(
+            settings,
+            stdin_ptt=args.stdin_ptt,
+            coach_recording_path=args.coach_recording,
+        )
     if args.command == "watch":
         return run_watch(
             settings,
@@ -88,4 +115,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"DCS setup failed: {exc}")
             return 1
         return 0
+    if args.command == "coach":
+        if args.coach_command == "replay":
+            return run_coach_replay(args.path, exercise=args.exercise)
+        raise AssertionError(f"unhandled Coach command: {args.coach_command}")
     raise AssertionError(f"unhandled command: {args.command}")
