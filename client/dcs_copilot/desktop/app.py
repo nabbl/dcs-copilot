@@ -52,6 +52,7 @@ from .config_store import DesktopConfig, configure_launch_at_login
 from .dcs_setup import inspect_installation, install_dcs_bios
 
 APP_NAME = "DCS Copilot"
+SUPPORT_URL = "https://ko-fi.com/nabblsawesome"
 ACCENT = "#34d399"
 DARK = "#0b1220"
 PANEL = "#111c2f"
@@ -578,6 +579,7 @@ class DashboardPage(QWidget):
 
     def set_running(self, running: bool) -> None:
         self.run.setEnabled(not running)
+        self.run.setText("MARA is running" if running else "Start MARA")
         self.stop.setEnabled(running)
         self.runtime_card.set_status(
             "Running" if running else "Stopped",
@@ -585,6 +587,14 @@ class DashboardPage(QWidget):
             if running
             else "Start MARA before your flight.",
             good=running,
+        )
+
+    def set_starting(self) -> None:
+        self.run.setEnabled(False)
+        self.run.setText("Starting MARA…")
+        self.stop.setEnabled(False)
+        self.runtime_card.set_status(
+            "Starting…", "Launching the cockpit monitor and voice service.", good=False
         )
 
 
@@ -609,10 +619,26 @@ class MainWindow(QMainWindow):
         self.dashboard = DashboardPage(self.config)
         self.process.readyReadStandardOutput.connect(self._runtime_output)
         self.process.started.connect(lambda: self.dashboard.set_running(True))
+        self.process.errorOccurred.connect(self._runtime_error)
         self.process.finished.connect(self._runtime_finished)
         self.stack.addWidget(self.login)
         self.stack.addWidget(self.dashboard)
-        self.setCentralWidget(self.stack)
+        shell = QWidget()
+        shell_layout = QVBoxLayout(shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+        shell_layout.addWidget(self.stack, 1)
+        support_bar = QHBoxLayout()
+        support_bar.setContentsMargins(24, 8, 24, 12)
+        support_bar.addStretch()
+        self.support_link = QLabel(
+            f'<a style="color: {ACCENT};" href="{SUPPORT_URL}">☕ Buy me a coffee</a>'
+        )
+        self.support_link.setObjectName("supportLink")
+        self.support_link.setOpenExternalLinks(True)
+        support_bar.addWidget(self.support_link)
+        shell_layout.addLayout(support_bar)
+        self.setCentralWidget(shell)
         self.login.email.setText(self.config.email)
         self.login.submitted.connect(self._authenticate)
         self.dashboard.install_requested.connect(self._install_bios)
@@ -762,6 +788,7 @@ class MainWindow(QMainWindow):
             return
         if self.process.state() != QProcess.ProcessState.NotRunning:
             return
+        self.dashboard.set_starting()
         environment = QProcessEnvironment.systemEnvironment()
         environment.insert("DCS_COPILOT_CLOUD_URL", self.config.cloud_url)
         environment.insert("DCS_COPILOT_DEVICE_ID", self.config.device_id)
@@ -821,6 +848,14 @@ class MainWindow(QMainWindow):
             self.dashboard.logs.appendPlainText(line)
         self.dashboard.set_running(False)
 
+    def _runtime_error(self, error: QProcess.ProcessError) -> None:
+        if error != QProcess.ProcessError.FailedToStart:
+            return
+        self.dashboard.set_running(False)
+        QMessageBox.critical(
+            self, APP_NAME, f"MARA could not be started: {self.process.errorString()}"
+        )
+
     def _save_settings_silently(self) -> bool:
         self.dashboard.update_config()
         service_changed = self.config.cloud_url != self.auth_url
@@ -871,6 +906,7 @@ def _stylesheet() -> str:
         QPushButton:disabled {{ color: #607089; background: #121c2b; }}
         QPushButton#primary {{ color: #06120d; background: {ACCENT}; border-color: {ACCENT}; }}
         QPushButton#primary:hover {{ background: #6ee7b7; }}
+        QPushButton#primary:disabled {{ color: #607089; background: #121c2b; border-color: #30435f; }}
         QPushButton#link {{ background: transparent; border: none; color: {MUTED}; }}
         QTabWidget::pane {{ border: none; }}
         QTabBar::tab {{ color: {MUTED}; padding: 12px 18px; border-bottom: 2px solid transparent; }}

@@ -9,6 +9,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib.resources import files
 from pathlib import Path, PurePosixPath
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -20,6 +21,9 @@ DCS_BIOS_URL = (
 )
 DCS_BIOS_SHA256 = "96091c9321773b5c2d4be088e28bb596f341bc2f560f71aba8868db348a1921d"
 EXPORT_LINE = r"dofile(lfs.writedir()..[[Scripts\DCS-BIOS\BIOS.lua]])"
+INDICATION_EXPORT_LINE = (
+    r"dofile(lfs.writedir()..[[Scripts\MARA\MARAIndications.lua]])"
+)
 
 
 class DcsSetupError(RuntimeError):
@@ -33,6 +37,14 @@ class DcsSetupResult:
     export_path: Path
     backup_paths: tuple[Path, ...]
     version: str
+
+
+@dataclass(frozen=True, slots=True)
+class IndicationProbeSetupResult:
+    dcs_path: Path
+    probe_path: Path
+    export_path: Path
+    backup_paths: tuple[Path, ...]
 
 
 def inspect_installation(dcs_path: Path) -> tuple[bool, str]:
@@ -55,6 +67,81 @@ def inspect_installation(dcs_path: Path) -> tuple[bool, str]:
             False,
             "DCS-BIOS is not enabled in Export.lua",
         )
+    )
+
+
+def inspect_indication_probe(dcs_path: Path) -> tuple[bool, str]:
+    probe = dcs_path / "Scripts" / "MARA" / "MARAIndications.lua"
+    export = dcs_path / "Scripts" / "Export.lua"
+    if not probe.is_file():
+        return False, "MARA indication probe is not installed"
+    if not export.is_file():
+        return False, "Export.lua is missing"
+    try:
+        configured = INDICATION_EXPORT_LINE in export.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        return False, f"Export.lua cannot be read: {exc}"
+    return (
+        (True, "MARA indication probe is ready")
+        if configured
+        else (False, "MARA indication probe is not enabled in Export.lua")
+    )
+
+
+def install_indication_probe(dcs_path: Path) -> IndicationProbeSetupResult:
+    """Explicitly install the development-only loopback indication probe."""
+
+    dcs_path = dcs_path.expanduser().resolve()
+    if not dcs_path.is_dir():
+        raise DcsSetupError(f"DCS Saved Games folder does not exist: {dcs_path}")
+    if not dcs_path.name.lower().startswith("dcs"):
+        raise DcsSetupError("Select a DCS, DCS.openbeta, or DCS.openalpha folder")
+
+    scripts = dcs_path / "Scripts"
+    probe_dir = scripts / "MARA"
+    probe_dir.mkdir(parents=True, exist_ok=True)
+    probe_path = probe_dir / "MARAIndications.lua"
+    packaged = (
+        files("dcs_copilot.resources")
+        .joinpath("MARAIndications.lua")
+        .read_bytes()
+    )
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    backups: list[Path] = []
+    if probe_path.is_file() and probe_path.read_bytes() != packaged:
+        backup = _available_backup(
+            probe_dir / f"MARAIndications.lua.backup-{timestamp}"
+        )
+        shutil.copy2(probe_path, backup)
+        backups.append(backup)
+    if not probe_path.is_file() or probe_path.read_bytes() != packaged:
+        temporary_probe = probe_path.with_suffix(".lua.tmp")
+        temporary_probe.write_bytes(packaged)
+        temporary_probe.replace(probe_path)
+
+    export_path = scripts / "Export.lua"
+    existing = ""
+    if export_path.is_file():
+        existing = export_path.read_text(encoding="utf-8-sig")
+        if INDICATION_EXPORT_LINE not in existing:
+            backup = _available_backup(scripts / f"Export.lua.backup-{timestamp}")
+            shutil.copy2(export_path, backup)
+            backups.append(backup)
+    if INDICATION_EXPORT_LINE not in existing:
+        separator = "" if not existing or existing.endswith(("\n", "\r")) else "\n"
+        updated = existing + separator + INDICATION_EXPORT_LINE + "\n"
+        temporary_export = export_path.with_suffix(".lua.tmp")
+        temporary_export.write_text(updated, encoding="utf-8", newline="\n")
+        temporary_export.replace(export_path)
+
+    ready, detail = inspect_indication_probe(dcs_path)
+    if not ready:
+        raise DcsSetupError(detail)
+    return IndicationProbeSetupResult(
+        dcs_path=dcs_path,
+        probe_path=probe_path,
+        export_path=export_path,
+        backup_paths=tuple(backups),
     )
 
 

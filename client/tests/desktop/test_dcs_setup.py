@@ -52,3 +52,29 @@ def test_rejects_non_dcs_target(tmp_path: Path, monkeypatch) -> None:
         assert "Select a DCS" in str(exc)
     else:
         raise AssertionError("unsafe target was accepted")
+
+
+def test_indication_probe_install_is_explicit_repeatable_and_backed_up(
+    tmp_path: Path,
+) -> None:
+    dcs = tmp_path / "DCS.openbeta"
+    scripts = dcs / "Scripts"
+    mara = scripts / "MARA"
+    mara.mkdir(parents=True)
+    export = scripts / "Export.lua"
+    export.write_text("-- another export\n", encoding="utf-8")
+    probe = mara / "MARAIndications.lua"
+    probe.write_text("-- local modification\n", encoding="utf-8")
+
+    first = setup.install_indication_probe(dcs)
+    second = setup.install_indication_probe(dcs)
+
+    assert setup.INDICATION_EXPORT_LINE in export.read_text(encoding="utf-8")
+    assert "list_indication" in probe.read_text(encoding="utf-8")
+    assert any(path.name.startswith("Export.lua.backup-") for path in first.backup_paths)
+    assert any(
+        path.name.startswith("MARAIndications.lua.backup-")
+        for path in first.backup_paths
+    )
+    assert second.backup_paths == ()
+    assert setup.inspect_indication_probe(dcs)[0] is True

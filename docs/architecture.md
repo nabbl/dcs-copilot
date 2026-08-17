@@ -61,6 +61,14 @@ Only own-aircraft modules and CommonData passive DCS-BIOS outputs are accepted
 on the telemetry stream. No Lua, filesystem, enemy, world, target, or hidden
 mission state is accepted. The client never writes to DCS.
 
+An explicit, development-only `list_indication()` discovery probe is the sole
+exception to the normal no-custom-Lua deployment shape. It binds only to
+loopback, is idle without a bounded local request, reads cockpit display output
+only, and is disconnected from the cloud publisher. Its purpose is to establish
+which F/A-18C display facts are actually observable before any deterministic
+combat model is designed. A later production design may transmit normalized
+semantic capabilities, but must not transmit raw indication dumps.
+
 ## Existing-code disposition
 
 The existing repository was inspected before this decision.
