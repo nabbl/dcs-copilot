@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from dcs_copilot_protocol import (
+    MARA_API_VERSION,
+    MARA_VERSION,
     PROTOCOL_VERSION,
     CoachTelemetry,
     ControlMessage,
@@ -35,7 +37,9 @@ from .database import Database
 from .events.models import CloudAircraftEvent, CloudManagedEvent
 from .events.policy import SpeechMode, SpeechPolicy
 from .greetings import CockpitGreetingSelector
+from .models import provision_kokoro
 from .providers import build_provider_bundle
+from .runtime_paths import RuntimePaths
 from .session import (
     CompletedUtterance,
     RealtimeSession,
@@ -117,17 +121,58 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        _app.state.ready = False
         await database.initialize()
+        _app.state.database_ready = True
+        model_task: asyncio.Task[None] | None = None
+        if configured.tts_provider == "kokoro" and configured.provision_models:
+            model_dir = RuntimePaths.discover().ensure().models / "kokoro"
+            last_percent = -1
+
+            def report_model_progress(name: str, downloaded: int, total: int) -> None:
+                nonlocal last_percent
+                percent = int(downloaded * 100 / max(total, 1))
+                _app.state.model_progress = {
+                    "name": name,
+                    "downloaded": downloaded,
+                    "total": total,
+                    "percent": percent,
+                }
+                if percent // 10 != last_percent // 10:
+                    LOGGER.info("Kokoro model provisioning: %s %d%%", name, percent)
+                    last_percent = percent
+
+            async def prepare_models() -> None:
+                try:
+                    await asyncio.to_thread(
+                        provision_kokoro, model_dir, progress=report_model_progress
+                    )
+                except Exception as exc:  # noqa: BLE001 - expose provisioning state
+                    _app.state.model_error = str(exc)
+                    LOGGER.error("Kokoro model provisioning failed: %s", exc)
+                else:
+                    _app.state.ready = True
+
+            model_task = asyncio.create_task(
+                prepare_models(), name="provision-kokoro-models"
+            )
+        else:
+            _app.state.ready = True
         try:
             yield
         finally:
+            _app.state.ready = False
+            _app.state.database_ready = False
+            if model_task is not None and not model_task.done():
+                model_task.cancel()
+                await asyncio.gather(model_task, return_exceptions=True)
             if cleanup_tasks:
                 await asyncio.gather(*tuple(cleanup_tasks), return_exceptions=True)
             await database.close()
 
     app = FastAPI(
-        title="DCS Copilot Cloud",
-        version="0.7.0",
+        title="MARA Backend",
+        version=MARA_VERSION,
         lifespan=lifespan,
     )
     app.include_router(auth_router(auth))
@@ -136,6 +181,53 @@ def create_app(
     app.state.database = database
     app.state.auth = auth
     app.state.accounts = accounts
+    app.state.ready = False
+    app.state.database_ready = False
+    app.state.model_progress = None
+    app.state.model_error = None
+
+    def component_status() -> dict[str, bool]:
+        return {
+            "database": bool(app.state.database_ready),
+            "kokoro": configured.tts_provider == "kokoro"
+            and (not configured.provision_models or bool(app.state.ready)),
+            "coach": True,
+            "openai": configured.voice_configured,
+        }
+
+    @app.get("/health")
+    async def process_health() -> dict[str, object]:
+        return {"status": "ok", "version": MARA_VERSION}
+
+    @app.get("/ready")
+    async def readiness() -> dict[str, object]:
+        ready = bool(app.state.ready)
+        status = "ready" if ready else "error" if app.state.model_error else "starting"
+        return {
+            "status": status,
+            "components": component_status(),
+            "model_progress": app.state.model_progress,
+            "error": app.state.model_error,
+        }
+
+    @app.get("/api/system/info")
+    async def system_info() -> dict[str, object]:
+        components = component_status()
+        return {
+            "mara_version": MARA_VERSION,
+            "api_version": MARA_API_VERSION,
+            "protocol_version": PROTOCOL_VERSION,
+            "deployment": configured.deployment,
+            "capabilities": {
+                "coach": True,
+                "kokoro": configured.tts_provider == "kokoro",
+                "openai": True,
+                "accounts": True,
+                "memory": True,
+            },
+            "openai_configured": components["openai"],
+            "tts_provider": configured.tts_provider,
+        }
 
     @app.get("/healthz")
     async def health() -> dict[str, object]:
@@ -154,6 +246,9 @@ def create_app(
     @app.websocket("/v2/realtime")
     async def realtime(websocket: WebSocket) -> None:
         await websocket.accept()
+        if not app.state.ready:
+            await websocket.close(code=1013, reason="backend is still initializing")
+            return
         session = RealtimeSession(
             auth.verify_access_token,
             max_utterance_seconds=configured.max_utterance_seconds,

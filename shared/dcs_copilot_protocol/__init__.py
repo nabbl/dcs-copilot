@@ -27,9 +27,14 @@ from .telemetry import (
     TelemetrySnapshot,
 )
 
+MARA_VERSION = "0.1.0"
+MARA_API_VERSION = "1"
+
 __all__ = [
     "COACH_TELEMETRY_VERSION",
     "KNOWN_CONTROL_TYPES",
+    "MARA_API_VERSION",
+    "MARA_VERSION",
     "PROTOCOL_VERSION",
     "TELEMETRY_VERSION",
     "AudioFormat",

@@ -1,1 +1,1 @@
-"""Packaged DCS Copilot runtime resources."""
+"""Packaged DCS-side MARA runtime resources."""

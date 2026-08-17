@@ -40,6 +40,7 @@ class Settings:
     spatial_export_host: str = "127.0.0.1"
     spatial_export_port: int = 7780
     spatial_export_stale_timeout: float = 2.0
+    indication_control_port: int = 7779
     cloud_url: str = "ws://127.0.0.1:8000/v2/realtime"
     access_token: str = field(default="local-dev-token", repr=False)
     device_id: str = "local-development-device"
@@ -77,6 +78,7 @@ class Settings:
             spatial_export_stale_timeout=float(
                 os.getenv("DCS_SPATIAL_EXPORT_STALE_TIMEOUT", "2.0")
             ),
+            indication_control_port=int(os.getenv("MARA_INDICATION_PORT", "7779")),
             cloud_url=os.getenv(
                 "DCS_COPILOT_CLOUD_URL",
                 "ws://127.0.0.1:8000/v2/realtime",

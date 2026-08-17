@@ -7,6 +7,9 @@ on:
         description: Installer version
         default: "0.1.0"
         required: true
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -26,17 +29,41 @@ jobs:
         run: choco install innosetup --no-progress -y
       - name: Build installer
         shell: pwsh
-        run: >-
-          ./packaging/windows/build.ps1
-          -Version "${{ inputs.version }}"
-          -ServiceUrl "${{ vars.DCS_COPILOT_SERVICE_URL || 'ws://127.0.0.1:8000/v2/realtime' }}"
+        run: |
+          $version = "${{ inputs.version || github.ref_name }}".TrimStart("v")
+          ./packaging/windows/build.ps1 `
+            -Version $version `
+            -ServiceUrl "${{ vars.DCS_COPILOT_SERVICE_URL || 'ws://127.0.0.1:47100/v2/realtime' }}"
+      - name: Smoke test packaged backend
+        shell: pwsh
+        run: |
+          $backend = Resolve-Path "dist/windows/MaraBackend/MaraBackend.exe"
+          $env:MARA_DATA_DIR = Join-Path $env:RUNNER_TEMP "mara-smoke"
+          $env:MARA_PROVISION_MODELS = "0"
+          $process = Start-Process $backend -ArgumentList "serve --host 127.0.0.1 --port 47100" -PassThru
+          try {
+            $ready = $false
+            1..60 | ForEach-Object {
+              if (-not $ready) {
+                try {
+                  $response = Invoke-RestMethod "http://127.0.0.1:47100/ready" -TimeoutSec 1
+                  $ready = $response.status -eq "ready"
+                } catch { Start-Sleep -Milliseconds 500 }
+              }
+            }
+            if (-not $ready) { throw "Packaged backend did not become ready." }
+          } finally {
+            Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
+          }
       - name: Upload installer to development release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "windows-dev-${{ inputs.version }}"
-          $installer = Get-ChildItem "dist/windows/DCS-Copilot-Setup-*.exe" | Select-Object -First 1
+          $version = "${{ inputs.version || github.ref_name }}".TrimStart("v")
+          $tag = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "windows-dev-$version" }
+          $artifacts = Get-ChildItem "dist/windows/MARA-Setup-*.exe", "dist/windows/MARA-Backend-*-windows-x64.zip", "dist/windows/checksums.txt"
+          $installer = $artifacts | Where-Object Name -Like "MARA-Setup-*.exe" | Select-Object -First 1
           if (-not $installer) {
             throw "Installer was not produced."
           }
@@ -44,8 +71,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag `
               --target $env:GITHUB_SHA `
-              --title "Windows development bundle ${{ inputs.version }}" `
+              --title "MARA Windows bundle $version" `
               --notes "Unsigned Windows development installer built from $env:GITHUB_SHA." `
               --latest=false
           }
-          gh release upload $tag $installer.FullName --clobber
+          gh release upload $tag $artifacts.FullName --clobber

@@ -65,6 +65,13 @@ mara watch [--module M]         decoded DCS-BIOS output changes
 mara setup-dcs [path]           install DCS-BIOS and configure Export.lua
 mara coach replay FILE --exercise EXERCISE
                                 replay normalized Coach data (developer workspace)
+mara indications install [path] explicitly install the local development probe
+mara indications scan           snapshot raw list_indication() output
+mara indications watch [--diff] watch change-driven raw indication output
+mara indications record NAME    record raw indication changes locally
+mara indications experiments    show controlled Hornet experiment progress
+mara indications validate PATH  validate a recording before fixture use
+mara indications replay PATH    replay validated raw observations
 ```
 
 The legacy `dcs-copilot` command remains available as an alias.
@@ -72,3 +79,11 @@ The legacy `dcs-copilot` command remains available as an alias.
 `status` also reports ownship, cockpit, world-export, and derived Coach
 availability. It reports `AI inference running locally: NO`. `--stdin-ptt` replaces the
 Windows hotkey with Enter for POSIX development.
+
+The `indications` command group is an explicit development facility, not part
+of normal MARA operation. Its DCS-side hook binds only to `127.0.0.1`, remains
+idle without a local request, and reads only `list_indication()` for configured
+indicator IDs. Raw output is printed or recorded locally and never enters the
+cloud telemetry publisher. See the
+[F/A-18C capability report](../docs/fa18c-situational-awareness-capabilities.md)
+for the experiment plan.

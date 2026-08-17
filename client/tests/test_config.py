@@ -37,3 +37,9 @@ def test_settings_load_dotenv_without_overriding_environment(
     assert settings.log_level == "DEBUG"
     assert not hasattr(settings, "openai_api_key")
     assert not hasattr(settings, "speech_mode")
+
+
+def test_indication_port_can_be_configured(monkeypatch) -> None:
+    monkeypatch.setenv("MARA_INDICATION_PORT", "7788")
+
+    assert Settings.from_env().indication_control_port == 7788
