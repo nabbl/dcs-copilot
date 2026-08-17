@@ -381,7 +381,7 @@ class CloudSessionConnection:
 
 
 def validate_cloud_url(url: str) -> None:
-    """Require TLS except for an explicitly local development gateway."""
+    """Require TLS on public networks; permit explicit loopback/private LAN URLs."""
 
     parsed = urlparse(url)
     if parsed.scheme == "wss" and parsed.hostname:
@@ -389,14 +389,19 @@ def validate_cloud_url(url: str) -> None:
     if parsed.scheme != "ws" or not parsed.hostname:
         raise ValueError("DCS_COPILOT_CLOUD_URL must use wss:// or loopback ws://")
     host = parsed.hostname
-    is_loopback = host == "localhost"
-    if not is_loopback:
+    is_private = host == "localhost"
+    if not is_private:
         try:
-            is_loopback = ipaddress.ip_address(host).is_loopback
+            address = ipaddress.ip_address(host)
+            is_private = (
+                address.is_loopback or address.is_private or address.is_link_local
+            )
         except ValueError:
-            is_loopback = False
-    if not is_loopback:
-        raise ValueError("unencrypted ws:// is allowed only for localhost development")
+            is_private = False
+    if not is_private:
+        raise ValueError(
+            "unencrypted ws:// is allowed only for localhost or private LANs"
+        )
 
 
 def _bounded_line(value: str, limit: int = 240) -> str:

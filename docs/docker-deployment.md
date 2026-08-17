@@ -54,10 +54,11 @@ installer:
   -ServiceUrl "ws://127.0.0.1:8000/v2/realtime"
 ```
 
-For a backend on another computer or a public server, terminate TLS in a
+For a backend on another private LAN computer, explicit unencrypted `ws://` is
+supported. For a public server, terminate TLS in a
 reverse proxy/load balancer that supports WebSocket upgrades and expose the
-service as `wss://your-domain.example/v2/realtime`. The client intentionally
-rejects unencrypted `ws://` connections to non-loopback hosts. Do not expose
+service as `wss://your-domain.example/v2/realtime`. The client rejects
+unencrypted public endpoints. Do not expose
 PostgreSQL; only the backend port is published by Compose.
 
 Build a remote-client installer with the public URL:

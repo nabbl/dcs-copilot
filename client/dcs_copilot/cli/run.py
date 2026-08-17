@@ -14,7 +14,8 @@ def run_client(settings: Settings, *, stdin_ptt: bool) -> int:
     provider = None
     desktop = DesktopConfig.load()
     if (
-        desktop.cloud_url == settings.cloud_url
+        desktop.backend_mode == "remote"
+        and desktop.cloud_url == settings.cloud_url
         and desktop.device_id == settings.device_id
     ):
         auth = StoredAuthSession(settings.cloud_url, settings.device_id)

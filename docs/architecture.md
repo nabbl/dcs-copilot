@@ -1,6 +1,7 @@
 # DCS Copilot architecture decision
 
-Status: accepted for the commercial SaaS direction.
+Status: superseded for deployment by `deployment-architecture.md`; the semantic
+client/backend boundary remains accepted.
 
 ## Decision
 
