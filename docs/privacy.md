@@ -16,6 +16,13 @@ connection's in-process session memory. It does not persist, log, or archive
 full cockpit snapshots or raw telemetry time series. When the session
 disconnects the in-memory telemetry state is discarded.
 
+The optional `mara indications` development probe is outside this cloud data
+path. It is installed only by an explicit command, binds to loopback, remains
+idle until a local scanner requests a bounded indicator range, and reads only
+DCS `list_indication()` output. Its raw display output may be printed or saved
+under the developer's local `diagnostics/indication-recordings/` directory; it
+is never published, persisted by the service, or enabled by normal MARA runtime.
+
 The backend uses the telemetry stream to run normalization, phase detection,
 deterministic rules, checklists, event management, and speech policy entirely in
 the cloud. No cross-wire `tool.request` is issued to the client; aircraft state

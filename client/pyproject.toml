@@ -18,6 +18,7 @@ dcs-copilot-shared = { workspace = true }
 
 [project.scripts]
 dcs-copilot = "dcs_copilot.main:main"
+mara = "dcs_copilot.main:main"
 
 [project.gui-scripts]
 dcs-copilot-desktop = "dcs_copilot.desktop.app:main"
