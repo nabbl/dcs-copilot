@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped]
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QTabWidget,
     QVBoxLayout,
@@ -231,17 +232,35 @@ class DashboardPage(QWidget):
         self.logout = QPushButton("Sign out")
         self.logout.setObjectName("link")
         self.logout.clicked.connect(self.logout_requested)
+        self.settings_button = QPushButton("⚙")
+        self.settings_button.setObjectName("iconButton")
+        self.settings_button.setFixedWidth(38)
+        self.settings_button.setToolTip("Settings")
+        self.settings_button.setAccessibleName("Open settings")
+        self.settings_button.clicked.connect(self.show_settings)
         header.addWidget(brand)
         header.addStretch()
         header.addWidget(self.account)
+        header.addWidget(self.settings_button)
         header.addWidget(self.logout)
         outer.addLayout(header)
 
-        tabs = QTabWidget()
-        tabs.addTab(self._home_tab(), "Overview")
-        tabs.addTab(self._settings_tab(), "Settings")
-        tabs.addTab(self._logs_tab(), "Activity")
-        outer.addWidget(tabs)
+        self.content = QStackedWidget()
+        self.main_tabs = QTabWidget()
+        self.main_tabs.addTab(self._home_tab(), "Overview")
+        self.main_tabs.addTab(self._logs_tab(), "Activity")
+        self.settings_page = self._settings_page()
+        self.content.addWidget(self.main_tabs)
+        self.content.addWidget(self.settings_page)
+        outer.addWidget(self.content)
+
+    def show_settings(self) -> None:
+        self.content.setCurrentWidget(self.settings_page)
+        self.settings_button.setEnabled(False)
+
+    def show_dashboard(self) -> None:
+        self.content.setCurrentWidget(self.main_tabs)
+        self.settings_button.setEnabled(True)
 
     def _home_tab(self) -> QWidget:
         tab = QWidget()
@@ -285,12 +304,35 @@ class DashboardPage(QWidget):
         layout.addStretch()
         return tab
 
-    def _settings_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(8, 28, 8, 8)
-        title = QLabel("Client settings")
+    def _settings_page(self) -> QWidget:
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(8, 20, 8, 8)
+        settings_header = QHBoxLayout()
+        back = QPushButton("← Back to MARA")
+        back.setObjectName("link")
+        back.clicked.connect(self.show_dashboard)
+        title = QLabel("Settings")
         title.setObjectName("sectionTitle")
+        settings_header.addWidget(back)
+        settings_header.addSpacing(12)
+        settings_header.addWidget(title)
+        settings_header.addStretch()
+        page_layout.addLayout(settings_header)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setObjectName("settingsScroll")
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(8, 22, 18, 8)
+        subtitle = QLabel(
+            "Configure the local service, DCS integration, controls, and startup behavior."
+        )
+        subtitle.setObjectName("muted")
+        subtitle.setWordWrap(True)
         form = QFormLayout()
         path_row = QHBoxLayout()
         self.dcs_path = QLineEdit(self.config.dcs_saved_games_path)
@@ -371,13 +413,15 @@ class DashboardPage(QWidget):
         save = QPushButton("Save settings")
         save.setObjectName("primary")
         save.clicked.connect(self.save_requested)
-        layout.addWidget(title)
-        layout.addSpacing(18)
+        layout.addWidget(subtitle)
+        layout.addSpacing(20)
         layout.addLayout(form)
         layout.addSpacing(18)
         layout.addWidget(save, alignment=Qt.AlignmentFlag.AlignRight)
         layout.addStretch()
-        return tab
+        scroll.setWidget(content)
+        page_layout.addWidget(scroll)
+        return page
 
     def _logs_tab(self) -> QWidget:
         tab = QWidget()
@@ -1071,6 +1115,10 @@ def _stylesheet() -> str:
         QPushButton#primary {{ color: #06120d; background: {ACCENT}; border-color: {ACCENT}; }}
         QPushButton#primary:hover {{ background: #6ee7b7; }}
         QPushButton#link {{ background: transparent; border: none; color: {MUTED}; }}
+        QPushButton#iconButton {{ background: transparent; border: 1px solid transparent; padding: 6px 10px; font-size: 19px; }}
+        QPushButton#iconButton:hover {{ background: #1b2a40; border-color: #30435f; }}
+        QPushButton#iconButton:disabled {{ color: {ACCENT}; background: #16243a; border-color: #30435f; }}
+        QScrollArea#settingsScroll {{ background: transparent; border: none; }}
         QTabWidget::pane {{ border: none; }}
         QTabBar::tab {{ color: {MUTED}; padding: 12px 18px; border-bottom: 2px solid transparent; }}
         QTabBar::tab:selected {{ color: #e7eef8; border-bottom-color: {ACCENT}; }}

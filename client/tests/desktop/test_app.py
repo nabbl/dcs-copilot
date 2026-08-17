@@ -60,3 +60,23 @@ def test_failed_remote_switch_keeps_local_backend(
     assert window.config.backend_mode == "local"
     assert window.config.cloud_url == "ws://localhost:8000/v2/realtime"
     assert not manager.stopped
+
+
+def test_settings_are_on_a_dedicated_cog_screen(window: MainWindow) -> None:
+    dashboard = window.dashboard
+    assert dashboard.content.currentWidget() is dashboard.main_tabs
+    assert [
+        dashboard.main_tabs.tabText(index)
+        for index in range(dashboard.main_tabs.count())
+    ] == ["Overview", "Activity"]
+    assert dashboard.settings_button.toolTip() == "Settings"
+
+    dashboard.settings_button.click()
+
+    assert dashboard.content.currentWidget() is dashboard.settings_page
+    assert not dashboard.settings_button.isEnabled()
+
+    dashboard.show_dashboard()
+
+    assert dashboard.content.currentWidget() is dashboard.main_tabs
+    assert dashboard.settings_button.isEnabled()
