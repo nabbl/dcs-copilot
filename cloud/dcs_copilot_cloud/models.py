@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import ssl
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,8 +12,15 @@ from pathlib import Path
 from typing import Protocol, Self
 from urllib.request import Request, urlopen
 
+import certifi
+
 LOGGER = logging.getLogger(__name__)
 ProgressCallback = Callable[[str, int, int], None]
+
+
+def _open_url(request: Request, *, timeout: float) -> DownloadResponse:
+    context = ssl.create_default_context(cafile=certifi.where())
+    return urlopen(request, timeout=timeout, context=context)  # type: ignore[return-value]
 
 
 class DownloadResponse(Protocol):
@@ -67,7 +75,7 @@ def provision_asset(
     *,
     progress: ProgressCallback | None = None,
     retries: int = 3,
-    opener: Callable[..., DownloadResponse] = urlopen,
+    opener: Callable[..., DownloadResponse] = _open_url,
 ) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     destination = directory / asset.name

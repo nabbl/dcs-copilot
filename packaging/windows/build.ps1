@@ -22,7 +22,14 @@ try {
         --workpath (Join-Path $BuildRoot "desktop") `
         --specpath $BuildRoot `
         --hidden-import keyring.backends.Windows `
+        --collect-binaries PySide6 `
+        --collect-data dcs_copilot `
         (Join-Path $PSScriptRoot "desktop_entry.py")
+
+    $QtPlatformPlugin = Join-Path $DistRoot "DCS Copilot\_internal\PySide6\plugins\platforms\qwindows.dll"
+    if (-not (Test-Path $QtPlatformPlugin)) {
+        throw "Desktop bundle is missing the Qt Windows platform plugin."
+    }
 
     uv run --with "pyinstaller>=6.15,<7" pyinstaller `
         --noconfirm `
@@ -33,6 +40,7 @@ try {
         --workpath (Join-Path $BuildRoot "cli") `
         --specpath $BuildRoot `
         --hidden-import keyring.backends.Windows `
+        --collect-data dcs_copilot `
         (Join-Path $PSScriptRoot "cli_entry.py")
 
     uv run --package dcs-copilot-cloud --with "pyinstaller>=6.15,<7" pyinstaller `
@@ -49,6 +57,9 @@ try {
         --hidden-import sqlalchemy.dialects.sqlite.aiosqlite `
         --collect-submodules pipecat.services.kokoro `
         --collect-all kokoro_onnx `
+        --collect-all espeakng_loader `
+        --collect-data certifi `
+        --collect-data language_tags `
         --copy-metadata pipecat-ai `
         --copy-metadata kokoro-onnx `
         (Join-Path $PSScriptRoot "backend_entry.py")

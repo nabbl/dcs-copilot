@@ -48,6 +48,7 @@ class CloudSettings:
     telemetry_stale_seconds: float = 30.0
     deployment: str = "local"
     provision_models: bool = False
+    verify_openai_access: bool = False
     openai_api_key: str = field(default="", repr=False)
     stt_provider: str = "openai"
     stt_model: str = "gpt-transcribe"
@@ -107,6 +108,12 @@ class CloudSettings:
             deployment=deployment,
             provision_models=os.getenv(
                 "MARA_PROVISION_MODELS", "1" if deployment == "local" else "0"
+            )
+            .strip()
+            .lower()
+            not in {"0", "false", "no"},
+            verify_openai_access=os.getenv(
+                "MARA_VERIFY_OPENAI_ACCESS", "1" if deployment == "local" else "0"
             )
             .strip()
             .lower()

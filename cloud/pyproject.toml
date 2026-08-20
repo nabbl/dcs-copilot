@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.21,<1",
     "asyncpg>=0.30,<1",
+    "certifi>=2026.7.22,<2027",
     "dcs-copilot-shared",
     "fastapi>=0.116,<1",
     "keyring>=25.6,<26",

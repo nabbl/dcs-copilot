@@ -9,6 +9,12 @@ release qualification, not prerequisites for automated development validation.
   without Python, uv, Node.js, Docker, Git, or build tools.
 - Confirm fresh launch selects Local, starts `MaraBackend.exe`, reaches Ready,
   and writes only below `%LOCALAPPDATA%\MARA`.
+- On a fresh profile, confirm Settings first shows Kokoro verification/download
+  progress and a separate OpenAI key/access state. Confirm Start MARA remains
+  disabled until both are operational and that the displayed blocker is specific.
+- Use Open logs and confirm it opens `%LOCALAPPDATA%\MARA\logs` containing
+  `backend.log` and `backend-process.log`, including useful model-download or
+  startup errors without credentials.
 - Confirm Windows Credential Manager contains the OpenAI credential and neither
   config nor logs contain it.
 - Quit MARA and confirm its child backend exits; start a backend independently

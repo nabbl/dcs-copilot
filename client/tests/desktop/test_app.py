@@ -7,9 +7,9 @@ from typing import Any
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from dcs_copilot.backend import BackendError
+from dcs_copilot.backend import BackendError, BackendInfo, ServiceInfo
 from dcs_copilot.desktop.app import SUPPORT_URL, MainWindow
-from dcs_copilot.desktop.config_store import DesktopConfig
+from dcs_copilot.desktop.config_store import LOCAL_BACKEND_URL, DesktopConfig
 from PySide6.QtCore import QProcess
 from PySide6.QtWidgets import QApplication
 
@@ -68,6 +68,8 @@ def test_start_button_disables_before_process_finishes_starting(
     process = PendingProcess()
     window.process = process  # type: ignore[assignment]
     window._save_settings_silently = lambda: True  # type: ignore[method-assign]
+    window.dashboard._backend_operational = True
+    window.dashboard.run.setEnabled(True)
 
     window.dashboard.run.click()
 
@@ -103,8 +105,21 @@ def test_failed_remote_switch_keeps_local_backend(
         window._save_settings_silently()
 
     assert window.config.backend_mode == "local"
-    assert window.config.cloud_url == "ws://localhost:8000/v2/realtime"
+    assert window.config.cloud_url == LOCAL_BACKEND_URL
     assert not manager.stopped
+
+
+def test_local_backend_url_is_fixed_and_remote_url_is_editable(
+    window: MainWindow,
+) -> None:
+    dashboard = window.dashboard
+
+    dashboard.backend_mode.setCurrentIndex(dashboard.backend_mode.findData("local"))
+    assert dashboard.cloud_url.text() == LOCAL_BACKEND_URL
+    assert not dashboard.cloud_url.isEnabled()
+
+    dashboard.backend_mode.setCurrentIndex(dashboard.backend_mode.findData("remote"))
+    assert dashboard.cloud_url.isEnabled()
 
 
 def test_settings_are_on_a_dedicated_cog_screen(window: MainWindow) -> None:
@@ -125,3 +140,29 @@ def test_settings_are_on_a_dedicated_cog_screen(window: MainWindow) -> None:
 
     assert dashboard.content.currentWidget() is dashboard.main_tabs
     assert dashboard.settings_button.isEnabled()
+
+
+def test_settings_explain_kokoro_and_openai_readiness(window: MainWindow) -> None:
+    info = BackendInfo(
+        url="http://127.0.0.1:47100",
+        mara_version="0.1.0",
+        api_version="1",
+        deployment="local",
+        capabilities={"kokoro": True},
+        openai_configured=False,
+        latency_ms=4.0,
+        operational=False,
+        blocking_reasons=("Add an OpenAI API key in MARA settings.",),
+        services={
+            "kokoro": ServiceInfo("ready", "Downloaded and verified.", 100),
+            "openai": ServiceInfo("missing", "Add an API key."),
+        },
+    )
+
+    window.dashboard.set_backend_info(info, owned=True)
+
+    assert window.dashboard.backend_diagnostic_card.value.text() == "Running"
+    assert window.dashboard.kokoro_diagnostic_card.value.text() == "Ready"
+    assert window.dashboard.openai_diagnostic_card.value.text() == "API key needed"
+    assert window.dashboard.backend_card.value.text() == "Setup required"
+    assert not window.dashboard.run.isEnabled()

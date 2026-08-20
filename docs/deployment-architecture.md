@@ -97,10 +97,14 @@ preserving the deployed behavior. Provider construction remains backend-only.
 ## Lifecycle, compatibility, and security
 
 `GET /health` proves that the process accepts requests. `GET /ready` reports
-database initialization and provider/component state. `GET /api/system/info`
-reports `mara_version`, the separately versioned `api_version`, transport
-protocol, deployment, capabilities, TTS provider, and credential presence—never
-the credential.
+database/model startup, verified model-download progress, and operational
+blockers. `GET /api/system/info` reports `mara_version`, the separately versioned
+`api_version`, transport protocol, deployment, capabilities, TTS provider, and
+per-service diagnostics—never the credential. Local startup authenticates
+against OpenAI's model-list endpoint without running inference, so MARA can
+distinguish a missing or rejected key, network failure, quota/rate limiting, and
+working API access. Settings shows separate Local backend, Kokoro voice, and
+OpenAI API states and opens the local log directory directly.
 
 The desktop probes system info with bounded timeouts and exact API-version
 validation. Local startup uses readiness polling rather than sleeps, detects

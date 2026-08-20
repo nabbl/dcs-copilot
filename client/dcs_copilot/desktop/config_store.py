@@ -220,6 +220,8 @@ class DesktopConfig:
                 if os.getenv("DCS_COPILOT_CLOUD_URL", "").strip()
                 else defaults.backend_mode
             )
+        if backend_mode == "local":
+            selected_url = LOCAL_BACKEND_URL
 
         def text_value(name: str, default: str) -> str:
             value = values.get(name, default)
@@ -319,11 +321,6 @@ class DesktopConfig:
     def validate_backend(self) -> None:
         if self.backend_mode not in {"local", "remote"}:
             raise ValueError("Backend mode must be local or remote")
+        if self.backend_mode == "local":
+            self.cloud_url = LOCAL_BACKEND_URL
         self.cloud_url = realtime_url(self.cloud_url)
-        parsed = urlparse(self.cloud_url)
-        if self.backend_mode == "local" and parsed.hostname not in {
-            "127.0.0.1",
-            "localhost",
-            "::1",
-        }:
-            raise ValueError("Local backend mode requires a loopback URL")

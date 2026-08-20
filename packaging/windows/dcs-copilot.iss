@@ -43,7 +43,7 @@ Name: "{autodesktop}\MARA"; Filename: "{app}\DCS Copilot\DCS Copilot.exe"; Tasks
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
-Name: "dcsbios"; Description: "Install or update DCS-BIOS in detected DCS Saved Games folders"; GroupDescription: "DCS integration:"; Flags: checkedonce
+Name: "dcsbios"; Description: "Install or update DCS-BIOS and MARA spatial export in detected DCS Saved Games folders"; GroupDescription: "DCS integration:"
 
 [Registry]
 Root: HKCU; Subkey: "Software\DCS Copilot"; ValueType: string; ValueName: "ServiceUrl"; ValueData: "{#ServiceUrl}"; Flags: uninsdeletekeyifempty

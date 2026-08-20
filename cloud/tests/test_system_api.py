@@ -9,6 +9,7 @@ from dcs_copilot_cloud.app import create_app
 from dcs_copilot_cloud.config import CloudSettings
 from dcs_copilot_cloud.credentials import MemoryCredentialStore
 from dcs_copilot_cloud.main import _load_non_secret_config
+from dcs_copilot_cloud.provider_diagnostics import ProviderDiagnostic
 from dcs_copilot_cloud.runtime_paths import RuntimePaths
 from fastapi.testclient import TestClient
 
@@ -36,6 +37,51 @@ def test_health_readiness_and_compatibility_handshake() -> None:
         assert info["deployment"] == "local"
         assert info["capabilities"]["kokoro"] is True
         assert info["openai_configured"] is True
+        assert info["operational"] is True
+        assert info["services"]["kokoro"]["status"] == "ready"
+        assert info["services"]["openai"]["status"] == "configured"
+
+
+def test_missing_openai_key_is_an_explicit_operational_blocker() -> None:
+    app = create_app(CloudSettings(deployment="local", tts_provider="kokoro"))
+
+    with TestClient(app) as client:
+        ready = client.get("/ready").json()
+        info = client.get("/api/system/info").json()
+
+    assert ready["status"] == "ready"
+    assert ready["operational"] is False
+    assert info["services"]["openai"]["status"] == "missing"
+    assert info["blocking_reasons"] == ["Add an OpenAI API key in MARA settings."]
+
+
+def test_local_startup_checks_real_openai_access_without_inference() -> None:
+    checked_keys: list[str] = []
+
+    def check(key: str) -> ProviderDiagnostic:
+        checked_keys.append(key)
+        return ProviderDiagnostic("available", "Authenticated.", "now")
+
+    app = create_app(
+        CloudSettings(
+            deployment="local",
+            tts_provider="kokoro",
+            openai_api_key="stored-key",
+            verify_openai_access=True,
+        ),
+        openai_checker=check,
+    )
+    with TestClient(app) as client:
+        for _ in range(50):
+            info = client.get("/api/system/info").json()
+            if info["services"]["openai"]["status"] == "available":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("OpenAI diagnostic did not complete")
+
+    assert checked_keys == ["stored-key"]
+    assert info["operational"] is True
 
 
 def test_kokoro_provisioning_reports_progress_before_ready(monkeypatch) -> None:
@@ -46,14 +92,19 @@ def test_kokoro_provisioning_reports_progress_before_ready(monkeypatch) -> None:
         progress("kokoro-v1.0.onnx", 50, 100)
         started.set()
         release.wait(timeout=2)
+        return Path("model.onnx"), Path("voices.bin")
 
     monkeypatch.setattr("dcs_copilot_cloud.app.provision_kokoro", provision)
+    validated: list[tuple[Path, Path, str]] = []
     app = create_app(
         CloudSettings(
             deployment="local",
             tts_provider="kokoro",
             provision_models=True,
-        )
+        ),
+        kokoro_validator=lambda model, voices, voice: validated.append(
+            (model, voices, voice)
+        ),
     )
     with TestClient(app) as client:
         assert started.wait(timeout=1)
@@ -67,6 +118,36 @@ def test_kokoro_provisioning_reports_progress_before_ready(monkeypatch) -> None:
             time.sleep(0.01)
         else:
             pytest.fail("backend did not become ready after model provisioning")
+    assert validated == [(Path("model.onnx"), Path("voices.bin"), "marin")]
+
+
+def test_kokoro_runtime_load_failure_is_reported_before_ready(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "dcs_copilot_cloud.app.provision_kokoro",
+        lambda *_args, **_kwargs: (Path("model.onnx"), Path("voices.bin")),
+    )
+    app = create_app(
+        CloudSettings(
+            deployment="local",
+            tts_provider="kokoro",
+            provision_models=True,
+        ),
+        kokoro_validator=lambda *_args: (_ for _ in ()).throw(
+            RuntimeError("ONNX runtime unavailable")
+        ),
+    )
+
+    with TestClient(app) as client:
+        for _ in range(50):
+            ready = client.get("/ready").json()
+            if ready["status"] == "error":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("Kokoro runtime failure was not reported")
+
+    assert "ONNX runtime unavailable" in ready["error"]
+    assert ready["components"]["kokoro"] is False
 
 
 def test_fake_credential_store_supplies_key_without_config_serialization(

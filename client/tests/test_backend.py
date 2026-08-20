@@ -10,6 +10,7 @@ from dcs_copilot.backend import (
     BackendError,
     BackendInfo,
     LocalBackendManager,
+    ServiceInfo,
     probe_backend,
 )
 
@@ -81,6 +82,47 @@ def test_probe_rejects_incompatible_backend_api(monkeypatch) -> None:
     )
     with pytest.raises(BackendError, match="requires API 1"):
         probe_backend("https://mara.example")
+
+
+def test_probe_reports_setup_blockers_and_provider_diagnostics(monkeypatch) -> None:
+    responses = iter(
+        (
+            JsonResponse({"status": "ready"}),
+            JsonResponse(
+                {
+                    "mara_version": "0.1.0",
+                    "api_version": "1",
+                    "deployment": "local",
+                    "operational": False,
+                    "blocking_reasons": ["Add an OpenAI API key in MARA settings."],
+                    "capabilities": {"kokoro": True},
+                    "openai_configured": False,
+                    "services": {
+                        "kokoro": {
+                            "status": "ready",
+                            "detail": "Downloaded and verified.",
+                            "progress_percent": 100,
+                        },
+                        "openai": {
+                            "status": "missing",
+                            "detail": "Add an API key.",
+                        },
+                    },
+                }
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        "dcs_copilot.backend.urlopen", lambda *_a, **_k: next(responses)
+    )
+
+    info = probe_backend("ws://127.0.0.1:47100/v2/realtime")
+
+    assert not info.operational
+    assert info.blocking_reasons == ("Add an OpenAI API key in MARA settings.",)
+    assert info.services["kokoro"] == ServiceInfo(
+        "ready", "Downloaded and verified.", 100
+    )
 
 
 def test_existing_backend_is_reused_and_not_stopped(

@@ -60,10 +60,28 @@ def test_local_openai_secret_is_never_serialized(tmp_path: Path) -> None:
     assert store.get_openai_key() is None
 
 
-def test_backend_validation_rejects_invalid_and_non_loopback_local_urls() -> None:
+def test_backend_validation_rejects_invalid_remote_url_and_fixes_local_url() -> None:
     config = DesktopConfig(backend_mode="remote", cloud_url="not-a-url")
     with pytest.raises(ValueError, match="Backend URL"):
         config.validate_backend()
     config = DesktopConfig(backend_mode="local", cloud_url="http://192.168.1.50:47100")
-    with pytest.raises(ValueError, match="loopback"):
-        config.validate_backend()
+    config.validate_backend()
+    assert config.cloud_url == "ws://127.0.0.1:47100/v2/realtime"
+
+
+def test_stored_local_backend_ignores_custom_url(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "backend": {
+                    "mode": "local",
+                    "url": "http://localhost:9999",
+                }
+            }
+        )
+    )
+
+    config = DesktopConfig.load(path)
+
+    assert config.cloud_url == "ws://127.0.0.1:47100/v2/realtime"

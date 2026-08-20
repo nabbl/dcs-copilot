@@ -7,8 +7,9 @@ import ipaddress
 import logging
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from dcs_copilot_protocol import (
@@ -38,7 +39,9 @@ from .events.models import CloudAircraftEvent, CloudManagedEvent
 from .events.policy import SpeechMode, SpeechPolicy
 from .greetings import CockpitGreetingSelector
 from .models import provision_kokoro
+from .provider_diagnostics import ProviderDiagnostic, check_openai_access
 from .providers import build_provider_bundle
+from .providers.kokoro import validate_kokoro_runtime
 from .runtime_paths import RuntimePaths
 from .session import (
     CompletedUtterance,
@@ -66,6 +69,8 @@ LOGGER = logging.getLogger("uvicorn.error")
 
 
 VoicePipelineFactory = Callable[[CloudSettings], VoicePipeline]
+OpenAIChecker = Callable[[str], ProviderDiagnostic]
+KokoroValidator = Callable[[Path, Path, str], None]
 
 
 def is_loopback_host(host: str) -> bool:
@@ -81,6 +86,8 @@ def create_app(
     settings: CloudSettings | None = None,
     *,
     voice_pipeline_factory: VoicePipelineFactory | None = None,
+    openai_checker: OpenAIChecker | None = None,
+    kokoro_validator: KokoroValidator | None = None,
 ) -> FastAPI:
     configured = settings or CloudSettings.from_env()
     if not is_loopback_host(configured.host):
@@ -111,6 +118,8 @@ def create_app(
     )
     accounts = AccountStore(database)
     cleanup_tasks: set[asyncio.Task[None]] = set()
+    check_openai = openai_checker or check_openai_access
+    validate_kokoro = kokoro_validator or validate_kokoro_runtime
 
     def cleanup_finished(task: asyncio.Task[None]) -> None:
         cleanup_tasks.discard(task)
@@ -122,10 +131,53 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         _app.state.ready = False
+        _app.state.model_error = None
+        _app.state.model_progress = None
+        _app.state.model_status = (
+            {
+                "status": "checking",
+                "detail": "Checking cached Kokoro model files.",
+                "progress_percent": 0,
+            }
+            if configured.tts_provider == "kokoro" and configured.provision_models
+            else {
+                "status": "ready"
+                if configured.tts_provider == "kokoro"
+                else "not_used",
+                "detail": "Kokoro provisioning is disabled."
+                if configured.tts_provider == "kokoro"
+                else f"Using {configured.tts_provider} text-to-speech.",
+                "progress_percent": None,
+            }
+        )
+        _app.state.openai_status = (
+            {
+                "status": "available",
+                "detail": "The configured voice pipeline is available.",
+                "checked_at": None,
+            }
+            if voice_pipeline_factory is not None
+            else {
+                "status": "missing",
+                "detail": "Add an OpenAI API key in MARA settings.",
+                "checked_at": None,
+            }
+            if not configured.voice_configured
+            else {
+                "status": "checking"
+                if configured.verify_openai_access
+                else "configured",
+                "detail": "Checking OpenAI API access."
+                if configured.verify_openai_access
+                else "An OpenAI API key is configured; live checking is disabled.",
+                "checked_at": None,
+            }
+        )
         await database.initialize()
         _app.state.database_ready = True
-        model_task: asyncio.Task[None] | None = None
-        if configured.tts_provider == "kokoro" and configured.provision_models:
+        startup_task: asyncio.Task[None] | None = None
+
+        async def prepare_models() -> None:
             model_dir = RuntimePaths.discover().ensure().models / "kokoro"
             last_percent = -1
 
@@ -138,23 +190,75 @@ def create_app(
                     "total": total,
                     "percent": percent,
                 }
+                _app.state.model_status = {
+                    "status": "downloading",
+                    "detail": f"Downloading {name}: {percent}%",
+                    "progress_percent": percent,
+                }
                 if percent // 10 != last_percent // 10:
                     LOGGER.info("Kokoro model provisioning: %s %d%%", name, percent)
                     last_percent = percent
 
-            async def prepare_models() -> None:
-                try:
-                    await asyncio.to_thread(
-                        provision_kokoro, model_dir, progress=report_model_progress
-                    )
-                except Exception as exc:  # noqa: BLE001 - expose provisioning state
-                    _app.state.model_error = str(exc)
-                    LOGGER.error("Kokoro model provisioning failed: %s", exc)
-                else:
-                    _app.state.ready = True
+            try:
+                model, voices = await asyncio.to_thread(
+                    provision_kokoro, model_dir, progress=report_model_progress
+                )
+                _app.state.model_status = {
+                    "status": "loading",
+                    "detail": "Loading the packaged Kokoro ONNX runtime.",
+                    "progress_percent": 100,
+                }
+                await asyncio.to_thread(
+                    validate_kokoro, model, voices, configured.tts_voice
+                )
+            except Exception as exc:  # noqa: BLE001 - expose provisioning state
+                _app.state.model_error = str(exc)
+                _app.state.model_status = {
+                    "status": "error",
+                    "detail": str(exc),
+                    "progress_percent": None,
+                }
+                LOGGER.error("Kokoro model provisioning failed: %s", exc)
+            else:
+                _app.state.model_status = {
+                    "status": "ready",
+                    "detail": (
+                        "Files are SHA-256 verified and the Kokoro ONNX runtime "
+                        "loaded successfully."
+                    ),
+                    "progress_percent": 100,
+                }
 
-            model_task = asyncio.create_task(
-                prepare_models(), name="provision-kokoro-models"
+        async def prepare_openai() -> None:
+            try:
+                result = await asyncio.to_thread(
+                    check_openai, configured.openai_api_key
+                )
+            except Exception as exc:  # noqa: BLE001 - diagnostic must not crash startup
+                result = ProviderDiagnostic(
+                    status="error",
+                    detail=f"OpenAI connectivity check failed: {exc}",
+                    checked_at="",
+                )
+            _app.state.openai_status = result.as_dict()
+
+        startup_jobs: list[Coroutine[Any, Any, None]] = []
+        if configured.tts_provider == "kokoro" and configured.provision_models:
+            startup_jobs.append(prepare_models())
+        if (
+            voice_pipeline_factory is None
+            and configured.voice_configured
+            and configured.verify_openai_access
+        ):
+            startup_jobs.append(prepare_openai())
+
+        async def prepare_startup() -> None:
+            await asyncio.gather(*startup_jobs)
+            _app.state.ready = _app.state.model_error is None
+
+        if startup_jobs:
+            startup_task = asyncio.create_task(
+                prepare_startup(), name="mara-startup-diagnostics"
             )
         else:
             _app.state.ready = True
@@ -163,9 +267,9 @@ def create_app(
         finally:
             _app.state.ready = False
             _app.state.database_ready = False
-            if model_task is not None and not model_task.done():
-                model_task.cancel()
-                await asyncio.gather(model_task, return_exceptions=True)
+            if startup_task is not None and not startup_task.done():
+                startup_task.cancel()
+                await asyncio.gather(startup_task, return_exceptions=True)
             if cleanup_tasks:
                 await asyncio.gather(*tuple(cleanup_tasks), return_exceptions=True)
             await database.close()
@@ -185,14 +289,55 @@ def create_app(
     app.state.database_ready = False
     app.state.model_progress = None
     app.state.model_error = None
+    app.state.model_status = {}
+    app.state.openai_status = {}
 
     def component_status() -> dict[str, bool]:
+        openai_status = str(app.state.openai_status.get("status", "missing"))
         return {
             "database": bool(app.state.database_ready),
             "kokoro": configured.tts_provider == "kokoro"
             and (not configured.provision_models or bool(app.state.ready)),
             "coach": True,
-            "openai": configured.voice_configured,
+            "openai": openai_status in {"available", "configured"},
+        }
+
+    def blocking_reasons() -> list[str]:
+        reasons: list[str] = []
+        if app.state.model_error:
+            reasons.append(f"Kokoro failed: {app.state.model_error}")
+        elif not app.state.ready:
+            reasons.append(str(app.state.model_status.get("detail", "Starting Kokoro")))
+        openai = app.state.openai_status
+        openai_status = str(openai.get("status", "missing"))
+        if openai_status not in {"available", "configured"}:
+            reasons.append(
+                str(openai.get("detail", "OpenAI API access is unavailable."))
+            )
+        return reasons
+
+    def operational() -> bool:
+        return bool(app.state.ready) and not blocking_reasons()
+
+    def service_status() -> dict[str, object]:
+        backend_status = (
+            "error"
+            if app.state.model_error
+            else "ready"
+            if app.state.ready
+            else "starting"
+        )
+        return {
+            "backend": {
+                "status": backend_status,
+                "detail": "Local backend process is running."
+                if backend_status == "ready"
+                else "Backend startup is still in progress."
+                if backend_status == "starting"
+                else str(app.state.model_error),
+            },
+            "kokoro": dict(app.state.model_status),
+            "openai": dict(app.state.openai_status),
         }
 
     @app.get("/health")
@@ -205,6 +350,8 @@ def create_app(
         status = "ready" if ready else "error" if app.state.model_error else "starting"
         return {
             "status": status,
+            "operational": operational(),
+            "blocking_reasons": blocking_reasons(),
             "components": component_status(),
             "model_progress": app.state.model_progress,
             "error": app.state.model_error,
@@ -212,12 +359,14 @@ def create_app(
 
     @app.get("/api/system/info")
     async def system_info() -> dict[str, object]:
-        components = component_status()
         return {
             "mara_version": MARA_VERSION,
             "api_version": MARA_API_VERSION,
             "protocol_version": PROTOCOL_VERSION,
             "deployment": configured.deployment,
+            "operational": operational(),
+            "blocking_reasons": blocking_reasons(),
+            "services": service_status(),
             "capabilities": {
                 "coach": True,
                 "kokoro": configured.tts_provider == "kokoro",
@@ -225,7 +374,7 @@ def create_app(
                 "accounts": True,
                 "memory": True,
             },
-            "openai_configured": components["openai"],
+            "openai_configured": configured.voice_configured,
             "tts_provider": configured.tts_provider,
         }
 
@@ -247,7 +396,8 @@ def create_app(
     async def realtime(websocket: WebSocket) -> None:
         await websocket.accept()
         if not app.state.ready:
-            await websocket.close(code=1013, reason="backend is still initializing")
+            reason = next(iter(blocking_reasons()), "backend is still initializing")
+            await websocket.close(code=1013, reason=reason[:120])
             return
         session = RealtimeSession(
             auth.verify_access_token,

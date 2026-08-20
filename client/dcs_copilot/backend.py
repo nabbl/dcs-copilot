@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, TextIO
 from urllib.error import HTTPError, URLError
@@ -26,6 +26,13 @@ class BackendError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class ServiceInfo:
+    status: str
+    detail: str
+    progress_percent: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class BackendInfo:
     url: str
     mara_version: str
@@ -34,6 +41,9 @@ class BackendInfo:
     capabilities: dict[str, bool]
     openai_configured: bool
     latency_ms: float
+    operational: bool = True
+    blocking_reasons: tuple[str, ...] = ()
+    services: dict[str, ServiceInfo] = field(default_factory=dict)
 
 
 def probe_backend(url: str, *, timeout: float = 2.0) -> BackendInfo:
@@ -57,6 +67,9 @@ def probe_backend(url: str, *, timeout: float = 2.0) -> BackendInfo:
                 name = progress.get("name", "Kokoro model")
                 percent = progress.get("percent", 0)
                 raise BackendError(f"Provisioning {name}: {percent}%")
+            reasons = readiness.get("blocking_reasons")
+            if isinstance(reasons, list) and reasons and isinstance(reasons[0], str):
+                raise BackendError(reasons[0])
             raise BackendError("Backend is still initializing")
         request = Request(
             base + "/api/system/info", headers={"Accept": "application/json"}
@@ -77,6 +90,34 @@ def probe_backend(url: str, *, timeout: float = 2.0) -> BackendInfo:
     capabilities = payload.get("capabilities")
     if not isinstance(capabilities, dict):
         capabilities = {}
+    openai_configured = bool(payload.get("openai_configured", False))
+    reasons = payload.get("blocking_reasons")
+    blocking_reasons = (
+        tuple(str(reason) for reason in reasons if isinstance(reason, str))
+        if isinstance(reasons, list)
+        else ()
+    )
+    services_payload = payload.get("services")
+    services: dict[str, ServiceInfo] = {}
+    if isinstance(services_payload, dict):
+        for name, raw_service in services_payload.items():
+            if not isinstance(raw_service, dict):
+                continue
+            raw_progress = raw_service.get("progress_percent")
+            services[str(name)] = ServiceInfo(
+                status=str(raw_service.get("status", "unknown")),
+                detail=str(raw_service.get("detail", "")),
+                progress_percent=(
+                    int(raw_progress) if isinstance(raw_progress, int | float) else None
+                ),
+            )
+    if "openai" not in services:
+        services["openai"] = ServiceInfo(
+            status="configured" if openai_configured else "missing",
+            detail="An OpenAI API key is configured."
+            if openai_configured
+            else "Add an OpenAI API key in MARA settings.",
+        )
     return BackendInfo(
         url=base,
         mara_version=str(payload.get("mara_version", "unknown")),
@@ -85,8 +126,11 @@ def probe_backend(url: str, *, timeout: float = 2.0) -> BackendInfo:
         capabilities={
             str(name): bool(enabled) for name, enabled in capabilities.items()
         },
-        openai_configured=bool(payload.get("openai_configured", False)),
+        openai_configured=openai_configured,
         latency_ms=(time.monotonic() - started) * 1000,
+        operational=bool(payload.get("operational", openai_configured)),
+        blocking_reasons=blocking_reasons,
+        services=services,
     )
 
 
@@ -143,6 +187,7 @@ class LocalBackendManager:
         self._on_status = on_status
         self._process: Process | None = None
         self._log: TextIO | None = None
+        self.log_path: Path | None = None
         self._owned = False
         self._stopping = threading.Event()
         self._monitor: threading.Thread | None = None
@@ -163,6 +208,7 @@ class LocalBackendManager:
             self.info = self._probe(self.url, timeout=min(2.0, self.startup_timeout))
             self._status("connected to independently running backend")
             self._owned = False
+            self._report_ready(self.info)
             return self.info
         except BackendError:
             pass
@@ -170,7 +216,7 @@ class LocalBackendManager:
         self._launch()
         self.info = self._wait_ready()
         self._owned = True
-        self._status("local backend ready")
+        self._report_ready(self.info)
         self._start_monitor()
         return self.info
 
@@ -207,7 +253,8 @@ class LocalBackendManager:
         logs = paths / "logs"
         logs.mkdir(parents=True, exist_ok=True)
         self._close_log()
-        self._log = (logs / "backend-process.log").open("a", encoding="utf-8")
+        self.log_path = logs / "backend-process.log"
+        self._log = self.log_path.open("a", encoding="utf-8")
         command = list(self.command or backend_command())
         command.extend(["serve", "--host", "127.0.0.1", "--port", str(port)])
         environment = dict(os.environ)
@@ -247,7 +294,8 @@ class LocalBackendManager:
             if exit_code is not None:
                 self._close_log()
                 raise BackendError(
-                    f"Local backend exited during startup with code {exit_code}"
+                    f"Local backend exited during startup with code {exit_code}. "
+                    f"See {self.log_path or 'the backend log'}"
                 )
             try:
                 return self._probe(self.url, timeout=max(0.1, self.poll_interval))
@@ -256,9 +304,15 @@ class LocalBackendManager:
                 if detail != last_error:
                     last_error = detail
                     self._status(detail)
+                if detail.startswith("Backend initialization failed:"):
+                    self.stop()
+                    raise
             time.sleep(self.poll_interval)
         self.stop()
-        raise BackendError(f"Local backend readiness timed out: {last_error}")
+        raise BackendError(
+            f"Local backend readiness timed out: {last_error}. "
+            f"See {self.log_path or 'the backend log'}"
+        )
 
     def _start_monitor(self) -> None:
         self._monitor = threading.Thread(
@@ -288,7 +342,14 @@ class LocalBackendManager:
             except BackendError as exc:
                 self._status(str(exc))
                 continue
-            self._status("local backend recovered")
+            self._report_ready(self.info)
+
+    def _report_ready(self, info: BackendInfo) -> None:
+        if info.operational:
+            self._status("local backend operational")
+            return
+        blocker = next(iter(info.blocking_reasons), "setup is incomplete")
+        self._status(f"local backend running; {blocker}")
 
     def _close_log(self) -> None:
         log = self._log

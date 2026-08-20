@@ -14,9 +14,15 @@ from PySide6.QtCore import (  # type: ignore[import-untyped]
     QRunnable,
     Qt,
     QThreadPool,
+    QUrl,
     Signal,
 )
-from PySide6.QtGui import QColor, QFont, QPalette  # type: ignore[import-untyped]
+from PySide6.QtGui import (  # type: ignore[import-untyped]
+    QColor,
+    QDesktopServices,
+    QFont,
+    QPalette,
+)
 from PySide6.QtWidgets import (  # type: ignore[import-untyped]
     QApplication,
     QCheckBox,
@@ -56,7 +62,12 @@ from dcs_copilot.logging import configure_logging
 from .activity import ActivityOutputFilter
 from .auth import AuthError, StoredAuthSession, TokenPair
 from .backend_credentials import KeyringBackendCredentialStore
-from .config_store import DesktopConfig, configure_launch_at_login
+from .config_store import (
+    LOCAL_BACKEND_URL,
+    DesktopConfig,
+    app_data_dir,
+    configure_launch_at_login,
+)
 from .dcs_setup import inspect_installation, install_dcs_bios
 
 APP_NAME = "DCS Copilot"
@@ -219,10 +230,12 @@ class DashboardPage(QWidget):
     learn_mute_requested = Signal()
     test_backend_requested = Signal()
     restart_backend_requested = Signal()
+    open_logs_requested = Signal()
 
     def __init__(self, config: DesktopConfig) -> None:
         super().__init__()
         self.config = config
+        self._backend_operational = config.backend_mode == "remote"
         outer = QVBoxLayout(self)
         outer.setContentsMargins(32, 24, 32, 28)
         header = QHBoxLayout()
@@ -263,6 +276,10 @@ class DashboardPage(QWidget):
         self.content.setCurrentWidget(self.main_tabs)
         self.settings_button.setEnabled(True)
 
+    @property
+    def backend_operational(self) -> bool:
+        return self._backend_operational
+
     def _home_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -289,6 +306,7 @@ class DashboardPage(QWidget):
         self.run = QPushButton("Start MARA")
         self.run.setObjectName("primary")
         self.run.clicked.connect(self.run_requested)
+        self.run.setEnabled(False)
         self.stop = QPushButton("Stop")
         self.stop.clicked.connect(self.stop_requested)
         self.stop.setEnabled(False)
@@ -334,6 +352,19 @@ class DashboardPage(QWidget):
         )
         subtitle.setObjectName("muted")
         subtitle.setWordWrap(True)
+        diagnostics = QHBoxLayout()
+        self.backend_diagnostic_card = StatusCard("Local backend")
+        self.kokoro_diagnostic_card = StatusCard("Kokoro voice")
+        self.openai_diagnostic_card = StatusCard("OpenAI API")
+        diagnostics.addWidget(self.backend_diagnostic_card)
+        diagnostics.addWidget(self.kokoro_diagnostic_card)
+        diagnostics.addWidget(self.openai_diagnostic_card)
+        first_run = QLabel(
+            "First launch: MARA downloads and verifies about 340 MB of Kokoro "
+            "voice files. Keep this window open; progress appears above."
+        )
+        first_run.setObjectName("muted")
+        first_run.setWordWrap(True)
         form = QFormLayout()
         path_row = QHBoxLayout()
         self.dcs_path = QLineEdit(self.config.dcs_saved_games_path)
@@ -348,13 +379,21 @@ class DashboardPage(QWidget):
         self.backend_mode.setCurrentIndex(
             max(0, self.backend_mode.findData(self.config.backend_mode))
         )
+        self._remote_backend_url = (
+            self.config.cloud_url if self.config.backend_mode == "remote" else ""
+        )
+        self.backend_mode.currentIndexChanged.connect(self._backend_mode_changed)
+        self._backend_mode_changed()
         backend_actions = QHBoxLayout()
         test_backend = QPushButton("Test connection")
         test_backend.clicked.connect(self.test_backend_requested)
         restart_backend = QPushButton("Restart Backend")
         restart_backend.clicked.connect(self.restart_backend_requested)
+        self.open_logs = QPushButton("Open logs")
+        self.open_logs.clicked.connect(self.open_logs_requested)
         backend_actions.addWidget(test_backend)
         backend_actions.addWidget(restart_backend)
+        backend_actions.addWidget(self.open_logs)
         backend_actions.addStretch()
         self.openai_key = QLineEdit()
         self.openai_key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -415,6 +454,9 @@ class DashboardPage(QWidget):
         save.setObjectName("primary")
         save.clicked.connect(self.save_requested)
         layout.addWidget(subtitle)
+        layout.addSpacing(16)
+        layout.addLayout(diagnostics)
+        layout.addWidget(first_run)
         layout.addSpacing(20)
         layout.addLayout(form)
         layout.addSpacing(18)
@@ -423,6 +465,19 @@ class DashboardPage(QWidget):
         scroll.setWidget(content)
         page_layout.addWidget(scroll)
         return page
+
+    def _backend_mode_changed(self) -> None:
+        local = self.backend_mode.currentData() == "local"
+        if local:
+            if (
+                self.cloud_url.isEnabled()
+                and self.cloud_url.text() != LOCAL_BACKEND_URL
+            ):
+                self._remote_backend_url = self.cloud_url.text()
+            self.cloud_url.setText(LOCAL_BACKEND_URL)
+        elif self._remote_backend_url:
+            self.cloud_url.setText(self._remote_backend_url)
+        self.cloud_url.setEnabled(not local)
 
     def _logs_tab(self) -> QWidget:
         tab = QWidget()
@@ -665,7 +720,7 @@ class DashboardPage(QWidget):
         )
 
     def set_running(self, running: bool) -> None:
-        self.run.setEnabled(not running)
+        self.run.setEnabled(not running and self._backend_operational)
         self.run.setText("MARA is running" if running else "Start MARA")
         self.stop.setEnabled(running)
         self.runtime_card.set_status(
@@ -685,15 +740,80 @@ class DashboardPage(QWidget):
         )
 
     def set_backend_info(self, info: BackendInfo, *, owned: bool = False) -> None:
+        self._backend_operational = info.operational
         ownership = "managed locally" if owned else info.deployment
+        blocker = next(iter(info.blocking_reasons), "Complete setup in Settings.")
         self.backend_card.set_status(
-            "Connected",
-            f"v{info.mara_version} · API {info.api_version} · {info.latency_ms:.0f} ms · {ownership}",
+            "Ready" if info.operational else "Setup required",
+            (
+                f"v{info.mara_version} · API {info.api_version} · "
+                f"{info.latency_ms:.0f} ms · {ownership}"
+                if info.operational
+                else blocker
+            ),
+            good=info.operational,
+        )
+        self.backend_diagnostic_card.set_status(
+            "Running",
+            f"v{info.mara_version} · API {info.api_version} · {ownership}",
             good=True,
         )
+        self._set_service_status(
+            self.kokoro_diagnostic_card,
+            info.services.get("kokoro"),
+            ready_label="Ready",
+        )
+        self._set_service_status(
+            self.openai_diagnostic_card,
+            info.services.get("openai"),
+            ready_label="Connected",
+        )
+        self.run.setEnabled(info.operational and not self.stop.isEnabled())
+
+    @staticmethod
+    def _set_service_status(
+        card: StatusCard, service: object, *, ready_label: str
+    ) -> None:
+        status = str(getattr(service, "status", "unknown"))
+        detail = str(getattr(service, "detail", "No diagnostic information."))
+        progress = getattr(service, "progress_percent", None)
+        labels = {
+            "available": ready_label,
+            "configured": "Configured",
+            "ready": ready_label,
+            "checking": "Checking…",
+            "loading": "Loading runtime…",
+            "downloading": f"Downloading {progress}%"
+            if isinstance(progress, int)
+            else "Downloading…",
+            "missing": "API key needed",
+            "invalid": "Invalid key",
+            "limited": "Quota/rate limited",
+            "unreachable": "Offline",
+            "error": "Failed",
+            "not_used": "Not used",
+        }
+        card.set_status(
+            labels.get(status, status.replace("_", " ").title()),
+            detail,
+            good=status in {"available", "configured", "ready", "not_used"},
+        )
+
+    def set_backend_activity(self, detail: str) -> None:
+        self._backend_operational = False
+        self.run.setEnabled(False)
+        self.backend_card.set_status("Starting…", detail, good=False)
+        self.backend_diagnostic_card.set_status("Starting…", detail, good=False)
+        if detail.startswith("Provisioning "):
+            self.kokoro_diagnostic_card.set_status(
+                "Downloading…", detail.removeprefix("Provisioning "), good=False
+            )
 
     def set_backend_error(self, detail: str) -> None:
+        self._backend_operational = False
+        self.run.setEnabled(False)
         self.backend_card.set_status("Unavailable", detail, good=False)
+        self.backend_diagnostic_card.set_status("Failed", detail, good=False)
 
 
 class MainWindow(QMainWindow):
@@ -703,6 +823,7 @@ class MainWindow(QMainWindow):
         self.resize(1060, 700)
         self.setMinimumSize(900, 620)
         self.config = DesktopConfig.load()
+        self.config.validate_backend()
         self.config.save()
         self.auth = StoredAuthSession(self.config.cloud_url, self.config.device_id)
         self.auth_url = self.config.cloud_url
@@ -752,6 +873,7 @@ class MainWindow(QMainWindow):
         self.dashboard.learn_mute_requested.connect(self._learn_mute_button)
         self.dashboard.test_backend_requested.connect(self._test_backend)
         self.dashboard.restart_backend_requested.connect(self._restart_backend)
+        self.dashboard.open_logs_requested.connect(self._open_backend_logs)
         self._restore_session()
 
     def _worker(
@@ -802,14 +924,15 @@ class MainWindow(QMainWindow):
             self.dashboard.set_backend_info(result, owned=owned)
 
     def _backend_status_changed(self, detail: str) -> None:
-        healthy = any(
-            marker in detail for marker in ("ready", "recovered", "connected")
-        )
-        self.dashboard.backend_card.set_status(
-            "Connected" if healthy else "Attention",
-            detail,
-            good=healthy,
-        )
+        self.dashboard.set_backend_activity(detail)
+        if detail == "local backend operational" or detail.startswith(
+            "local backend running;"
+        ):
+            self._worker(
+                lambda: probe_backend(self.config.cloud_url),
+                self._backend_ready,
+                self.dashboard.set_backend_error,
+            )
 
     def _test_backend(self) -> None:
         try:
@@ -841,6 +964,16 @@ class MainWindow(QMainWindow):
             self._backend_ready,
             self.dashboard.set_backend_error,
         )
+
+    def _open_backend_logs(self) -> None:
+        logs = app_data_dir() / "logs"
+        try:
+            logs.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.critical(self, APP_NAME, f"Cannot open MARA logs: {exc}")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(logs))):
+            QMessageBox.warning(self, APP_NAME, f"Logs are stored in {logs}")
 
     def _authenticate(self, email: str, password: str, register: bool) -> None:
         if not email or not password:
@@ -963,6 +1096,14 @@ class MainWindow(QMainWindow):
                 self,
                 APP_NAME,
                 "The service URL changed. Sign in to the new service before starting.",
+            )
+            return
+        if not self.dashboard.backend_operational:
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                "MARA is not ready yet. Open Settings to see the Kokoro and "
+                "OpenAI diagnostics.",
             )
             return
         if self.process.state() != QProcess.ProcessState.NotRunning:
