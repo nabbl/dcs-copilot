@@ -100,7 +100,9 @@ class FA18CAdapter:
             "derived:FA-18C_hornet/WOW-composite",
         )
         airborne = self._map_bool(wow, lambda value: not value)
-        gear_commanded_down = self._map_bool(gear_lever, bool)
+        # Hornet DCS-BIOS selector positions follow the cockpit handle:
+        # 0 is DOWN and 1 is UP.
+        gear_commanded_down = self._map_bool(gear_lever, lambda value: value == 0)
 
         flap = reader.read(
             MODULE,
@@ -201,7 +203,10 @@ class FA18CAdapter:
         raw_values["EXT_HOOK"] = hook_raw
         hook = self._map_bool(hook_raw, lambda value: value > 0.5)
         hook_command_raw = read_int("HOOK_LEVER")
-        hook_commanded_down = self._map_bool(hook_command_raw, bool)
+        # Like the gear handle, the hook handle exports 0 for DOWN and 1 for UP.
+        hook_commanded_down = self._map_bool(
+            hook_command_raw, lambda value: value == 0
+        )
 
         seat_raw = read_int("EJECTION_SEAT_ARMED")
         # Live Hornet export: SAFE is 1 and ARMED is 0 for this handle.
@@ -375,7 +380,7 @@ class FA18CAdapter:
         if all(light_values):
             self._gear_up_candidate_since = None
             return GearState.DOWN
-        if lever.value == 0 and not any(light_values):
+        if lever.value == 1 and not any(light_values):
             if self._gear_up_candidate_since is None:
                 self._gear_up_candidate_since = now
             if now - self._gear_up_candidate_since >= self.gear_up_dwell_seconds:

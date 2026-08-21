@@ -35,7 +35,7 @@ def minimal_wow_grounded(raw: RawTelemetryStore, *, now: float) -> None:
 
 
 def minimal_gear_down(raw: RawTelemetryStore, *, now: float) -> None:
-    set_int(raw, "GEAR_LEVER", 1, now=now)
+    set_int(raw, "GEAR_LEVER", 0, now=now)
     set_int(raw, "FLP_LG_NOSE_GEAR_LT", 1, now=now)
     set_int(raw, "FLP_LG_LEFT_GEAR_LT", 1, now=now)
     set_int(raw, "FLP_LG_RIGHT_GEAR_LT", 1, now=now)

@@ -144,7 +144,7 @@ def test_flight_status_consolidates_departure_cleanup_and_issue_coverage() -> No
         ("EXT_WOW_NOSE", 0),
         ("EXT_WOW_LEFT", 0),
         ("EXT_WOW_RIGHT", 0),
-        ("GEAR_LEVER", 0),
+        ("GEAR_LEVER", 1),
         ("FLP_LG_NOSE_GEAR_LT", 0),
         ("FLP_LG_LEFT_GEAR_LT", 0),
         ("FLP_LG_RIGHT_GEAR_LT", 0),
