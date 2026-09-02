@@ -82,8 +82,8 @@ export default function RoadmapPage() {
       </section>
 
       <section className="open-source-roadmap">
-        <div><span>OPEN SOURCE</span><h2>The destination is open.</h2></div>
-        <p>MARA is planned to be released as open source so the community can inspect how claims are grounded, help validate airframes, and contribute new capabilities.</p>
+        <div><span>OPEN SOURCE</span><h2>The code will be public.</h2></div>
+        <p>Once the early-access release is ready, the repository will be public. Contributions, testing, and support for more aircraft will be welcome.</p>
         <a className="button" href="https://ko-fi.com/nabblsawesome" target="_blank" rel="noreferrer">Support development <span>↗</span></a>
       </section>
     </main>

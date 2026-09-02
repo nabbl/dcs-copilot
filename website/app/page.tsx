@@ -59,10 +59,10 @@ export default function Home() {
       </section>
 
       <section className="open-source-callout">
-        <p className="eyebrow">Built in the open</p>
+        <p className="eyebrow">Open source</p>
         <h2>MARA will be<br /><em>open source.</em></h2>
         <div>
-          <p>The early-access build is the beginning—not a closed black box. The project will be opened for pilots and developers to inspect, improve, and extend.</p>
+          <p>You’ll be able to read the code, report problems, contribute fixes, and help add support for other aircraft.</p>
           <a className="button" href="./roadmap/">See the roadmap <span>→</span></a>
         </div>
       </section>

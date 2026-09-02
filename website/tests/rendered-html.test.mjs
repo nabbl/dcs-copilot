@@ -41,6 +41,6 @@ test("server-renders the roadmap and current scope", async () => {
   assert.match(html, /MARA Roadmap/);
   assert.match(html, /Combat awareness/);
   assert.match(html, /Helicopter support/);
-  assert.match(html, /planned to be released as open source/i);
+  assert.match(html, /The code will be public/i);
   assert.match(html, /ko-fi\.com\/nabblsawesome/);
 });
