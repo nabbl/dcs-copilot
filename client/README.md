@@ -2,7 +2,7 @@
 
 The in-cockpit assistant is **MARA — Mission-Aware Realtime Assistant**.
 
-The client is a generic read-only DCS-BIOS and audio transport. It ingests the
+The client is a generic DCS-BIOS and audio transport. It ingests the
 DCS-BIOS multicast stream, decodes own-aircraft control outputs, and
 continuously publishes a decoded control catalog, an initial value snapshot, and
 changed-value deltas to the cloud — independent of PTT. It captures PCM only
@@ -31,7 +31,9 @@ changed-value deltas at 10–20 Hz. Only own-aircraft modules and CommonData
 passive DCS-BIOS outputs are published on this stream. A separate packaged
 spatial provider sends normalized ownship and at most one selected lead/carrier
 only when DCS permits world-object export. No complete world dump, filesystem,
-target, or hidden mission data is forwarded and no DCS writes are ever issued.
+target, or hidden mission data is forwarded. The only DCS-bound operation is a
+bounded, loopback-only copy of MARA's existing `assistant.text`, displayed as a
+standard top-right DCS notification; it does not operate cockpit controls.
 
 ## PTT and audio
 
@@ -52,8 +54,10 @@ the handshake.
 The Windows installer can configure every detected DCS Saved Games tree. It
 downloads a pinned DCS-Skunkworks DCS-BIOS release, verifies its SHA-256
 digest, backs up an existing DCS-BIOS folder and `Export.lua`, installs the
-read-only `MARASpatial.lua`, and adds both `dofile` entries exactly once. The same operation is available from
-the UI and as `mara setup-dcs [path]`.
+read-only `MARASpatial.lua`, installs the loopback `MARAText.lua` user hook, and
+adds both `dofile` entries exactly once. The same operation is available from
+the UI and as `mara setup-dcs [path]`. Restart DCS after installing or repairing
+the integration so the user hook is loaded.
 
 ## CLI commands
 

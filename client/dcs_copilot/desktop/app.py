@@ -1025,7 +1025,10 @@ class MainWindow(QMainWindow):
         self.config.save()
         self.dashboard.refresh_setup_status()
         QMessageBox.information(
-            self, APP_NAME, "DCS-BIOS is installed and Export.lua is configured."
+            self,
+            APP_NAME,
+            "DCS-BIOS and MARA's in-game text output are installed. "
+            "Restart DCS to load the integration.",
         )
 
     def _bios_failed(self, error: str) -> None:

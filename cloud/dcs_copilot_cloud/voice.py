@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -47,6 +48,9 @@ from .tools import ALLOWED_AIRCRAFT_STATE_FIELDS
 
 AudioCallback = Callable[[bytes], Awaitable[None]]
 ToolCallback = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
+
+LOGGER = logging.getLogger(__name__)
+DEFAULT_VOICE_TURN_TIMEOUT_SECONDS = 90.0
 
 
 class VoicePipelineError(RuntimeError):
@@ -144,8 +148,14 @@ class _OutputObserver(FrameProcessor):
 class PipecatVoicePipeline:
     """One persistent Pipecat conversation pipeline per authenticated session."""
 
-    def __init__(self, providers: ProviderBundle) -> None:
+    def __init__(
+        self,
+        providers: ProviderBundle,
+        *,
+        turn_timeout_seconds: float = DEFAULT_VOICE_TURN_TIMEOUT_SECONDS,
+    ) -> None:
         self._providers = providers
+        self._turn_timeout_seconds = turn_timeout_seconds
         self._worker: PipelineWorker | None = None
         self._runner: WorkerRunner | None = None
         self._runner_task: asyncio.Task[None] | None = None
@@ -197,7 +207,7 @@ class PipecatVoicePipeline:
                         UserStoppedSpeakingFrame(),
                     )
                 )
-                await self._turn_done.wait()
+                await self._wait_for_turn()
             finally:
                 self._turn_active = False
                 self._audio_callback = None
@@ -246,7 +256,7 @@ class PipecatVoicePipeline:
                         LLMFullResponseEndFrame(),
                     )
                 )
-                await self._turn_done.wait()
+                await self._wait_for_turn()
             finally:
                 self._turn_active = False
                 self._audio_callback = None
@@ -271,14 +281,29 @@ class PipecatVoicePipeline:
         if worker is not None and not worker.has_finished():
             await worker.cancel(reason="client disconnected")
         if task is not None:
-            try:
-                await asyncio.wait_for(task, timeout=5)
-            except TimeoutError:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
+            if not task.done():
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(task, return_exceptions=True), timeout=5
+                    )
+                except TimeoutError:
+                    task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         self._worker = None
         self._runner = None
         self._runner_task = None
+        self._started.clear()
+
+    async def _wait_for_turn(self) -> None:
+        try:
+            await asyncio.wait_for(
+                self._turn_done.wait(), timeout=self._turn_timeout_seconds
+            )
+        except TimeoutError as exc:
+            await self.close()
+            raise VoicePipelineError(
+                f"voice pipeline timed out after {self._turn_timeout_seconds:g} seconds"
+            ) from exc
 
     async def _ensure_started(
         self,
@@ -286,7 +311,16 @@ class PipecatVoicePipeline:
         output_format: AudioFormat,
     ) -> None:
         if self._worker is not None:
-            return
+            runner_task = self._runner_task
+            if (
+                runner_task is not None
+                and not runner_task.done()
+                and not self._worker.has_finished()
+            ):
+                return
+            LOGGER.warning("recreating stopped Pipecat voice pipeline")
+            await self.close()
+        self._started.clear()
         context = LLMContext(
             tools=ToolsSchema(copilot_tool_schemas(self._handle_tool_call))
         )
@@ -334,11 +368,25 @@ class PipecatVoicePipeline:
         self._runner_task = asyncio.create_task(
             self._runner.run(), name="pipecat-session-runner"
         )
+        self._runner_task.add_done_callback(self._runner_finished)
         try:
             await asyncio.wait_for(self._started.wait(), timeout=10)
         except TimeoutError as exc:
             await self.close()
             raise VoicePipelineError("Pipecat pipeline startup timed out") from exc
+
+    def _runner_finished(self, task: asyncio.Task[None]) -> None:
+        if task.cancelled() or not self._turn_active:
+            return
+        exception = task.exception()
+        detail = (
+            f"Pipecat voice runner stopped: {exception}"
+            if exception is not None
+            else "Pipecat voice runner stopped unexpectedly"
+        )
+        LOGGER.error(detail)
+        self._turn_error = detail
+        self._turn_done.set()
 
     async def _handle_tool_call(self, params: FunctionCallParams) -> None:
         callback = self._tool_callback

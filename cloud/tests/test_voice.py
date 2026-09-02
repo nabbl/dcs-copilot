@@ -18,6 +18,7 @@ from dcs_copilot_cloud.providers.openai import (
 from dcs_copilot_cloud.voice import (
     PipecatVoicePipeline,
     VoiceAnnouncement,
+    VoicePipelineError,
     VoiceTurn,
     _OutputObserver,
     account_tool_schemas,
@@ -228,6 +229,87 @@ def test_pipecat_pipeline_uses_explicit_ptt_turn_and_streams_audio() -> None:
     assert stt_provider.processor.saw_speech_start
     assert stt_provider.processor.saw_speech_stop
     assert bytes(stt_provider.processor.audio) == pcm
+
+
+def test_pipecat_pipeline_recreates_a_stopped_runner() -> None:
+    async def scenario() -> tuple[str, str]:
+        pipeline = PipecatVoicePipeline(
+            ProviderBundle(
+                _FakeProvider(_FakeSTT),
+                _FakeProvider(_FakeLLM),
+                _FakeProvider(_FakeTTS),
+            )
+        )
+
+        async def output(_audio: bytes) -> None:
+            pass
+
+        try:
+            first = await pipeline.respond(
+                VoiceTurn(
+                    b"\x01\x02" * 320,
+                    AudioFormat(),
+                    AudioFormat(sample_rate=24_000),
+                ),
+                output,
+            )
+            assert pipeline._worker is not None
+            await pipeline._worker.cancel(reason="simulated runner failure")
+            assert pipeline._runner_task is not None
+            await asyncio.wait_for(pipeline._runner_task, timeout=2)
+
+            second = await asyncio.wait_for(
+                pipeline.respond(
+                    VoiceTurn(
+                        b"\x01\x02" * 320,
+                        AudioFormat(),
+                        AudioFormat(sample_rate=24_000),
+                    ),
+                    output,
+                ),
+                timeout=2,
+            )
+            return first.response_text, second.response_text
+        finally:
+            await pipeline.close()
+
+    assert asyncio.run(scenario()) == ("Ready.", "Ready.")
+
+
+class _StallingLLM(FrameProcessor):
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        if not isinstance(frame, LLMContextFrame):
+            await self.push_frame(frame, direction)
+
+
+def test_pipecat_pipeline_times_out_and_discards_a_stalled_runner() -> None:
+    async def scenario() -> None:
+        pipeline = PipecatVoicePipeline(
+            ProviderBundle(
+                _FakeProvider(_FakeSTT),
+                _FakeProvider(_StallingLLM),
+                _FakeProvider(_FakeTTS),
+            ),
+            turn_timeout_seconds=0.05,
+        )
+
+        async def output(_audio: bytes) -> None:
+            pass
+
+        with pytest.raises(VoicePipelineError, match="timed out after 0.05 seconds"):
+            await pipeline.respond(
+                VoiceTurn(
+                    b"\x01\x02" * 320,
+                    AudioFormat(),
+                    AudioFormat(sample_rate=24_000),
+                ),
+                output,
+            )
+        assert pipeline._worker is None
+        assert pipeline._runner_task is None
+
+    asyncio.run(scenario())
 
 
 def test_tool_call_llm_pass_does_not_complete_turn_before_follow_up() -> None:

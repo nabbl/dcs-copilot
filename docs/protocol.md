@@ -11,7 +11,7 @@ rejected by the client unless the host is loopback.
 
 ## Architecture overview
 
-In protocol version 2 the client is a generic read-only DCS and audio transport.
+In protocol version 2 the client is a generic DCS and audio transport.
 It continuously sends a decoded own-cockpit control catalog, an
 initial value snapshot, and changed-value deltas — independent of PTT. The
 backend receives the raw decoded telemetry stream, holds it bounded in
@@ -26,6 +26,9 @@ on the cockpit stream. `coach.telemetry` separately carries bounded normalized
 ownship and selected-reference observations. References are legal only when the
 same message reports DCS world-object export as allowed. No complete world dump,
 filesystem data, targets, or hidden mission state crosses the interface.
+On the local machine only, received `assistant.text` is also forwarded over a
+bounded loopback datagram to the installed MARA DCS user hook for display. This
+does not add a cloud message type or expose a DCS control channel.
 
 ## Control envelope
 

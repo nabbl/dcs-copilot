@@ -37,6 +37,7 @@ class DcsSetupResult:
     backup_paths: tuple[Path, ...]
     version: str
     spatial_export_path: Path
+    text_output_path: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +57,8 @@ def inspect_installation(dcs_path: Path) -> tuple[bool, str]:
         return False, "DCS-BIOS control metadata is missing"
     if not (dcs_path / "Scripts" / "MARA" / "MARASpatial.lua").is_file():
         return False, "MARA spatial export is not installed"
+    if not (dcs_path / "Scripts" / "Hooks" / "MARAText.lua").is_file():
+        return False, "MARA in-game text output is not installed"
     if not export.is_file():
         return False, "Export.lua is missing"
     try:
@@ -196,6 +199,24 @@ def install_dcs_bios(dcs_path: Path, archive: bytes | None = None) -> DcsSetupRe
         temporary_spatial = spatial_export_path.with_suffix(".lua.tmp")
         temporary_spatial.write_bytes(spatial_payload)
         temporary_spatial.replace(spatial_export_path)
+
+    hooks_dir = scripts / "Hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    text_output_path = hooks_dir / "MARAText.lua"
+    text_output_payload = (
+        files("dcs_copilot.resources").joinpath("MARAText.lua").read_bytes()
+    )
+    if (
+        not text_output_path.is_file()
+        or text_output_path.read_bytes() != text_output_payload
+    ):
+        if text_output_path.is_file():
+            backup = _available_backup(hooks_dir / f"MARAText.lua.backup-{timestamp}")
+            shutil.copy2(text_output_path, backup)
+            backups.append(backup)
+        temporary_text_output = text_output_path.with_suffix(".lua.tmp")
+        temporary_text_output.write_bytes(text_output_payload)
+        temporary_text_output.replace(text_output_path)
     bios_path = scripts / "DCS-BIOS"
 
     with tempfile.TemporaryDirectory(prefix="dcs-copilot-bios-") as temporary:
@@ -244,6 +265,7 @@ def install_dcs_bios(dcs_path: Path, archive: bytes | None = None) -> DcsSetupRe
         tuple(backups),
         DCS_BIOS_VERSION,
         spatial_export_path,
+        text_output_path,
     )
 
 

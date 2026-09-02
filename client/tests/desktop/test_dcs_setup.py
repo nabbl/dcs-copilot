@@ -26,6 +26,9 @@ def test_install_preserves_export_and_is_repeatable(
     scripts.mkdir(parents=True)
     export = scripts / "Export.lua"
     export.write_text("dofile('Tacview.lua')\n", encoding="utf-8")
+    hooks = scripts / "Hooks"
+    hooks.mkdir()
+    (hooks / "MARAText.lua").write_text("-- local modification\n", encoding="utf-8")
 
     first = setup.install_dcs_bios(dcs, payload)
     assert (first.bios_path / "BIOS.lua").is_file()
@@ -35,13 +38,20 @@ def test_install_preserves_export_and_is_repeatable(
     assert text.count(setup.SPATIAL_EXPORT_LINE) == 1
     assert first.spatial_export_path.is_file()
     assert "LoIsObjectExportAllowed" in first.spatial_export_path.read_text()
+    assert first.text_output_path.is_file()
+    assert "trigger.action.outText" in first.text_output_path.read_text()
+    assert "DCS.setUserCallbacks" in first.text_output_path.read_text()
     assert any(
         path.name.startswith("Export.lua.backup-") for path in first.backup_paths
+    )
+    assert any(
+        path.name.startswith("MARAText.lua.backup-") for path in first.backup_paths
     )
 
     second = setup.install_dcs_bios(dcs, payload)
     assert export.read_text(encoding="utf-8").count(setup.EXPORT_LINE) == 1
     assert export.read_text(encoding="utf-8").count(setup.SPATIAL_EXPORT_LINE) == 1
+    assert second.text_output_path.read_bytes() == first.text_output_path.read_bytes()
     assert any(path.name.startswith("DCS-BIOS.backup-") for path in second.backup_paths)
 
 

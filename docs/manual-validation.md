@@ -31,6 +31,10 @@ release qualification, not prerequisites for automated development validation.
   aircraft detection, live ownship telemetry, and the indication probe.
 - Validate FA-18C Coach rules/checklists with DCS connected and clean behavior
   when DCS is absent or disconnects.
+- Complete a PTT turn and confirm the final `MARA: ...` response appears in the
+  top-right DCS notification area, including punctuation and non-ASCII text.
+- Confirm malformed or non-loopback UDP traffic cannot produce a notification,
+  and that pilot transcripts are never sent to the in-game overlay.
 - Validate Integrity Check and multiplayer restrictions using the separate
   multiplayer matrix.
 

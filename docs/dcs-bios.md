@@ -6,9 +6,10 @@ DCS Copilot installs the pinned DCS-Skunkworks DCS-BIOS release under the
 selected DCS Saved Games tree and adds its standard `Export.lua` entry. The
 operation is explicit, checksum-verified, repeatable, and creates timestamped
 backups before replacing an existing DCS-BIOS directory or modifying an
-existing export file. Other export integrations are preserved. DCS Copilot
-still opens only the read-only export multicast socket; it does not open the
-DCS-BIOS command/import port.
+existing export file. It also installs `Scripts\Hooks\MARAText.lua`, which
+receives bounded `assistant.text` on loopback and displays it through DCS's
+standard top-right notification. Other export integrations are preserved. DCS
+Copilot still does not open the DCS-BIOS command/import port.
 
 The Windows installer runs this setup for auto-detected DCS folders. It can be
 re-run from the desktop app or from a terminal:
@@ -17,6 +18,8 @@ re-run from the desktop app or from a terminal:
 dcs-copilot setup-dcs
 dcs-copilot setup-dcs "C:\Users\Pilot\Saved Games\DCS"
 ```
+
+Restart DCS after setup or repair so the MARA user hook is loaded.
 
 Set `DCS_BIOS_PATH` to either of these locations:
 

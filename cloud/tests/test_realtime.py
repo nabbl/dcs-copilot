@@ -220,6 +220,54 @@ def test_ptt_turn_streams_cloud_voice_audio_and_text() -> None:
     assert pipeline.closed
 
 
+class RuntimeFailingVoicePipeline(FakeVoicePipeline):
+    async def respond(
+        self, turn: VoiceTurn, on_audio, request_tool=None
+    ) -> VoiceTurnResult:
+        self.turn = turn
+        raise RuntimeError("simulated Kokoro runtime failure")
+
+
+def test_runtime_voice_failure_is_reported_and_next_turn_recreates_pipeline() -> None:
+    failed_pipeline = RuntimeFailingVoicePipeline()
+    recovered_pipeline = FakeVoicePipeline()
+    pipelines = iter((failed_pipeline, recovered_pipeline))
+    app = create_app(
+        CloudSettings(dev_access_token="test-token"),
+        voice_pipeline_factory=lambda _settings: next(pipelines),
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/v2/realtime") as websocket,
+    ):
+        authenticate_and_start(websocket)
+
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_bytes(
+            MediaPacket(MediaKind.AUDIO_INPUT, 0, 1, b"\x01\x02" * 320).to_bytes()
+        )
+        websocket.send_text(ControlMessage("ptt.end").to_json())
+        assert receive_control(websocket).payload["event_type"] == "utterance.received"
+        error = receive_control(websocket)
+        assert error.payload["code"] == "voice_pipeline_failed"
+        assert error.payload["detail"] == "simulated Kokoro runtime failure"
+
+        websocket.send_text(ControlMessage("ptt.start").to_json())
+        websocket.send_bytes(
+            MediaPacket(MediaKind.AUDIO_INPUT, 1, 2, b"\x03\x04" * 320).to_bytes()
+        )
+        websocket.send_text(ControlMessage("ptt.end").to_json())
+        assert receive_control(websocket).payload["event_type"] == "utterance.received"
+        assert MediaPacket.from_bytes(websocket.receive_bytes()).kind is (
+            MediaKind.AUDIO_OUTPUT
+        )
+        assert receive_control(websocket).payload == {"text": "Hello?"}
+        assert receive_control(websocket).payload == {"text": "Ready."}
+
+    assert failed_pipeline.closed
+    assert recovered_pipeline.closed
+
+
 def test_consecutive_tool_style_turns_are_not_interrupted_while_idle() -> None:
     pipeline = FakeVoicePipeline()
     app = create_app(

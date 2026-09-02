@@ -65,8 +65,9 @@ on the cockpit stream. The separate Coach stream is produced by the packaged
 read-only `MARASpatial.lua` provider. It calls `LoGetWorldObjects()` only while
 `LoIsObjectExportAllowed()` is true and emits only normalized ownship and the
 selected Coach references—not a world-object dump. No filesystem, target,
-sensor substitute, or hidden mission state is accepted. The client never writes
-to DCS.
+sensor substitute, or hidden mission state is accepted. The sole DCS-bound path
+for normal operation is a bounded loopback text sink that displays received
+`assistant.text`; it does not expose cockpit or mission-control commands.
 
 An explicit, development-only `list_indication()` discovery probe is the sole
 exception to the normal no-custom-Lua deployment shape. It binds only to
@@ -122,8 +123,9 @@ by themselves.
 
 ## Safety and multiplayer boundary
 
-The client is read-only. It does not send DCS-BIOS or DCS commands or modify
-protected aircraft files. Its spatial provider may inspect world objects only
+The client does not send DCS-BIOS cockpit commands or modify protected aircraft
+files. It may send only bounded MARA response text to the local DCS user hook
+for display. Its spatial provider may inspect world objects only
 after `LoIsObjectExportAllowed()` returns true, solely to select a nearby
 friendly formation lead and carrier. It does not export the complete collection
 or use target/sensor APIs, mission state, or Tacview as a permission bypass.

@@ -183,7 +183,11 @@ class CloudSessionConnection:
             if not _is_stream_message(message.type):
                 self._diagnose(f"Error: {message.type} not queued; cloud unavailable")
             return False
-        queued = self._enqueue(message.to_json(), audio=False)
+        queued = self._enqueue(
+            message.to_json(),
+            stream=_is_stream_message(message.type),
+            audio=False,
+        )
         if not queued and not _is_stream_message(message.type):
             self._diagnose(f"Error: {message.type} not queued; outbound queue full")
         return queued
@@ -198,7 +202,7 @@ class CloudSessionConnection:
             audio,
         )
         self._sequence = (self._sequence + 1) & 0xFFFFFFFF
-        return self._enqueue(packet.to_bytes(), audio=True)
+        return self._enqueue(packet.to_bytes(), stream=True, audio=True)
 
     async def _handshake(self, transport: RealtimeTransport) -> None:
         hello = await self._receive_handshake_control(transport)
@@ -309,9 +313,10 @@ class CloudSessionConnection:
         ):
             raise CloudConnectionError("cloud session did not start")
 
-    def _enqueue(self, payload: OutboundPayload, *, audio: bool) -> bool:
-        if audio and self._outbound.qsize() >= self._audio_queue_limit:
-            self.dropped_audio_chunks += 1
+    def _enqueue(self, payload: OutboundPayload, *, stream: bool, audio: bool) -> bool:
+        if stream and self._outbound.qsize() >= self._audio_queue_limit:
+            if audio:
+                self.dropped_audio_chunks += 1
             return False
         try:
             self._outbound.put_nowait(payload)

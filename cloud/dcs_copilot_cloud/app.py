@@ -419,6 +419,24 @@ def create_app(
         coach_ingress = CoachTelemetryIngress(coach)
         coach_tools = CoachToolExecutor(coach)
 
+        def response_task_finished(task: asyncio.Task[None]) -> None:
+            if task.cancelled():
+                return
+            exception = task.exception()
+            if exception is not None:
+                LOGGER.error(
+                    "background voice task failed: task=%s",
+                    task.get_name(),
+                    exc_info=(type(exception), exception, exception.__traceback__),
+                )
+
+        def start_response_task(
+            coroutine: Coroutine[Any, Any, None], *, name: str
+        ) -> asyncio.Task[None]:
+            task = asyncio.create_task(coroutine, name=name)
+            task.add_done_callback(response_task_finished)
+            return task
+
         async def send_control(message: ControlMessage) -> None:
             async with send_lock:
                 await websocket.send_text(message.to_json())
@@ -485,14 +503,35 @@ def create_app(
             response_event_id = None
             return True
 
-        async def reset_assistant() -> None:
+        async def discard_voice() -> None:
             nonlocal voice
+            previous_voice = voice
+            voice = None
+            if previous_voice is None:
+                return
+            try:
+                await previous_voice.close()
+            except Exception:
+                LOGGER.exception("failed to close unhealthy voice pipeline")
+
+        async def report_voice_failure(
+            code: str, detail: str, *, correlation_id: str
+        ) -> None:
+            try:
+                await send_control(
+                    ControlMessage(
+                        "error",
+                        {"code": code, "detail": detail, "fatal": False},
+                        correlation_id=correlation_id,
+                    )
+                )
+            except Exception:
+                LOGGER.exception("failed to send voice error to client: code=%s", code)
+
+        async def reset_assistant() -> None:
             await interrupt_response()
             active_event_ids.clear()
-            if voice is not None:
-                previous_voice = voice
-                voice = None
-                await previous_voice.close()
+            await discard_voice()
 
         async def stream_audio(payload: bytes) -> None:
             nonlocal output_sequence
@@ -555,23 +594,17 @@ def create_app(
                     utterance.correlation_id,
                 )
                 raise
-            except (ValueError, VoicePipelineError) as exc:
-                LOGGER.warning(
-                    "voice turn failed: session=%s correlation=%s error=%s",
+            except Exception as exc:
+                LOGGER.exception(
+                    "voice turn failed: session=%s correlation=%s",
                     utterance.session_id,
                     utterance.correlation_id,
-                    exc,
                 )
-                await send_control(
-                    ControlMessage(
-                        "error",
-                        {
-                            "code": "voice_pipeline_failed",
-                            "detail": str(exc),
-                            "fatal": False,
-                        },
-                        correlation_id=utterance.correlation_id,
-                    )
+                await discard_voice()
+                await report_voice_failure(
+                    "voice_pipeline_failed",
+                    str(exc),
+                    correlation_id=utterance.correlation_id,
                 )
 
         async def run_announcement(
@@ -609,18 +642,13 @@ def create_app(
                 )
             except asyncio.CancelledError:
                 raise
-            except (ValueError, VoicePipelineError) as exc:
-                LOGGER.warning("proactive announcement failed: %s", exc)
-                await send_control(
-                    ControlMessage(
-                        "error",
-                        {
-                            "code": "proactive_voice_failed",
-                            "detail": str(exc),
-                            "fatal": False,
-                        },
-                        correlation_id=correlation_id,
-                    )
+            except Exception as exc:
+                LOGGER.exception("proactive announcement failed")
+                await discard_voice()
+                await report_voice_failure(
+                    "proactive_voice_failed",
+                    str(exc),
+                    correlation_id=correlation_id,
                 )
             finally:
                 if response_event_id == event.event_id:
@@ -662,18 +690,13 @@ def create_app(
                 )
             except asyncio.CancelledError:
                 raise
-            except (ValueError, VoicePipelineError) as exc:
-                LOGGER.warning("cockpit welcome failed: %s", exc)
-                await send_control(
-                    ControlMessage(
-                        "error",
-                        {
-                            "code": "cockpit_welcome_failed",
-                            "detail": str(exc),
-                            "fatal": False,
-                        },
-                        correlation_id=correlation_id,
-                    )
+            except Exception as exc:
+                LOGGER.exception("cockpit welcome failed")
+                await discard_voice()
+                await report_voice_failure(
+                    "cockpit_welcome_failed",
+                    str(exc),
+                    correlation_id=correlation_id,
                 )
 
         async def run_coach_feedback(text: str, *, correlation_id: str) -> None:
@@ -703,8 +726,14 @@ def create_app(
                 )
             except asyncio.CancelledError:
                 raise
-            except (ValueError, VoicePipelineError) as exc:
-                LOGGER.warning("Coach feedback failed: %s", exc)
+            except Exception as exc:
+                LOGGER.exception("Coach feedback failed")
+                await discard_voice()
+                await report_voice_failure(
+                    "coach_voice_failed",
+                    str(exc),
+                    correlation_id=correlation_id,
+                )
 
         async def persist_pending_summaries() -> None:
             for summary in aircraft_state.flight_stats.pending:
@@ -773,7 +802,7 @@ def create_app(
                     return
                 await interrupt_response()
             response_event_id = event.event_id
-            response_task = asyncio.create_task(
+            response_task = start_response_task(
                 run_announcement(event, correlation_id=event.event_id),
                 name=f"proactive-{event.event_id}",
             )
@@ -837,7 +866,7 @@ def create_app(
             if batch.kind == "snapshot" and (
                 response_task is None or response_task.done()
             ):
-                response_task = asyncio.create_task(
+                response_task = start_response_task(
                     run_cockpit_welcome(
                         batch.aircraft,
                         correlation_id=correlation_id,
@@ -895,7 +924,7 @@ def create_app(
                                     and not session.ptt_active
                                     and (response_task is None or response_task.done())
                                 ):
-                                    response_task = asyncio.create_task(
+                                    response_task = start_response_task(
                                         run_coach_feedback(
                                             feedback[-1].message,
                                             correlation_id=message.message_id,
@@ -987,7 +1016,7 @@ def create_app(
                         result.receipt.duration_ms,
                     )
                 if result.utterance is not None:
-                    response_task = asyncio.create_task(
+                    response_task = start_response_task(
                         run_voice_turn(result.utterance),
                         name=f"voice-turn-{result.utterance.session_id}",
                     )

@@ -11,7 +11,9 @@ accepted on that stream. The separate `coach.telemetry` stream contains
 normalized ownship data and at most one selected lead and carrier when DCS
 explicitly permits object export. It never contains the complete world-object
 collection, targets, sensors, filesystem data, or hidden mission state. The
-client never writes to DCS. Only controls whose
+client's only DCS-bound message is a bounded local copy of MARA's own response
+text, sent over loopback for display as a top-right notification. It cannot
+operate cockpit controls and is not added to telemetry. Only controls whose
 values have changed are retransmitted after the initial snapshot.
 
 The backend holds the raw decoded telemetry values bounded in the authenticated

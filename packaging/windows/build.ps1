@@ -56,6 +56,7 @@ try {
         --hidden-import asyncpg `
         --hidden-import sqlalchemy.dialects.sqlite.aiosqlite `
         --collect-submodules pipecat.services.kokoro `
+        --collect-submodules scipy._external.array_api_compat.numpy `
         --collect-all kokoro_onnx `
         --collect-all espeakng_loader `
         --collect-data certifi `

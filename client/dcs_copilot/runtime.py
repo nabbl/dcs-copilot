@@ -18,6 +18,7 @@ from .config import Settings
 from .dcs.bios_client import DcsBiosClient
 from .dcs.spatial_export import DcsSpatialClient
 from .dcs.spatial_recording import SpatialRecordingWriter
+from .dcs.text_output import DcsTextOutput
 from .desktop.activity import ConversationActivity
 from .input.controller import PttSessionController
 from .input.ptt import (
@@ -70,6 +71,7 @@ async def run_client_runtime(
         registry=registry,
     )
     conversation_activity = ConversationActivity()
+    dcs_text_output = DcsTextOutput()
     telemetry: TelemetryPublisher | None = None
 
     def emit_activity(line: str) -> None:
@@ -83,6 +85,7 @@ async def run_client_runtime(
             conversation_activity.reset()
 
     def control_received(message: ControlMessage) -> None:
+        dcs_text_output.accept(message)
         for line in conversation_activity.accept(message):
             emit_activity(line)
 
@@ -308,6 +311,7 @@ async def run_client_runtime(
             return_exceptions=True,
         )
         dcs_client.close()
+        dcs_text_output.close()
         if recording is not None:
             recording.close()
     return 0

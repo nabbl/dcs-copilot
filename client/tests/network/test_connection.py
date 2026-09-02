@@ -133,6 +133,26 @@ def test_connection_handshake_uplink_and_downlink() -> None:
     assert all("token" not in line for line in diagnostics)
 
 
+def test_stream_backlog_reserves_capacity_for_ptt_controls() -> None:
+    connection = CloudSessionConnection(
+        url="ws://localhost/v2/realtime",
+        access_token="token",
+        device_id="device",
+        audio_format=AudioFormat(),
+        queue_size=2,
+    )
+    connection._ready.set()
+    telemetry = ControlMessage("telemetry.reset", {"aircraft": "FA-18C_hornet"})
+
+    assert connection.send_message(telemetry)
+    assert connection.send_message(telemetry)
+    assert not connection.send_message(telemetry)
+
+    assert connection.send_control("assistant.interrupt", {"reason": "pilot_ptt"})
+    assert connection.send_control("ptt.start", {})
+    assert connection.send_control("ptt.end", {})
+
+
 def test_cloud_url_requires_tls_except_on_loopback() -> None:
     validate_cloud_url("ws://127.0.0.1:8000/v2/realtime")
     validate_cloud_url("ws://[::1]:8000/v2/realtime")
