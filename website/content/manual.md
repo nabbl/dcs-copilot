@@ -13,6 +13,7 @@ MARA has two installation types. The DCS Copilot client always runs on the gamin
 | --- | --- | --- |
 | **Where the backend runs** | On the DCS PC | On another PC, a LAN server, or a hosted server |
 | **Setup** | Easiest; install the bundle and use the default local mode | Install the client on the DCS PC, run the backend elsewhere, then enter its URL in Settings |
+| **OpenAI API key** | Bring your own key and enter it in MARA Settings | Configure the key on your self-hosted backend; do not enter it on the DCS PC. A managed hosted service handles this for you |
 | **Game-PC overhead** | Uses additional RAM and some CPU time for the backend and local voice | Only the thin DCS client runs on the game PC |
 | **Best for** | Getting started quickly and keeping everything self-contained | Keeping as much work as possible away from DCS |
 
@@ -20,11 +21,18 @@ MARA has two installation types. The DCS Copilot client always runs on the gamin
 
 Install `MARA-Setup-<version>.exe` and leave the backend mode set to **Local**. The desktop app starts and stops the bundled backend for you. This is the simplest option and does not require another machine.
 
+> **Local mode requires your own OpenAI API key**
+> MARA uses OpenAI for speech recognition and assistant responses. [Create or manage an API key](https://platform.openai.com/api-keys), then open MARA Settings and enter it in the secure local-backend API key field. MARA stores the key in Windows Credential Manager—not in its configuration file—and does not send it to a remote MARA server. OpenAI API usage belongs to the OpenAI account and project behind that key.
+
+Treat the key like a password. Do not share it, paste it into a bug report, or add it to a configuration file.
+
 The trade-off is straightforward: the backend, local database, and local voice service share the gaming PC with DCS. That means more RAM use and a small amount of CPU overhead. The exact amount depends on what MARA is doing, so we are not publishing a made-up performance number.
 
 ### Split install (lighter on the DCS PC)
 
 Install the normal DCS Copilot client on the gaming PC, but run the standalone MARA backend on another Windows PC, a LAN server, or a hosted server. In Settings, change the backend mode to **Remote** and enter that backend’s URL.
+
+If you run your own remote backend, configure the OpenAI API key on the **backend machine**. The DCS client does not need the key. If you connect to a managed hosted MARA service, that service handles the backend credentials for you.
 
 The client still handles DCS-BIOS, cockpit data, the microphone, push-to-talk, and audio playback locally. The backend work—aircraft state, rules, checklists, database, voice pipeline, and AI calls—runs on the other machine. This is the better option if you want MARA’s game-PC footprint to stay small, at the cost of a little more setup and dependence on the network connection.
 
@@ -38,8 +46,9 @@ The early-access client is a Windows application. Your access package includes t
 1. Close DCS before running the installer.
 2. Install **DCS Copilot** and allow setup to find your DCS Saved Games folder.
 3. Let setup install or repair DCS-BIOS and update `Export.lua`.
-4. Open DCS Copilot, choose your microphone and audio output, then bind push-to-talk.
-5. Start DCS and load into the F/A-18C. MARA connects when cockpit data becomes available.
+4. If you are using local mode, open MARA Settings and enter your OpenAI API key.
+5. Choose your microphone and audio output, then bind push-to-talk.
+6. Start DCS and load into the F/A-18C. MARA connects when cockpit data becomes available.
 
 If DCS is installed in a non-standard location, choose the Saved Games folder in Settings. MARA keeps timestamped backups before changing an existing DCS-BIOS or `Export.lua` setup.
 

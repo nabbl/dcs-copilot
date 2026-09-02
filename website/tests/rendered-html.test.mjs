@@ -32,6 +32,9 @@ test("server-renders Markdown documentation", async () => {
   assert.match(html, /id="choose-your-setup"/);
   assert.match(html, /All-in-one install/);
   assert.match(html, /Split install/);
+  assert.match(html, /Local mode requires your own OpenAI API key/);
+  assert.match(html, /Windows Credential Manager/);
+  assert.match(html, /configure the OpenAI API key on the <strong>backend machine<\/strong>/);
   assert.match(html, /id="start-here"/);
   assert.match(html, /id="privacy-boundary"/);
   assert.match(html, /MARA cannot see DCS/);
