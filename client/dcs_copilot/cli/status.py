@@ -12,7 +12,7 @@ from dcs_copilot.dcs.bios_registry import DcsBiosControlRegistry
 from dcs_copilot.dcs.spatial_export import DcsSpatialClient
 from dcs_copilot.diagnostics.cloud import CloudProbeResult, probe_cloud
 from dcs_copilot.diagnostics.resources import ResourceSnapshot, format_bytes
-from dcs_copilot.input.ptt import function_key_virtual_code
+from dcs_copilot.input.ptt import split_hotkey
 
 
 def _load_registry(
@@ -180,7 +180,7 @@ def _input_binding_status(
         binding = f"controller {device}, button {button}"
         return binding if sys.platform == "win32" else f"{binding} (Windows only)"
     try:
-        function_key_virtual_code(key)
+        split_hotkey(key)
     except ValueError as exc:
         return f"invalid ({exc})"
     return key if sys.platform == "win32" else f"{key} (Windows only)"

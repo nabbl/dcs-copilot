@@ -7,6 +7,7 @@ from typing import Any
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from dcs_copilot.audio.devices import AudioDevice
 from dcs_copilot.backend import BackendError, BackendInfo, ServiceInfo
 from dcs_copilot.desktop.app import SUPPORT_URL, MainWindow
 from dcs_copilot.desktop.config_store import LOCAL_BACKEND_URL, DesktopConfig
@@ -55,12 +56,13 @@ def test_start_button_disables_before_process_finishes_starting(
     class PendingProcess:
         def __init__(self) -> None:
             self.starts: list[tuple[str, list[str]]] = []
+            self.environment = None
 
         def state(self) -> QProcess.ProcessState:
             return QProcess.ProcessState.NotRunning
 
-        def setProcessEnvironment(self, _environment: Any) -> None:
-            pass
+        def setProcessEnvironment(self, environment: Any) -> None:
+            self.environment = environment
 
         def start(self, program: str, arguments: list[str]) -> None:
             self.starts.append((program, arguments))
@@ -70,12 +72,16 @@ def test_start_button_disables_before_process_finishes_starting(
     window._save_settings_silently = lambda: True  # type: ignore[method-assign]
     window.dashboard._backend_operational = True
     window.dashboard.run.setEnabled(True)
+    window.config.audio_input_device = 3
+    window.config.audio_output_device = 7
 
     window.dashboard.run.click()
 
     assert not window.dashboard.run.isEnabled()
     assert window.dashboard.run.text() == "Starting MARA…"
     assert len(process.starts) == 1
+    assert process.environment.value("AUDIO_INPUT_DEVICE") == "3"
+    assert process.environment.value("AUDIO_OUTPUT_DEVICE") == "7"
 
     window.dashboard.run.click()
     assert len(process.starts) == 1
@@ -166,3 +172,33 @@ def test_settings_explain_kokoro_and_openai_readiness(window: MainWindow) -> Non
     assert window.dashboard.openai_diagnostic_card.value.text() == "API key needed"
     assert window.dashboard.backend_card.value.text() == "Setup required"
     assert not window.dashboard.run.isEnabled()
+
+
+def test_settings_persist_audio_devices_and_modified_keyboard_hotkeys(
+    window: MainWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dashboard = window.dashboard
+    monkeypatch.setattr(
+        "dcs_copilot.desktop.app.discover_audio_devices",
+        lambda: [
+            AudioDevice(3, "Flight Mic", 1, 0),
+            AudioDevice(7, "Flight Headset", 0, 2),
+        ],
+    )
+    dashboard._refresh_audio_devices()
+    dashboard.audio_input_device.setCurrentIndex(
+        dashboard.audio_input_device.findData(3)
+    )
+    dashboard.audio_output_device.setCurrentIndex(
+        dashboard.audio_output_device.findData(7)
+    )
+    dashboard.ptt_device.setCurrentIndex(dashboard.ptt_device.findData(None))
+    dashboard.ptt_control.setCurrentIndex(dashboard.ptt_control.findData("K"))
+    for modifier, checkbox in dashboard.ptt_modifiers.items():
+        checkbox.setChecked(modifier in {"CTRL", "SHIFT"})
+
+    dashboard.update_config()
+
+    assert window.config.audio_input_device == 3
+    assert window.config.audio_output_device == 7
+    assert window.config.ptt_key == "CTRL+SHIFT+K"

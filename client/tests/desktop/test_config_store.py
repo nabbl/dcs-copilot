@@ -19,9 +19,11 @@ def test_desktop_config_round_trips_and_ignores_unknown_fields(tmp_path: Path) -
     config.email = "pilot@example.com"
     config.ptt_device_id = 2
     config.ptt_button = 5
-    config.assistant_mute_key = "F16"
+    config.assistant_mute_key = "CTRL+SHIFT+M"
     config.assistant_mute_device_id = 3
     config.assistant_mute_button = 7
+    config.audio_input_device = 4
+    config.audio_output_device = 6
     assert config.save(path) == path
     loaded = DesktopConfig.load(path)
     document = json.loads(path.read_text())
@@ -34,12 +36,16 @@ def test_desktop_config_round_trips_and_ignores_unknown_fields(tmp_path: Path) -
     assert loaded.device_id == config.device_id
     assert loaded.ptt_device_id == 2
     assert loaded.ptt_button == 5
-    assert loaded.assistant_mute_key == "F16"
+    assert loaded.assistant_mute_key == "CTRL+SHIFT+M"
     assert loaded.assistant_mute_device_id == 3
     assert loaded.assistant_mute_button == 7
+    assert loaded.audio_input_device == 4
+    assert loaded.audio_output_device == 6
     runtime = loaded.runtime_settings("access-token")
     assert runtime.assistant_mute_device == 3
     assert runtime.assistant_mute_button == 7
+    assert runtime.audio_input_device == 4
+    assert runtime.audio_output_device == 6
 
 
 def test_fresh_config_defaults_to_managed_loopback(tmp_path: Path) -> None:

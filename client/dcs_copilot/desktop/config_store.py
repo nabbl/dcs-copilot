@@ -167,6 +167,8 @@ class DesktopConfig:
     assistant_mute_key: str = "F14"
     assistant_mute_device_id: int | None = None
     assistant_mute_button: int | None = None
+    audio_input_device: int | None = None
+    audio_output_device: int | None = None
     launch_at_login: bool = False
 
     @classmethod
@@ -254,6 +256,8 @@ class DesktopConfig:
             ),
             assistant_mute_device_id=optional_int_value("assistant_mute_device_id"),
             assistant_mute_button=optional_int_value("assistant_mute_button"),
+            audio_input_device=optional_int_value("audio_input_device"),
+            audio_output_device=optional_int_value("audio_output_device"),
             launch_at_login=(
                 launch_value
                 if isinstance(launch_value, bool)
@@ -316,6 +320,8 @@ class DesktopConfig:
             assistant_mute_key=self.assistant_mute_key.strip().upper(),
             assistant_mute_device=self.assistant_mute_device_id,
             assistant_mute_button=self.assistant_mute_button,
+            audio_input_device=self.audio_input_device,
+            audio_output_device=self.audio_output_device,
         )
 
     def validate_backend(self) -> None:

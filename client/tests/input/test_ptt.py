@@ -12,7 +12,10 @@ from dcs_copilot.input.ptt import (
     PTTUnavailableError,
     detect_joystick_button,
     discover_joysticks,
+    format_hotkey,
     function_key_virtual_code,
+    keyboard_key_virtual_code,
+    split_hotkey,
 )
 
 
@@ -61,6 +64,45 @@ def test_global_f13_ptt_is_edge_triggered() -> None:
     assert events == ["down", "up"]
     ptt.stop()
     assert listeners[0].stopped
+
+
+def test_modified_keyboard_ptt_requires_exact_modifiers() -> None:
+    events: list[str] = []
+    listeners: list[FakeListener] = []
+
+    def factory(**kwargs):
+        listener = FakeListener(**kwargs)
+        listeners.append(listener)
+        return listener
+
+    ptt = GlobalFunctionKeyPTT(
+        "CTRL+SHIFT+K",
+        on_press=lambda: events.append("down"),
+        on_release=lambda: events.append("up"),
+        platform="win32",
+        listener_factory=factory,
+    )
+    ptt.start()
+    key = FakeKey(keyboard_key_virtual_code("K"))
+    listeners[0].on_press(key)
+    listeners[0].on_release(key)
+    listeners[0].on_press(FakeKey(0xA2))
+    listeners[0].on_press(FakeKey(0xA0))
+    listeners[0].on_press(key)
+    listeners[0].on_press(key)
+    listeners[0].on_release(FakeKey(0xA2))
+    listeners[0].on_release(key)
+
+    assert events == ["down", "up"]
+    ptt.stop()
+
+
+def test_hotkey_formatting_and_supported_keys() -> None:
+    assert format_hotkey("k", ("SHIFT", "CTRL")) == "CTRL+SHIFT+K"
+    assert split_hotkey("ctrl+shift+k") == (frozenset(("CTRL", "SHIFT")), "K")
+    assert keyboard_key_virtual_code("Space") == 0x20
+    with pytest.raises(ValueError, match="unsupported"):
+        split_hotkey("CTRL+Volume Up")
 
 
 def test_global_function_hotkey_emits_once_per_press() -> None:

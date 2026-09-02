@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (  # type: ignore[import-untyped]
     QWidget,
 )
 
+from dcs_copilot.audio.devices import AudioDevice, discover_audio_devices
 from dcs_copilot.backend import (
     BackendError,
     BackendInfo,
@@ -52,10 +53,14 @@ from dcs_copilot.backend import (
 )
 from dcs_copilot.cli.run import run_client
 from dcs_copilot.input.ptt import (
+    HOTKEY_MODIFIERS,
     JoystickButtonSelection,
     JoystickDevice,
     detect_joystick_button,
     discover_joysticks,
+    format_hotkey,
+    keyboard_key_names,
+    split_hotkey,
 )
 from dcs_copilot.logging import configure_logging
 
@@ -76,6 +81,13 @@ ACCENT = "#34d399"
 DARK = "#0b1220"
 PANEL = "#111c2f"
 MUTED = "#8ea0b8"
+
+
+def _hotkey_parts(binding: str, fallback: str) -> tuple[frozenset[str], str]:
+    try:
+        return split_hotkey(binding)
+    except ValueError:
+        return split_hotkey(fallback)
 
 
 class WorkerSignals(QObject):
@@ -400,9 +412,27 @@ class DashboardPage(QWidget):
         self.openai_key.setPlaceholderText(
             "Stored securely; leave blank to keep current key"
         )
+        audio_input_row = QHBoxLayout()
+        self.audio_input_device = QComboBox()
+        refresh_audio = QPushButton("Refresh")
+        refresh_audio.clicked.connect(self._refresh_audio_devices)
+        audio_input_row.addWidget(self.audio_input_device)
+        audio_input_row.addWidget(refresh_audio)
+        self.audio_output_device = QComboBox()
+        self._audio_devices: dict[int, AudioDevice] = {}
+        self._refresh_audio_devices()
         ptt_device_row = QHBoxLayout()
         self.ptt_device = QComboBox()
         self.ptt_control = QComboBox()
+        ptt_modifiers_row = QHBoxLayout()
+        self.ptt_modifiers = {
+            modifier: QCheckBox(modifier.title()) for modifier in HOTKEY_MODIFIERS
+        }
+        ptt_selected_modifiers, _ptt_key = _hotkey_parts(self.config.ptt_key, "F13")
+        for modifier, checkbox in self.ptt_modifiers.items():
+            checkbox.setChecked(modifier in ptt_selected_modifiers)
+            ptt_modifiers_row.addWidget(checkbox)
+        ptt_modifiers_row.addStretch()
         refresh_ptt = QPushButton("Refresh")
         refresh_ptt.clicked.connect(self._refresh_ptt_devices)
         self.learn_ptt = QPushButton("Detect button…")
@@ -421,6 +451,17 @@ class DashboardPage(QWidget):
         mute_device_row = QHBoxLayout()
         self.mute_device = QComboBox()
         self.mute_control = QComboBox()
+        mute_modifiers_row = QHBoxLayout()
+        self.mute_modifiers = {
+            modifier: QCheckBox(modifier.title()) for modifier in HOTKEY_MODIFIERS
+        }
+        mute_selected_modifiers, _mute_key = _hotkey_parts(
+            self.config.assistant_mute_key, "F14"
+        )
+        for modifier, checkbox in self.mute_modifiers.items():
+            checkbox.setChecked(modifier in mute_selected_modifiers)
+            mute_modifiers_row.addWidget(checkbox)
+        mute_modifiers_row.addStretch()
         refresh_mute = QPushButton("Refresh")
         refresh_mute.clicked.connect(self._refresh_mute_devices)
         self.learn_mute = QPushButton("Detect button…")
@@ -443,11 +484,15 @@ class DashboardPage(QWidget):
         form.addRow("Backend URL", self.cloud_url)
         form.addRow("Backend", backend_actions)
         form.addRow("OpenAI API key (local only)", self.openai_key)
+        form.addRow("Microphone", audio_input_row)
+        form.addRow("Speaker / headphones", self.audio_output_device)
         form.addRow("PTT input device", ptt_device_row)
         form.addRow("PTT key / button", self.ptt_control)
+        form.addRow("PTT modifiers", ptt_modifiers_row)
         form.addRow("", self.ptt_hint)
         form.addRow("MARA mute input device", mute_device_row)
         form.addRow("MARA mute key / button", self.mute_control)
+        form.addRow("MARA mute modifiers", mute_modifiers_row)
         form.addRow("", self.mute_hint)
         form.addRow("", self.launch_login)
         save = QPushButton("Save settings")
@@ -498,6 +543,50 @@ class DashboardPage(QWidget):
         if selected:
             self.dcs_path.setText(selected)
 
+    def _refresh_audio_devices(self) -> None:
+        selected_input = (
+            self.audio_input_device.currentData()
+            if self.audio_input_device.count()
+            else self.config.audio_input_device
+        )
+        selected_output = (
+            self.audio_output_device.currentData()
+            if self.audio_output_device.count()
+            else self.config.audio_output_device
+        )
+        devices = discover_audio_devices()
+        self._audio_devices = {device.index: device for device in devices}
+        self.audio_input_device.clear()
+        self.audio_input_device.addItem("System default", None)
+        self.audio_output_device.clear()
+        self.audio_output_device.addItem("System default", None)
+        for device in devices:
+            label = f"{device.name} (device {device.index})"
+            if device.input_channels > 0:
+                self.audio_input_device.addItem(label, device.index)
+            if device.output_channels > 0:
+                self.audio_output_device.addItem(label, device.index)
+        if (
+            selected_input is not None
+            and self.audio_input_device.findData(selected_input) < 0
+        ):
+            self.audio_input_device.addItem(
+                f"Audio device {selected_input} (not connected)", selected_input
+            )
+        if (
+            selected_output is not None
+            and self.audio_output_device.findData(selected_output) < 0
+        ):
+            self.audio_output_device.addItem(
+                f"Audio device {selected_output} (not connected)", selected_output
+            )
+        self.audio_input_device.setCurrentIndex(
+            max(0, self.audio_input_device.findData(selected_input))
+        )
+        self.audio_output_device.setCurrentIndex(
+            max(0, self.audio_output_device.findData(selected_output))
+        )
+
     def _refresh_ptt_devices(self) -> None:
         selected = (
             self.ptt_device.currentData()
@@ -521,11 +610,14 @@ class DashboardPage(QWidget):
         self._update_ptt_controls()
 
     def _update_ptt_controls(self) -> None:
+        _configured_modifiers, configured_key = _hotkey_parts(
+            self.config.ptt_key, "F13"
+        )
         selected_control = (
             self.ptt_control.currentData()
             if self.ptt_control.count()
             else (
-                self.config.ptt_key
+                configured_key
                 if self.config.ptt_device_id is None
                 else self.config.ptt_button
             )
@@ -534,13 +626,12 @@ class DashboardPage(QWidget):
         self.ptt_control.clear()
         desired: object
         if device_id is None:
-            for number in range(1, 25):
-                key = f"F{number}"
+            for key in keyboard_key_names():
                 self.ptt_control.addItem(key, key)
             desired = (
                 selected_control
                 if isinstance(selected_control, str)
-                else self.config.ptt_key
+                else configured_key
             )
         else:
             device = self._ptt_devices.get(device_id)
@@ -556,6 +647,8 @@ class DashboardPage(QWidget):
             )
         index = self.ptt_control.findData(desired)
         self.ptt_control.setCurrentIndex(max(0, index))
+        for checkbox in self.ptt_modifiers.values():
+            checkbox.setEnabled(device_id is None)
 
     def begin_ptt_learning(self) -> None:
         self.learn_ptt.setEnabled(False)
@@ -608,11 +701,14 @@ class DashboardPage(QWidget):
         self._update_mute_controls()
 
     def _update_mute_controls(self) -> None:
+        _configured_modifiers, configured_key = _hotkey_parts(
+            self.config.assistant_mute_key, "F14"
+        )
         selected_control = (
             self.mute_control.currentData()
             if self.mute_control.count()
             else (
-                self.config.assistant_mute_key
+                configured_key
                 if self.config.assistant_mute_device_id is None
                 else self.config.assistant_mute_button
             )
@@ -621,13 +717,12 @@ class DashboardPage(QWidget):
         self.mute_control.clear()
         desired: object
         if device_id is None:
-            for number in range(1, 25):
-                key = f"F{number}"
+            for key in keyboard_key_names():
                 self.mute_control.addItem(key, key)
             desired = (
                 selected_control
                 if isinstance(selected_control, str)
-                else self.config.assistant_mute_key
+                else configured_key
             )
         else:
             device = self._mute_devices.get(device_id)
@@ -645,6 +740,8 @@ class DashboardPage(QWidget):
             )
         index = self.mute_control.findData(desired)
         self.mute_control.setCurrentIndex(max(0, index))
+        for checkbox in self.mute_modifiers.values():
+            checkbox.setEnabled(device_id is None)
 
     def begin_mute_learning(self) -> None:
         self.learn_mute.setEnabled(False)
@@ -679,17 +776,33 @@ class DashboardPage(QWidget):
         self.config.backend_mode = str(self.backend_mode.currentData())
         self.config.cloud_url = self.cloud_url.text().strip()
         self.config.validate_backend()
+        self.config.audio_input_device = self.audio_input_device.currentData()
+        self.config.audio_output_device = self.audio_output_device.currentData()
         device_id = self.ptt_device.currentData()
         self.config.ptt_device_id = device_id
         if device_id is None:
-            self.config.ptt_key = str(self.ptt_control.currentData())
+            self.config.ptt_key = format_hotkey(
+                str(self.ptt_control.currentData()),
+                (
+                    modifier
+                    for modifier, checkbox in self.ptt_modifiers.items()
+                    if checkbox.isChecked()
+                ),
+            )
             self.config.ptt_button = None
         else:
             self.config.ptt_button = int(self.ptt_control.currentData())
         mute_device_id = self.mute_device.currentData()
         self.config.assistant_mute_device_id = mute_device_id
         if mute_device_id is None:
-            self.config.assistant_mute_key = str(self.mute_control.currentData())
+            self.config.assistant_mute_key = format_hotkey(
+                str(self.mute_control.currentData()),
+                (
+                    modifier
+                    for modifier, checkbox in self.mute_modifiers.items()
+                    if checkbox.isChecked()
+                ),
+            )
             self.config.assistant_mute_button = None
         else:
             self.config.assistant_mute_button = int(self.mute_control.currentData())
@@ -1117,6 +1230,18 @@ class MainWindow(QMainWindow):
         environment.insert("DCS_COPILOT_DEVICE_ID", self.config.device_id)
         environment.insert("COPILOT_PTT_KEY", self.config.ptt_key)
         environment.insert("COPILOT_MUTE_KEY", self.config.assistant_mute_key)
+        environment.insert(
+            "AUDIO_INPUT_DEVICE",
+            ""
+            if self.config.audio_input_device is None
+            else str(self.config.audio_input_device),
+        )
+        environment.insert(
+            "AUDIO_OUTPUT_DEVICE",
+            ""
+            if self.config.audio_output_device is None
+            else str(self.config.audio_output_device),
+        )
         environment.insert(
             "COPILOT_PTT_DEVICE",
             "" if self.config.ptt_device_id is None else str(self.config.ptt_device_id),

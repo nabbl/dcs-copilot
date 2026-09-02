@@ -6,10 +6,39 @@ import ctypes
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from ctypes import Structure, byref, c_uint, c_ulong, c_ushort, c_wchar
 from dataclasses import dataclass
 from typing import Any
+
+HOTKEY_MODIFIERS = ("CTRL", "ALT", "SHIFT", "WIN")
+
+_NAMED_KEY_VIRTUAL_CODES = {
+    "BACKSPACE": 0x08,
+    "TAB": 0x09,
+    "ENTER": 0x0D,
+    "PAUSE": 0x13,
+    "CAPS LOCK": 0x14,
+    "ESCAPE": 0x1B,
+    "SPACE": 0x20,
+    "PAGE UP": 0x21,
+    "PAGE DOWN": 0x22,
+    "END": 0x23,
+    "HOME": 0x24,
+    "LEFT": 0x25,
+    "UP": 0x26,
+    "RIGHT": 0x27,
+    "DOWN": 0x28,
+    "PRINT SCREEN": 0x2C,
+    "INSERT": 0x2D,
+    "DELETE": 0x2E,
+}
+_MODIFIER_VIRTUAL_CODES = {
+    "CTRL": frozenset((0x11, 0xA2, 0xA3)),
+    "ALT": frozenset((0x12, 0xA4, 0xA5)),
+    "SHIFT": frozenset((0x10, 0xA0, 0xA1)),
+    "WIN": frozenset((0x5B, 0x5C)),
+}
 
 
 class PTTUnavailableError(RuntimeError):
@@ -222,6 +251,57 @@ def function_key_virtual_code(key_name: str) -> int:
     return 0x70 + number - 1
 
 
+def keyboard_key_names() -> tuple[str, ...]:
+    """Return the keyboard keys offered by the desktop binding editor."""
+
+    return (
+        *(f"F{number}" for number in range(1, 25)),
+        *(chr(code) for code in range(ord("A"), ord("Z") + 1)),
+        *(str(number) for number in range(10)),
+        *tuple(_NAMED_KEY_VIRTUAL_CODES),
+    )
+
+
+def keyboard_key_virtual_code(key_name: str) -> int:
+    normalized = key_name.strip().upper()
+    if normalized.startswith("F") and normalized[1:].isdigit():
+        return function_key_virtual_code(normalized)
+    if len(normalized) == 1 and ("A" <= normalized <= "Z" or "0" <= normalized <= "9"):
+        return ord(normalized)
+    try:
+        return _NAMED_KEY_VIRTUAL_CODES[normalized]
+    except KeyError as exc:
+        raise ValueError("unsupported keyboard key") from exc
+
+
+def split_hotkey(binding: str) -> tuple[frozenset[str], str]:
+    """Parse a persisted hotkey into normalized modifiers and its base key."""
+
+    parts = [part.strip().upper() for part in binding.split("+") if part.strip()]
+    if not parts:
+        raise ValueError("keyboard hotkey cannot be empty")
+    key = parts[-1]
+    modifiers = parts[:-1]
+    if len(set(modifiers)) != len(modifiers) or any(
+        modifier not in HOTKEY_MODIFIERS for modifier in modifiers
+    ):
+        raise ValueError("hotkey modifiers must be Ctrl, Alt, Shift, or Win")
+    keyboard_key_virtual_code(key)
+    return frozenset(modifiers), key
+
+
+def format_hotkey(key_name: str, modifiers: Iterable[str] = ()) -> str:
+    """Create the canonical string stored in settings and environment variables."""
+
+    key = key_name.strip().upper()
+    keyboard_key_virtual_code(key)
+    selected = {str(modifier).strip().upper() for modifier in modifiers}
+    unknown = selected.difference(HOTKEY_MODIFIERS)
+    if unknown:
+        raise ValueError("hotkey modifiers must be Ctrl, Alt, Shift, or Win")
+    return "+".join((*filter(selected.__contains__, HOTKEY_MODIFIERS), key))
+
+
 class GlobalFunctionKeyPTT:
     def __init__(
         self,
@@ -232,19 +312,21 @@ class GlobalFunctionKeyPTT:
         platform: str = sys.platform,
         listener_factory: Callable[..., Any] | None = None,
     ) -> None:
-        self.key_name = key_name.strip().upper()
-        self.virtual_key = function_key_virtual_code(self.key_name)
+        self.modifiers, self.key_name = split_hotkey(key_name)
+        self.hotkey = format_hotkey(self.key_name, self.modifiers)
+        self.virtual_key = keyboard_key_virtual_code(self.key_name)
         self._on_pressed = on_press
         self._on_released = on_release
         self._platform = platform
         self._listener_factory = listener_factory
         self._listener: Any = None
         self._pressed = False
+        self._pressed_modifier_keys: set[int] = set()
 
     def start(self) -> None:
         if self._platform != "win32":
             raise PTTUnavailableError(
-                "global F-key input requires Windows; use --stdin-ptt for local development"
+                "global keyboard input requires Windows; use --stdin-ptt for local development"
             )
         factory = self._listener_factory
         if factory is None:
@@ -265,14 +347,30 @@ class GlobalFunctionKeyPTT:
         if self._pressed:
             self._pressed = False
             self._on_released()
+        self._pressed_modifier_keys.clear()
 
     def _press(self, key: object) -> None:
-        if _virtual_key(key) == self.virtual_key and not self._pressed:
+        virtual_key = _virtual_key(key)
+        modifier = _modifier_for_virtual_key(virtual_key)
+        if modifier is not None and virtual_key is not None:
+            self._pressed_modifier_keys.add(virtual_key)
+            return
+        if (
+            virtual_key == self.virtual_key
+            and _modifiers_for_virtual_keys(self._pressed_modifier_keys)
+            == self.modifiers
+            and not self._pressed
+        ):
             self._pressed = True
             self._on_pressed()
 
     def _release(self, key: object) -> None:
-        if _virtual_key(key) == self.virtual_key and self._pressed:
+        virtual_key = _virtual_key(key)
+        modifier = _modifier_for_virtual_key(virtual_key)
+        if modifier is not None and virtual_key is not None:
+            self._pressed_modifier_keys.discard(virtual_key)
+            return
+        if virtual_key == self.virtual_key and self._pressed:
             self._pressed = False
             self._on_released()
 
@@ -405,3 +503,22 @@ def _virtual_key(key: object) -> int | None:
     value = getattr(key, "value", None)
     nested = getattr(value, "vk", None)
     return nested if isinstance(nested, int) else None
+
+
+def _modifier_for_virtual_key(virtual_key: int | None) -> str | None:
+    return next(
+        (
+            modifier
+            for modifier, virtual_keys in _MODIFIER_VIRTUAL_CODES.items()
+            if virtual_key in virtual_keys
+        ),
+        None,
+    )
+
+
+def _modifiers_for_virtual_keys(virtual_keys: set[int]) -> frozenset[str]:
+    return frozenset(
+        modifier
+        for modifier, modifier_keys in _MODIFIER_VIRTUAL_CODES.items()
+        if not virtual_keys.isdisjoint(modifier_keys)
+    )
