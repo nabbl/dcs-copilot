@@ -16,10 +16,10 @@ test("exports every public route", async () => {
 
 test("uses the GitHub Pages base path for generated assets", async () => {
   const html = await readFile(new URL("index.html", output), "utf8");
-  assert.match(html, /\/dcs-copilot\/_next\/static\//);
+  assert.match(html, /\/mara-site\/_next\/static\//);
   assert.match(html, /href="\.\/docs\/"/);
   assert.match(html, /href="\.\/roadmap\/"/);
-  assert.match(html, /https:\/\/nabbl\.github\.io\/dcs-copilot\/og\.png/);
+  assert.match(html, /https:\/\/nabbl\.github\.io\/mara-site\/og\.png/);
   assert.doesNotMatch(html, /href="\/(?:docs|roadmap)"/);
 });
 

@@ -15,5 +15,5 @@ npm run dev
 - `npm run build:pages` creates the static GitHub Pages site in `out/`.
 - `npm run test:pages` verifies the exported routes, assets, metadata, and project-relative navigation.
 
-The documentation source lives in `content/manual.md`. Pushes that change
-`website/` automatically publish through `.github/workflows/pages.yml`.
+The documentation source lives in `content/manual.md`. Pushes to `main`
+automatically publish through `.github/workflows/pages.yml`.

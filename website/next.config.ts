@@ -6,8 +6,8 @@ const nextConfig: NextConfig = {
   ...(isGitHubPages
     ? {
         output: "export" as const,
-        basePath: "/dcs-copilot",
-        assetPrefix: "/dcs-copilot",
+        basePath: "/mara-site",
+        assetPrefix: "/mara-site",
         trailingSlash: true,
         images: { unoptimized: true },
       }
