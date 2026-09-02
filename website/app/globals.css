@@ -36,9 +36,6 @@ nav { display: flex; gap: 32px; font-size: 13px; font-weight: 700; }
 nav a:hover, footer a:hover { color: var(--red); }
 .status-pill { justify-self: end; border: 1px solid var(--ink); border-radius: 999px; padding: 8px 12px; font: 700 10px var(--font-geist-mono), monospace; text-transform: uppercase; letter-spacing: .08em; }
 .status-pill i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: var(--red); margin-right: 7px; }
-.header-actions { justify-self: end; display: flex; align-items: center; gap: 10px; }
-.kofi-link { padding: 9px 12px; color: #fff; background: var(--red); border: 1px solid var(--ink); font: 800 10px var(--font-geist-mono), monospace; letter-spacing: .06em; text-transform: uppercase; box-shadow: 3px 3px 0 var(--ink); }
-.kofi-link:hover { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
 
 .hero {
   min-height: calc(100vh - 78px);
@@ -52,6 +49,7 @@ nav a:hover, footer a:hover { color: var(--red); }
 .eyebrow::before { content: ""; display: inline-block; width: 36px; height: 3px; margin: 0 10px 3px 0; background: var(--red); }
 h1 { font-size: clamp(54px, 6.7vw, 105px); line-height: .88; letter-spacing: -.07em; margin: 0; font-weight: 950; text-transform: uppercase; }
 h1 em { color: var(--blue); font-style: normal; }
+.hero h1 em { display: block; }
 .lede { max-width: 560px; font-size: clamp(17px, 1.55vw, 22px); line-height: 1.55; margin: 34px 0 38px; }
 .hero-actions { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
 .hero-cost { max-width: 560px; margin: 28px 0 0; padding-top: 18px; border-top: 1px solid var(--line); color: #3d4958; font: 650 12px/1.55 var(--font-geist-mono), monospace; }
@@ -82,17 +80,30 @@ h1 em { color: var(--blue); font-style: normal; }
 .capability-list h3 { margin: 0; font-size: 19px; text-transform: uppercase; }
 .capability-list p { margin: 0; line-height: 1.55; color: #3d4958; }
 
+.why-section { padding: clamp(75px, 9vw, 130px) clamp(24px, 7vw, 110px); display: grid; grid-template-columns: .9fr 1.1fr; gap: 9vw; align-items: start; color: var(--cream); background: var(--ink); border-top: 2px solid var(--ink); }
+.why-section h2 { margin: 0; font-size: clamp(44px, 5.5vw, 82px); line-height: .95; letter-spacing: -.055em; text-transform: uppercase; }
+.why-copy { max-width: 680px; font-size: clamp(17px, 1.6vw, 21px); line-height: 1.65; }
+.why-copy p { margin: 0 0 24px; }
+.why-copy p:last-child { margin-bottom: 0; color: var(--sky); }
+
 .home-roadmap { scroll-margin-top: 78px; background: #f8f5e6; border-top: 2px solid var(--ink); }
 .home-roadmap-heading { padding: clamp(75px, 8vw, 120px) clamp(24px, 7vw, 110px); display: grid; grid-template-columns: 1.15fr .85fr; gap: 9vw; align-items: end; }
 .home-roadmap-heading h2 { margin: 0; font-size: clamp(52px, 7vw, 100px); line-height: .9; letter-spacing: -.065em; text-transform: uppercase; }
 .home-roadmap-heading h2 em { color: var(--blue); font-style: normal; }
 
-.open-source-callout { padding: clamp(75px, 8vw, 120px) clamp(24px, 7vw, 110px); display: grid; grid-template-columns: .7fr 1.1fr 1fr; gap: clamp(30px, 5vw, 80px); align-items: start; color: var(--cream); background: var(--blue); border-top: 2px solid var(--ink); }
+.open-source-callout { padding: clamp(75px, 8vw, 120px) clamp(24px, 7vw, 110px); display: grid; grid-template-columns: .9fr 1.1fr; gap: clamp(40px, 8vw, 130px); align-items: start; color: var(--cream); background: var(--blue); border-top: 2px solid var(--ink); }
 .open-source-callout .eyebrow { color: var(--cream); }
 .open-source-callout h2 { margin: 0; font-size: clamp(44px, 5vw, 76px); line-height: .92; letter-spacing: -.055em; text-transform: uppercase; }
 .open-source-callout h2 em { color: var(--ink); font-style: normal; }
-.open-source-callout > div p { margin: 0 0 30px; max-width: 480px; font-size: 17px; line-height: 1.65; }
+.open-source-callout .community-copy > p { margin: 0 0 30px; max-width: 650px; font-size: 17px; line-height: 1.65; }
 .open-source-callout .button { color: var(--ink); background: var(--cream); }
+.open-source-callout .community-note { margin-top: 28px; font: 750 11px/1.55 var(--font-geist-mono), monospace; letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
+
+.support-callout { padding: clamp(55px, 7vw, 90px) clamp(24px, 7vw, 110px); display: grid; grid-template-columns: .8fr 1fr auto; gap: clamp(30px, 5vw, 80px); align-items: center; background: var(--cream); border-top: 2px solid var(--ink); }
+.support-callout .eyebrow { margin-bottom: 12px; }
+.support-callout h2 { margin: 0; font-size: clamp(38px, 4.5vw, 64px); line-height: .95; letter-spacing: -.05em; text-transform: uppercase; }
+.support-callout > p { max-width: 560px; margin: 0; font-size: 17px; line-height: 1.6; }
+.support-callout .button { white-space: nowrap; color: #fff; background: var(--red); }
 
 footer { min-height: 150px; padding: 38px clamp(24px, 7vw, 110px); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 25px; color: var(--cream); background: var(--ink); }
 .footer-mark { font-size: 28px; font-weight: 950; }
@@ -106,12 +117,13 @@ footer a { font-size: 13px; font-weight: 800; text-transform: uppercase; }
   .hero { grid-template-columns: 1fr; }
   .portrait { min-height: 610px; border-left: 0; border-top: 2px solid var(--ink); }
   .capabilities { grid-template-columns: 1fr; }
+  .why-section { grid-template-columns: 1fr; }
   .home-roadmap-heading { grid-template-columns: 1fr; }
   .open-source-callout { grid-template-columns: 1fr; }
+  .support-callout { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
   .wordmark span, .status-pill { display: none; }
-  .kofi-link { font-size: 8px; padding: 8px 9px; }
   .hero-copy { padding: 70px 24px 76px; }
   h1 { font-size: clamp(48px, 15vw, 70px); }
   .portrait { min-height: 520px; }
@@ -148,7 +160,7 @@ footer a { font-size: 13px; font-weight: 800; text-transform: uppercase; }
 .manual-label { justify-self: end; font: 700 10px var(--font-geist-mono), monospace; letter-spacing: .12em; color: var(--blue); }
 .docs-main-links { display: flex; gap: 28px; font-size: 12px; font-weight: 750; }
 .docs-main-links a:hover { color: var(--red); }
-.docs-header > .kofi-link { justify-self: end; }
+.docs-header > .status-pill { justify-self: end; }
 .docs-sidebar {
   padding: 48px 28px 40px clamp(24px, 4vw, 56px);
   border-right: 1px solid var(--line);

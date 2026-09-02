@@ -13,18 +13,17 @@ export default function RoadmapPage() {
     <main className="roadmap-page">
       <header className="docs-header roadmap-header">
         <a className="wordmark" href="../">M.A.R.A <span>{"///"} DCS COPILOT</span></a>
-        <div className="docs-main-links"><a href="../">Overview</a><a href="../docs/">Flight manual</a></div>
-        <a className="kofi-link" href="https://ko-fi.com/nabblsawesome" target="_blank" rel="noreferrer">Support on Ko-fi ↗</a>
+        <div className="docs-main-links"><a href="../">Overview</a><a href="../docs/">Flight manual</a><a href="https://github.com/nabbl/dcs-copilot" target="_blank" rel="noreferrer">GitHub ↗</a></div>
+        <span className="status-pill"><i /> Early build</span>
       </header>
 
       <section className="roadmap-intro">
         <div>
-          <p className="eyebrow">Development vector</p>
-          <h1>The MARA<br /><em>roadmap.</em></h1>
+          <p className="eyebrow">What I’m working on</p>
+          <h1>Where MARA<br /><em>goes next</em></h1>
         </div>
         <div className="roadmap-summary">
-          <p>MARA starts narrow and earns her way outward: first the F/A-18C, then better awareness and coaching, then more aircraft.</p>
-          <span>Direction, not a promise of dates.</span>
+          <p>This is a working roadmap, not a release schedule. Priorities will change based on what people actually use and ask for.</p>
         </div>
       </section>
 
@@ -44,9 +43,9 @@ export default function RoadmapPage() {
       </section>
 
       <section className="open-source-roadmap">
-        <div><span>OPEN SOURCE</span><h2>The code will be public.</h2></div>
-        <p>Once the early-access release is ready, the repository will be public. Contributions, testing, and support for more aircraft will be welcome.</p>
-        <a className="button" href="https://ko-fi.com/nabblsawesome" target="_blank" rel="noreferrer">Support development <span>↗</span></a>
+        <div><span>COMMUNITY PROJECT</span><h2>The code is public.</h2></div>
+        <p>MARA is open source. Bug reports, testing, aircraft mappings, procedures, and ideas for useful cockpit help are all welcome.</p>
+        <a className="button" href="https://github.com/nabbl/dcs-copilot" target="_blank" rel="noreferrer">View on GitHub <span>↗</span></a>
       </section>
     </main>
   );

@@ -136,7 +136,7 @@ Ask for concise status on fuel, navigation, defensive systems, landing configura
 
 ### What is not ready yet
 
-Radar-picture analysis, combat-awareness assistance, situational-awareness gap detection, and the full Spatial Coach experience are on the [roadmap](../roadmap/). Foundations for formation work, carrier approaches, and CASE I practice exist, but they are not part of the current early-access promise.
+Radar assistance, missed-cue detection, and formation and carrier coaching are on the [roadmap](../roadmap/). Foundations for formation work, carrier approaches, and CASE I practice exist, but they are not part of the current early-access promise.
 
 ## Voice and controls
 
@@ -152,7 +152,7 @@ Speech modes are deliberately simple:
 
 - **Minimal** — only the most time-critical warnings.
 - **Normal** — warnings plus useful operational advisories.
-- **Coach** — the broadest proactive speech setting. This is separate from the planned Spatial Coach experience.
+- **Coach** — the broadest proactive speech setting. This is separate from the planned formation and carrier coaching work.
 
 ## Privacy boundary
 

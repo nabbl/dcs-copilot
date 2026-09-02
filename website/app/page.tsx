@@ -1,10 +1,10 @@
 import { roadmap } from "./roadmap-data";
 
 const capabilities = [
-  ["01", "Startup help", "Follow the Hornet checklist and know when you are ready to taxi."],
-  ["02", "Cockpit awareness", "Ask about switches, aircraft state, and general F/A-18C information."],
-  ["03", "Flight information", "Get useful aircraft and flight status once you are airborne."],
-  ["04", "Your controls", "Choose your microphone and speakers, then bind PTT and mute to a key, modifier combination, or HOTAS button."],
+  ["01", "Startup guidance", "Walk through an F/A-18C cold start step by step. MARA checks supported cockpit state and can tell when you’re ready to continue."],
+  ["02", "Cockpit questions", "Ask what a switch does, why a warning is on, or whether the aircraft is configured for the next step."],
+  ["03", "In-flight help", "Get concise aircraft and flight information without digging through menus or taking your hands off the controls."],
+  ["04", "Hands on the HOTAS", "Bind PTT and mute to a key or HOTAS button and talk to MARA when you need her."],
 ];
 
 export default function Home() {
@@ -18,26 +18,25 @@ export default function Home() {
           <a href="#capabilities">Capabilities</a>
           <a href="#roadmap">Roadmap</a>
           <a href="./docs/">Flight manual</a>
+          <a href="https://github.com/nabbl/dcs-copilot" target="_blank" rel="noreferrer">GitHub ↗</a>
         </nav>
-        <div className="header-actions">
-          <span className="status-pill"><i /> Free early access</span>
-          <a className="kofi-link" href="https://ko-fi.com/nabblsawesome" target="_blank" rel="noreferrer">Support on Ko-fi ↗</a>
-        </div>
+        <span className="status-pill"><i /> Early build</span>
       </header>
 
       <section className="hero" id="top">
         <div className="hero-copy">
-          <p className="eyebrow">Mission-aware realtime assistant</p>
-          <h1>Your second seat.<br /><em>Always watching.</em></h1>
+          <p className="eyebrow">Experimental voice copilot for DCS</p>
+          <h1>Your copilot <em>for DCS</em></h1>
           <p className="lede">
-            MARA is a voice copilot for DCS—aware of your aircraft, your phase
-            of flight, and what needs your attention next.
+            MARA is a voice copilot for DCS. She can follow supported cockpit
+            and flight state, help with procedures, answer questions, and point
+            out things you may have missed.
           </p>
           <div className="hero-actions">
-            <a className="button button-primary" href="./docs/">Read the flight manual <span>→</span></a>
-            <a className="text-link" href="#capabilities">See what she can do ↓</a>
+            <a className="button button-primary" href="./docs/">Get started <span>→</span></a>
+            <a className="text-link" href="#capabilities">See what works today ↓</a>
           </div>
-          <p className="hero-cost"><strong>Free to use.</strong> Bring your own OpenAI API key and pay OpenAI only for the API usage on that key.</p>
+          <p className="hero-cost"><strong>Free to use.</strong> Bring your own OpenAI API key; usage is billed directly to your OpenAI account.</p>
         </div>
 
         <div className="portrait" aria-label="Reserved area for MARA character artwork">
@@ -48,8 +47,8 @@ export default function Home() {
 
       <section className="capabilities" id="capabilities">
         <div className="section-heading">
-          <p className="eyebrow">Built for the sortie</p>
-          <h2>Not a chatbot.<br />A crew member.</h2>
+          <p className="eyebrow">F/A-18C support</p>
+          <h2>What MARA can<br />do today</h2>
         </div>
         <div className="capability-list">
           {capabilities.map(([number, title, body]) => (
@@ -62,15 +61,25 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="why-section">
+        <div>
+          <p className="eyebrow">Why I built this</p>
+          <h2>It started with<br />a cold start.</h2>
+        </div>
+        <div className="why-copy">
+          <p>I started MARA because I wanted something beside me in DCS that could actually understand what was happening in the aircraft—not just respond to voice commands. It started as a cold-start copilot and has slowly grown into an experiment in what a useful virtual crew member could be.</p>
+          <p>I don’t know yet what MARA should become. That’s part of why I’m putting it out there early.</p>
+        </div>
+      </section>
+
       <section className="home-roadmap" id="roadmap">
         <div className="home-roadmap-heading">
           <div>
-            <p className="eyebrow">Development vector</p>
-            <h2>The MARA<br /><em>roadmap.</em></h2>
+            <p className="eyebrow">What I’m working on</p>
+            <h2>Where MARA<br /><em>goes next</em></h2>
           </div>
           <div className="roadmap-summary">
-            <p>MARA starts narrow and earns her way outward: first the F/A-18C, then better awareness and coaching, then more aircraft.</p>
-            <span>Direction, not a promise of dates.</span>
+            <p>This is a working roadmap, not a release schedule. Priorities will change based on what people actually use and ask for.</p>
           </div>
         </div>
         <div className="roadmap-grid" aria-label="MARA product roadmap">
@@ -90,18 +99,30 @@ export default function Home() {
       </section>
 
       <section className="open-source-callout">
-        <p className="eyebrow">Open source</p>
-        <h2>MARA will be<br /><em>open source.</em></h2>
         <div>
-          <p>You’ll be able to read the code, report problems, contribute fixes, and help add support for other aircraft.</p>
-          <a className="button" href="#roadmap">See the roadmap <span>↑</span></a>
+          <p className="eyebrow">Community project</p>
+          <h2>Built for<br /><em>DCS pilots.</em></h2>
         </div>
+        <div className="community-copy">
+          <p>MARA is a hobby project built for DCS pilots. The code is open source, and contributions are welcome—whether that’s a bug report, an aircraft mapping, a procedure, or an idea for something that would actually help in the cockpit.</p>
+          <a className="button" href="https://github.com/nabbl/dcs-copilot" target="_blank" rel="noreferrer">View on GitHub <span>↗</span></a>
+          <p className="community-note">Especially welcome: tell me what you actually want MARA to do.</p>
+        </div>
+      </section>
+
+      <section className="support-callout">
+        <div>
+          <p className="eyebrow">Support the project</p>
+          <h2>Like MARA?</h2>
+        </div>
+        <p>MARA is free and open source. If you want to help cover development costs, you can buy me a coffee.</p>
+        <a className="button" href="https://ko-fi.com/nabblsawesome" target="_blank" rel="noreferrer">Support on Ko-fi <span>↗</span></a>
       </section>
 
       <footer>
         <div className="footer-mark">M.A.R.A</div>
         <p>Mission-Aware Realtime Assistant</p>
-        <div className="footer-links"><a href="#roadmap">Roadmap</a><a href="./docs/">Flight manual →</a></div>
+        <div className="footer-links"><a href="#roadmap">Roadmap</a><a href="./docs/">Flight manual</a><a href="https://github.com/nabbl/dcs-copilot" target="_blank" rel="noreferrer">GitHub ↗</a></div>
       </footer>
     </main>
   );

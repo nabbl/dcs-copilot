@@ -1,9 +1,9 @@
 export const roadmap = [
   {
     phase: "NOW",
-    label: "Early access",
+    label: "Getting the basics right",
     title: "A useful Hornet copilot",
-    intro: "The first public slice is intentionally focused: one aircraft, a dependable startup journey, and useful airborne context.",
+    intro: "The first public version focuses on one aircraft and making the things MARA already does reliable and useful.",
     items: [
       ["Startup guidance", "Guided F/A-18C checklist assistance from cockpit entry through taxi readiness."],
       ["Cockpit-aware answers", "Reads supported switch and aircraft state, then answers questions with that live context."],
@@ -12,21 +12,21 @@ export const roadmap = [
   },
   {
     phase: "NEXT",
-    label: "Awareness & coaching",
-    title: "See more. Teach better.",
-    intro: "The next work turns MARA from a cockpit-aware copilot into a more capable training and situational-awareness partner.",
+    label: "After the basics",
+    title: "Better awareness and coaching",
+    intro: "Once the basics are solid, the focus shifts toward helping pilots notice more and improve how they fly.",
     items: [
-      ["Combat awareness", "Help with radar contacts and analysis of the pilot’s radar picture."],
-      ["Spatial Coach", "Finish live formation coaching, carrier approaches, CASE I segmentation, feedback, and debriefs."],
-      ["Awareness-gap detection", "Identify specific differences between what the pilot appears to understand and what the available environment data shows."],
-      ["Live validation", "Qualify behaviour across real single-player and multiplayer missions, including export restrictions."],
+      ["Radar assistance", "Help interpret the radar picture and information already available to the pilot."],
+      ["Missed cues", "Point out important cockpit or flight-state cues that are easy to overlook."],
+      ["Formation & carrier coaching", "Evaluate formation position, carrier approaches and CASE I patterns when the server allows the required telemetry."],
+      ["Real-world testing", "Test behaviour across single-player and multiplayer missions, including servers with export restrictions."],
     ],
   },
   {
     phase: "LATER",
-    label: "Broader capability",
-    title: "More airframes. Deeper help.",
-    intro: "Once the Hornet experience is trustworthy, MARA can expand without weakening the deterministic safety boundary.",
+    label: "If it proves useful",
+    title: "More aircraft and deeper support",
+    intro: "If people find MARA useful, expand support without making the existing aircraft worse.",
     items: [
       ["More fixed-wing aircraft", "Add aircraft through versioned cockpit mappings, curated knowledge, and explicit tests."],
       ["Helicopter support", "Extend flight-state, procedures, and coaching to rotary-wing operations."],

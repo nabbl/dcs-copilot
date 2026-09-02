@@ -5,8 +5,8 @@ import "./globals.css";
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
-const title = "MARA — Your second seat in DCS";
-const description = "Meet MARA, the free mission-aware voice copilot for DCS. Bring your own OpenAI API key.";
+const title = "MARA — Your copilot for DCS";
+const description = "MARA is a free, open-source voice copilot for DCS. Bring your own OpenAI API key.";
 
 export function generateMetadata(): Metadata {
   const siteOrigin = process.env.PUBLIC_SITE_ORIGIN;
@@ -20,7 +20,7 @@ export function generateMetadata(): Metadata {
       title,
       description,
       type: "website",
-      ...(image ? { images: [{ url: image, width: 1672, height: 941, alt: "MARA — your second seat in DCS" }] } : {}),
+      ...(image ? { images: [{ url: image, width: 1672, height: 941, alt: "MARA — your copilot for DCS" }] } : {}),
     },
     twitter: {
       card: "summary_large_image",
