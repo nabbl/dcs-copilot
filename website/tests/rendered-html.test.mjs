@@ -29,6 +29,9 @@ test("server-renders Markdown documentation", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /Flight manual/);
+  assert.match(html, /id="choose-your-setup"/);
+  assert.match(html, /All-in-one install/);
+  assert.match(html, /Split install/);
   assert.match(html, /id="start-here"/);
   assert.match(html, /id="privacy-boundary"/);
   assert.match(html, /MARA cannot see DCS/);

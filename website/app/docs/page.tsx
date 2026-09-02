@@ -12,6 +12,7 @@ export const metadata: Metadata = {
 };
 
 const chapters = [
+  ["choose-your-setup", "Choose your setup"],
   ["start-here", "Start here"],
   ["your-first-sortie", "Your first sortie"],
   ["what-mara-can-do", "What MARA can do"],

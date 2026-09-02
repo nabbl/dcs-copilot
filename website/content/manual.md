@@ -5,9 +5,35 @@ MARA is a mission-aware voice copilot for Digital Combat Simulator. She listens 
 > **Early-access note**
 > MARA is still in qualification. Treat every callout as assistance—not as a replacement for the aircraft manual, your instruments, or your own judgement.
 
+## Choose your setup
+
+MARA has two installation types. The DCS Copilot client always runs on the gaming PC because it talks directly to DCS, handles push-to-talk, and plays MARA’s voice. The backend can run on that same PC or somewhere else.
+
+| | All-in-one install | Split install |
+| --- | --- | --- |
+| **Where the backend runs** | On the DCS PC | On another PC, a LAN server, or a hosted server |
+| **Setup** | Easiest; install the bundle and use the default local mode | Install the client on the DCS PC, run the backend elsewhere, then enter its URL in Settings |
+| **Game-PC overhead** | Uses additional RAM and some CPU time for the backend and local voice | Only the thin DCS client runs on the game PC |
+| **Best for** | Getting started quickly and keeping everything self-contained | Keeping as much work as possible away from DCS |
+
+### All-in-one install (default)
+
+Install `MARA-Setup-<version>.exe` and leave the backend mode set to **Local**. The desktop app starts and stops the bundled backend for you. This is the simplest option and does not require another machine.
+
+The trade-off is straightforward: the backend, local database, and local voice service share the gaming PC with DCS. That means more RAM use and a small amount of CPU overhead. The exact amount depends on what MARA is doing, so we are not publishing a made-up performance number.
+
+### Split install (lighter on the DCS PC)
+
+Install the normal DCS Copilot client on the gaming PC, but run the standalone MARA backend on another Windows PC, a LAN server, or a hosted server. In Settings, change the backend mode to **Remote** and enter that backend’s URL.
+
+The client still handles DCS-BIOS, cockpit data, the microphone, push-to-talk, and audio playback locally. The backend work—aircraft state, rules, checklists, database, voice pipeline, and AI calls—runs on the other machine. This is the better option if you want MARA’s game-PC footprint to stay small, at the cost of a little more setup and dependence on the network connection.
+
+> **Which one should I use?**
+> Start with all-in-one. Switch to a split install if you are short on RAM, want to keep background CPU work away from DCS, or already have a machine that can host the backend.
+
 ## Start here
 
-The early-access build is a Windows application. Your access package includes the installer and the service details you need.
+The early-access client is a Windows application. Your access package includes the combined installer, the standalone backend package for split installations, and the service details you need.
 
 1. Close DCS before running the installer.
 2. Install **DCS Copilot** and allow setup to find your DCS Saved Games folder.
