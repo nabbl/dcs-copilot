@@ -20,6 +20,7 @@ test("server-renders the MARA landing page", async () => {
   assert.match(html, /<title>MARA — Your second seat in DCS<\/title>/i);
   assert.match(html, /Your second seat/);
   assert.match(html, /Read the flight manual/);
+  assert.match(html, /Choose your microphone and speakers/);
   assert.match(html, /mara-portrait\.jpg/);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/i);
 });
@@ -31,7 +32,9 @@ test("server-renders Markdown documentation", async () => {
   assert.match(html, /Flight manual/);
   assert.match(html, /id="before-you-install"/);
   assert.match(html, /64-bit Windows PC/);
-  assert.match(html, /Windows default microphone and audio output/);
+  assert.match(html, /Windows defaults or separate microphone/);
+  assert.match(html, /Ctrl, Alt, Shift, and Win modifiers/);
+  assert.match(html, /Configure your flight audio in MARA/);
   assert.match(html, /roughly 340 MB of Kokoro voice files/);
   assert.match(html, /currently unsigned/);
   assert.match(html, /id="choose-your-setup"/);

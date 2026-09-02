@@ -11,14 +11,14 @@ The current Windows build expects the following:
 
 - **A 64-bit Windows PC.** Windows 10 and 11 are the current validation targets. The packaged installer includes the client and backend, so you do not need to install Python.
 - **DCS World and the F/A-18C.** The early-access aircraft integration is for the Hornet. Launch DCS at least once so it creates a `Saved Games\DCS`, `DCS.openbeta`, or `DCS.openalpha` folder.
-- **A working Windows default microphone and audio output.** The current desktop app uses the devices selected as the Windows defaults; it does not yet have separate microphone or speaker selectors.
-- **A push-to-talk control.** Use a keyboard function key from F1–F24, or a button from 1–32 on a controller exposed through the Windows joystick API. MARA mute needs a different key or button.
+- **A working microphone and audio output.** MARA can use the Windows defaults or separate microphone and speaker/headphone devices selected in Settings.
+- **A push-to-talk control.** Choose a supported keyboard key with any combination of Ctrl, Alt, Shift, and Win modifiers, or a button from 1–32 on a controller exposed through the Windows joystick API. MARA mute needs a different key or button combination.
 - **Internet access.** Setup downloads DCS-BIOS from GitHub. A local backend also downloads roughly 340 MB of Kokoro voice files on first launch and needs ongoing access to the OpenAI API.
 - **An OpenAI API key for a local or self-hosted backend.** The key must have working API access. MARA checks it without running inference and reports missing, rejected, rate-limited, or unreachable access separately.
 - **Enough local storage for MARA’s files.** In local mode, allow roughly 340 MB for the voice model in addition to the installed application, local database, and logs.
 
-> **Set your Windows audio defaults first**
-> Choose the microphone and speakers or headset you want to use in Windows before starting MARA. The current app does not provide its own audio-device picker.
+> **Configure your flight audio in MARA**
+> Open Settings to choose a microphone and speaker or headset. Leave either selector on **System default** to follow Windows, or pick a specific connected device. Use **Refresh** after connecting new audio hardware.
 
 The installer is per-user and does not request administrator privileges. The early-access installer is currently unsigned, so Windows SmartScreen may show a warning. Use only a package supplied by the project and verify it against the published `checksums.txt` file.
 
@@ -66,15 +66,14 @@ The client still handles DCS-BIOS, cockpit data, the microphone, push-to-talk, a
 
 The early-access client is a Windows application. Your access package includes the combined installer, the standalone backend package for split installations, and the service details you need.
 
-1. In Windows, set the microphone and audio output you want as the default devices.
-2. Close DCS, then run `MARA-Setup-<version>.exe`.
-3. Leave **Install or update DCS-BIOS and MARA spatial export** enabled. Setup detects supported DCS Saved Games folders and downloads the pinned DCS-BIOS release.
-4. Launch MARA. For the normal all-in-one setup, leave **Backend mode** set to **Local**. No MARA account is required.
-5. Open **Settings**, enter your OpenAI API key in **OpenAI API key (local only)**, and choose **Save settings**.
-6. Keep MARA open while the local backend downloads the Kokoro voice files. Wait for **Local backend**, **Kokoro voice**, and **OpenAI API** to show ready states.
-7. Bind push-to-talk and MARA mute to different function keys or HOTAS buttons.
-8. Return to **Overview** and choose **Start MARA**.
-9. Start or restart DCS, load into the F/A-18C, and wait for cockpit data to appear.
+1. Close DCS, then run `MARA-Setup-<version>.exe`.
+2. Leave **Install or update DCS-BIOS and MARA spatial export** enabled. Setup detects supported DCS Saved Games folders and downloads the pinned DCS-BIOS release.
+3. Launch MARA. For the normal all-in-one setup, leave **Backend mode** set to **Local**. No MARA account is required.
+4. Open **Settings**, enter your OpenAI API key in **OpenAI API key (local only)**, and select your microphone and speaker/headphone devices. **System default** is available for both.
+5. Bind push-to-talk and MARA mute to different keyboard keys or HOTAS buttons. Keyboard bindings can use any combination of Ctrl, Alt, Shift, and Win modifiers.
+6. Choose **Save settings**, then keep MARA open while the local backend downloads the Kokoro voice files. Wait for **Local backend**, **Kokoro voice**, and **OpenAI API** to show ready states.
+7. Return to **Overview** and choose **Start MARA**.
+8. Start or restart DCS, load into the F/A-18C, and wait for cockpit data to appear.
 
 If setup does not find DCS, open MARA Settings and select the Saved Games folder yourself. Select the profile folder—such as `C:\Users\you\Saved Games\DCS`—not the main DCS installation directory.
 
@@ -92,7 +91,7 @@ Use a simple cold-start or free-flight mission for the first run.
 
 Before entering the cockpit, confirm that **DCS-BIOS** and **Backend** show ready and that **MARA** is running. In Settings, local mode also shows separate status cards for the backend process, Kokoro voice files, and OpenAI API access.
 
-Make one test push-to-talk call before the sortie. The microphone is opened only while you hold PTT, so this is also the practical check that the Windows default input and output devices are correct.
+Make one test push-to-talk call before the sortie. The microphone is opened only while you hold PTT, so this is also the practical check that the selected input and output devices are correct.
 
 ### 2. Hold to talk
 
@@ -134,6 +133,8 @@ Radar-picture analysis, combat-awareness assistance, situational-awareness gap d
 | --- | --- |
 | Push-to-talk | Hold to record a turn; release to send it. Also interrupts MARA. |
 | Assistant mute | Stops current playback and suppresses later speech until toggled again. |
+| Keyboard modifiers | PTT and mute can each use any combination of Ctrl, Alt, Shift, and Win with the selected key. |
+| Audio devices | Choose a specific microphone and speaker/headphone device, or follow the Windows system default. |
 | Speech mode | Chooses how readily proactive callouts are spoken. |
 
 Speech modes are deliberately simple:
@@ -170,15 +171,15 @@ Enter the key in the local-only field and save the settings. Replace a rejected 
 
 ### MARA uses the wrong microphone or speakers
 
-Change the default input and output devices in Windows, then restart MARA. The current desktop interface does not yet expose separate device selectors.
+Stop MARA, open Settings, and choose the correct **Microphone** and **Speaker / headphones** devices. Use **Refresh** if newly connected hardware is missing, save the settings, then start MARA again. Select **System default** if you want MARA to follow Windows.
 
 ### My HOTAS button is not detected
 
-Reconnect the controller, reopen Settings, choose **Refresh**, and use **Detect button** again. The current Windows build supports buttons 1–32 on devices exposed by the Windows joystick API. You can use an F1–F24 keyboard key instead.
+Reconnect the controller, reopen Settings, choose **Refresh**, and use **Detect button** again. The current Windows build supports buttons 1–32 on devices exposed by the Windows joystick API. You can use a supported keyboard key with optional Ctrl, Alt, Shift, and Win modifiers instead.
 
 ### MARA hears me but does not answer
 
-Check the backend, Kokoro, and OpenAI status cards, then verify that assistant mute is off and that the correct output is the Windows default device. A short tone confirms when mute changes.
+Check the backend, Kokoro, and OpenAI status cards, then verify that assistant mute is off and that the correct speaker/headphone device is selected in Settings. A short tone confirms when mute changes.
 
 ### A remote backend will not connect
 

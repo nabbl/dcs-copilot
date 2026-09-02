@@ -50,7 +50,7 @@ export default function RoadmapPage() {
   return (
     <main className="roadmap-page">
       <header className="docs-header roadmap-header">
-        <a className="wordmark" href="../">M.A.R.A <span>/// DCS COPILOT</span></a>
+        <a className="wordmark" href="../">M.A.R.A <span>{"///"} DCS COPILOT</span></a>
         <div className="docs-main-links"><a href="../">Overview</a><a href="../docs/">Flight manual</a></div>
         <a className="kofi-link" href="https://ko-fi.com/nabblsawesome" target="_blank" rel="noreferrer">Support on Ko-fi ↗</a>
       </header>

@@ -2,6 +2,7 @@ const capabilities = [
   ["01", "Startup help", "Follow the Hornet checklist and know when you are ready to taxi."],
   ["02", "Cockpit awareness", "Ask about switches, aircraft state, and general F/A-18C information."],
   ["03", "Flight information", "Get useful aircraft and flight status once you are airborne."],
+  ["04", "Your controls", "Choose your microphone and speakers, then bind PTT and mute to a key, modifier combination, or HOTAS button."],
 ];
 
 export default function Home() {
@@ -9,7 +10,7 @@ export default function Home() {
     <main>
       <header className="site-header">
         <a className="wordmark" href="#top" aria-label="MARA home">
-          M.A.R.A <span>/// DCS COPILOT</span>
+          M.A.R.A <span>{"///"} DCS COPILOT</span>
         </a>
         <nav aria-label="Primary navigation">
           <a href="#capabilities">Capabilities</a>
