@@ -18,7 +18,7 @@ test("uses the GitHub Pages base path for generated assets", async () => {
   const html = await readFile(new URL("index.html", output), "utf8");
   assert.match(html, /\/mara-site\/_next\/static\//);
   assert.match(html, /href="\.\/docs\/"/);
-  assert.match(html, /href="\.\/roadmap\/"/);
+  assert.match(html, /href="#roadmap"/);
   assert.match(html, /https:\/\/nabbl\.github\.io\/mara-site\/og\.png/);
   assert.doesNotMatch(html, /href="\/(?:docs|roadmap)"/);
 });
@@ -26,6 +26,6 @@ test("uses the GitHub Pages base path for generated assets", async () => {
 test("keeps nested-page navigation inside the project site", async () => {
   const docs = await readFile(new URL("docs/index.html", output), "utf8");
   const roadmap = await readFile(new URL("roadmap/index.html", output), "utf8");
-  assert.match(docs, /href="\.\.\/roadmap\/"/);
+  assert.match(docs, /href="\.\.\/#roadmap"/);
   assert.match(roadmap, /href="\.\.\/docs\/"/);
 });

@@ -41,7 +41,7 @@ export default function DocsPage() {
     <main className="docs-shell" id="top">
       <header className="docs-header">
         <a className="wordmark" href="../">M.A.R.A <span>{"///"} DCS COPILOT</span></a>
-        <div className="docs-main-links"><a href="../">Overview</a><a href="../roadmap/">Roadmap</a></div>
+        <div className="docs-main-links"><a href="../">Overview</a><a href="../#roadmap">Roadmap</a></div>
         <a className="kofi-link" href="https://ko-fi.com/nabblsawesome" target="_blank" rel="noreferrer">Support on Ko-fi ↗</a>
       </header>
 

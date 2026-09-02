@@ -21,6 +21,10 @@ test("server-renders the MARA landing page", async () => {
   assert.match(html, /Your second seat/);
   assert.match(html, /Read the flight manual/);
   assert.match(html, /Choose your microphone and speakers/);
+  assert.match(html, /id="roadmap"/);
+  assert.match(html, /Combat awareness/);
+  assert.match(html, /Helicopter support/);
+  assert.match(html, /Direction, not a promise of dates/);
   assert.match(html, /mara-portrait\.jpg/);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/i);
 });

@@ -1,3 +1,5 @@
+import { roadmap } from "./roadmap-data";
+
 const capabilities = [
   ["01", "Startup help", "Follow the Hornet checklist and know when you are ready to taxi."],
   ["02", "Cockpit awareness", "Ask about switches, aircraft state, and general F/A-18C information."],
@@ -14,7 +16,7 @@ export default function Home() {
         </a>
         <nav aria-label="Primary navigation">
           <a href="#capabilities">Capabilities</a>
-          <a href="./roadmap/">Roadmap</a>
+          <a href="#roadmap">Roadmap</a>
           <a href="./docs/">Flight manual</a>
         </nav>
         <div className="header-actions">
@@ -59,19 +61,46 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="home-roadmap" id="roadmap">
+        <div className="home-roadmap-heading">
+          <div>
+            <p className="eyebrow">Development vector</p>
+            <h2>The MARA<br /><em>roadmap.</em></h2>
+          </div>
+          <div className="roadmap-summary">
+            <p>MARA starts narrow and earns her way outward: first the F/A-18C, then better awareness and coaching, then more aircraft.</p>
+            <span>Direction, not a promise of dates.</span>
+          </div>
+        </div>
+        <div className="roadmap-grid" aria-label="MARA product roadmap">
+          {roadmap.map((column) => (
+            <article className="roadmap-column" key={column.phase}>
+              <div className="phase-tag"><span>{column.phase}</span>{column.label}</div>
+              <h2>{column.title}</h2>
+              <p className="phase-intro">{column.intro}</p>
+              <ol>
+                {column.items.map(([title, body]) => (
+                  <li key={title}><h3>{title}</h3><p>{body}</p></li>
+                ))}
+              </ol>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section className="open-source-callout">
         <p className="eyebrow">Open source</p>
         <h2>MARA will be<br /><em>open source.</em></h2>
         <div>
           <p>You’ll be able to read the code, report problems, contribute fixes, and help add support for other aircraft.</p>
-          <a className="button" href="./roadmap/">See the roadmap <span>→</span></a>
+          <a className="button" href="#roadmap">See the roadmap <span>↑</span></a>
         </div>
       </section>
 
       <footer>
         <div className="footer-mark">M.A.R.A</div>
         <p>Mission-Aware Realtime Assistant</p>
-        <div className="footer-links"><a href="./roadmap/">Roadmap</a><a href="./docs/">Flight manual →</a></div>
+        <div className="footer-links"><a href="#roadmap">Roadmap</a><a href="./docs/">Flight manual →</a></div>
       </footer>
     </main>
   );

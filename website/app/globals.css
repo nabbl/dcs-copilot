@@ -80,6 +80,11 @@ h1 em { color: var(--blue); font-style: normal; }
 .capability-list h3 { margin: 0; font-size: 19px; text-transform: uppercase; }
 .capability-list p { margin: 0; line-height: 1.55; color: #3d4958; }
 
+.home-roadmap { scroll-margin-top: 78px; background: #f8f5e6; border-top: 2px solid var(--ink); }
+.home-roadmap-heading { padding: clamp(75px, 8vw, 120px) clamp(24px, 7vw, 110px); display: grid; grid-template-columns: 1.15fr .85fr; gap: 9vw; align-items: end; }
+.home-roadmap-heading h2 { margin: 0; font-size: clamp(52px, 7vw, 100px); line-height: .9; letter-spacing: -.065em; text-transform: uppercase; }
+.home-roadmap-heading h2 em { color: var(--blue); font-style: normal; }
+
 .open-source-callout { padding: clamp(75px, 8vw, 120px) clamp(24px, 7vw, 110px); display: grid; grid-template-columns: .7fr 1.1fr 1fr; gap: clamp(30px, 5vw, 80px); align-items: start; color: var(--cream); background: var(--blue); border-top: 2px solid var(--ink); }
 .open-source-callout .eyebrow { color: var(--cream); }
 .open-source-callout h2 { margin: 0; font-size: clamp(44px, 5vw, 76px); line-height: .92; letter-spacing: -.055em; text-transform: uppercase; }
@@ -99,6 +104,7 @@ footer a { font-size: 13px; font-weight: 800; text-transform: uppercase; }
   .hero { grid-template-columns: 1fr; }
   .portrait { min-height: 610px; border-left: 0; border-top: 2px solid var(--ink); }
   .capabilities { grid-template-columns: 1fr; }
+  .home-roadmap-heading { grid-template-columns: 1fr; }
   .open-source-callout { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
