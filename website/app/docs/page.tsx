@@ -6,7 +6,7 @@ import manual from "../../content/manual.md?raw";
 
 export const metadata: Metadata = {
   title: "MARA Flight Manual",
-  description: "Setup, first sortie, controls, privacy, and troubleshooting for MARA early access.",
+  description: "Requirements, setup, OpenAI API costs, controls, privacy, and troubleshooting for free MARA early access.",
   openGraph: { title: "MARA Flight Manual", description: "The early-access flight manual for MARA.", images: [] },
   twitter: { title: "MARA Flight Manual", description: "The early-access flight manual for MARA.", images: [] },
 };

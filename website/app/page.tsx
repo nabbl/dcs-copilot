@@ -20,7 +20,7 @@ export default function Home() {
           <a href="./docs/">Flight manual</a>
         </nav>
         <div className="header-actions">
-          <span className="status-pill"><i /> Early access</span>
+          <span className="status-pill"><i /> Free early access</span>
           <a className="kofi-link" href="https://ko-fi.com/nabblsawesome" target="_blank" rel="noreferrer">Support on Ko-fi ↗</a>
         </div>
       </header>
@@ -37,6 +37,7 @@ export default function Home() {
             <a className="button button-primary" href="./docs/">Read the flight manual <span>→</span></a>
             <a className="text-link" href="#capabilities">See what she can do ↓</a>
           </div>
+          <p className="hero-cost"><strong>Free to use.</strong> Bring your own OpenAI API key and pay OpenAI only for the API usage on that key.</p>
         </div>
 
         <div className="portrait" aria-label="Reserved area for MARA character artwork">

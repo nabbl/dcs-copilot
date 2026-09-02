@@ -21,6 +21,8 @@ test("server-renders the MARA landing page", async () => {
   assert.match(html, /Your second seat/);
   assert.match(html, /Read the flight manual/);
   assert.match(html, /Choose your microphone and speakers/);
+  assert.match(html, /Free to use/);
+  assert.match(html, /pay OpenAI only for the API usage/);
   assert.match(html, /id="roadmap"/);
   assert.match(html, /Combat awareness/);
   assert.match(html, /Helicopter support/);
@@ -34,6 +36,10 @@ test("server-renders Markdown documentation", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /Flight manual/);
+  assert.match(html, /MARA is free\. OpenAI usage is not/);
+  assert.match(html, /There is no MARA purchase price or subscription/);
+  assert.match(html, /real-time voice pipeline/);
+  assert.match(html, /only paid external service required/);
   assert.match(html, /id="before-you-install"/);
   assert.match(html, /64-bit Windows PC/);
   assert.match(html, /Windows defaults or separate microphone/);
@@ -46,7 +52,7 @@ test("server-renders Markdown documentation", async () => {
   assert.match(html, /Split install/);
   assert.match(html, /Local mode requires your own OpenAI API key/);
   assert.match(html, /Windows Credential Manager/);
-  assert.match(html, /configure the OpenAI API key on the <strong>backend machine<\/strong>/);
+  assert.match(html, /Configure your OpenAI API key on the <strong>backend machine<\/strong>/);
   assert.match(html, /id="what-the-dcs-setup-changes"/);
   assert.match(html, /Scripts\\Export\.lua/);
   assert.match(html, /id="start-here"/);

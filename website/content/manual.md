@@ -5,6 +5,9 @@ MARA is a mission-aware voice copilot for Digital Combat Simulator. She listens 
 > **Early-access note**
 > MARA is still in qualification. Treat every callout as assistance—not as a replacement for the aircraft manual, your instruments, or your own judgement.
 
+> **MARA is free. OpenAI usage is not.**
+> There is no MARA purchase price or subscription. You provide your own OpenAI API key, and OpenAI meters the API usage on that key. MARA does not charge for or resell those tokens.
+
 ## Before you install
 
 The current Windows build expects the following:
@@ -14,7 +17,7 @@ The current Windows build expects the following:
 - **A working microphone and audio output.** MARA can use the Windows defaults or separate microphone and speaker/headphone devices selected in Settings.
 - **A push-to-talk control.** Choose a supported keyboard key with any combination of Ctrl, Alt, Shift, and Win modifiers, or a button from 1–32 on a controller exposed through the Windows joystick API. MARA mute needs a different key or button combination.
 - **Internet access.** Setup downloads DCS-BIOS from GitHub. A local backend also downloads roughly 340 MB of Kokoro voice files on first launch and needs ongoing access to the OpenAI API.
-- **An OpenAI API key for a local or self-hosted backend.** The key must have working API access. MARA checks it without running inference and reports missing, rejected, rate-limited, or unreachable access separately.
+- **An OpenAI API account and API key for a local or self-hosted backend.** MARA’s real-time voice pipeline currently uses OpenAI for speech transcription and assistant responses. The account must be able to pay for API usage; MARA reports missing, rejected, rate-limited, quota-limited, or unreachable access separately. This is the only paid external service required by the current build.
 - **Enough local storage for MARA’s files.** In local mode, allow roughly 340 MB for the voice model in addition to the installed application, local database, and logs.
 
 > **Configure your flight audio in MARA**
@@ -30,7 +33,9 @@ MARA has two installation types. The DCS Copilot client always runs on the gamin
 | --- | --- | --- |
 | **Where the backend runs** | On the DCS PC | On another PC, a LAN server, or a hosted server |
 | **Setup** | Easiest; install the bundle and use the default local mode | Install the client on the DCS PC, run the backend elsewhere, then enter its URL in Settings |
-| **OpenAI API key** | Bring your own key and enter it in MARA Settings | Configure the key on your self-hosted backend; do not enter it on the DCS PC. A managed hosted service handles this for you |
+| **MARA price** | Free | Free |
+| **OpenAI API key** | Bring your own key and enter it in MARA Settings | Configure your key on the backend machine; do not enter it on the DCS PC |
+| **Usage cost** | OpenAI bills the API account behind your key | OpenAI bills the API account behind the key configured on your backend |
 | **Account** | No MARA account required | Remote mode asks you to sign in or create an account on that backend |
 | **First voice download** | Roughly 340 MB on the DCS PC | Downloaded and cached on the backend machine |
 | **Game-PC overhead** | Uses additional RAM and some CPU time for the backend and local voice | Only the thin DCS client runs on the game PC |
@@ -41,7 +46,7 @@ MARA has two installation types. The DCS Copilot client always runs on the gamin
 Install `MARA-Setup-<version>.exe` and leave the backend mode set to **Local**. The desktop app starts and stops the bundled backend for you. This is the simplest option and does not require another machine.
 
 > **Local mode requires your own OpenAI API key**
-> MARA uses OpenAI for speech recognition and assistant responses. [Create or manage an API key](https://platform.openai.com/api-keys), then open MARA Settings and enter it in the secure local-backend API key field. MARA stores the key in Windows Credential Manager—not in its configuration file—and does not send it to a remote MARA server. OpenAI API usage belongs to the OpenAI account and project behind that key.
+> MARA itself is free, but its real-time voice pipeline uses paid OpenAI API services for speech recognition and assistant responses. [Create or manage an API key](https://platform.openai.com/api-keys), then open MARA Settings and enter it in the secure local-backend API key field. MARA stores the key in Windows Credential Manager—not in its configuration file—and does not send it to a remote MARA server. OpenAI bills usage to the account and project behind that key.
 
 Treat the key like a password. Do not share it, paste it into a bug report, or add it to a configuration file.
 
@@ -53,7 +58,7 @@ The trade-off is straightforward: the backend, local database, and local voice s
 
 Install the normal DCS Copilot client on the gaming PC, but run the standalone MARA backend on another Windows PC, a LAN server, or a hosted server. The supplied standalone ZIP is built for 64-bit Windows. In Settings, change the backend mode to **Remote**, enter the backend URL, and use **Test connection**.
 
-If you run your own remote backend, configure the OpenAI API key on the **backend machine**. The DCS client does not need the key. If you connect to a managed hosted MARA service, that service handles the backend credentials for you.
+Configure your OpenAI API key on the **backend machine**. The DCS client does not need the key and will not send one to a remote backend. API usage is billed by OpenAI to the account behind the key configured on that backend.
 
 For a private LAN, the backend host must allow the chosen port—47100 by default—through a narrowly scoped firewall rule. MARA does not create that rule automatically. Use HTTPS/WSS through a trusted reverse proxy for a backend exposed outside a private network. The desktop also checks that the backend API version matches the client before it will start.
 
@@ -61,6 +66,12 @@ The client still handles DCS-BIOS, cockpit data, the microphone, push-to-talk, a
 
 > **Which one should I use?**
 > Start with all-in-one. Switch to a split install if you are short on RAM, want to keep background CPU work away from DCS, or already have a machine that can host the backend.
+
+### What you pay for
+
+MARA’s installer, client, and backend are free. The current build has no paid MARA plan and does not require another paid AI provider. Your only usage charge is the OpenAI API activity created through your own key. See [current OpenAI API pricing](https://developers.openai.com/api/docs/pricing) before flying.
+
+In the default all-in-one install, OpenAI handles transcription and MARA’s responses while Kokoro generates the spoken output locally. A backend configured to use OpenAI speech output will also create OpenAI text-to-speech usage. Costs therefore depend on how much you talk to MARA and which backend configuration you use; MARA does not quote a fixed cost per flight.
 
 ## Start here
 
