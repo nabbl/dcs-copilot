@@ -21,11 +21,16 @@ test("server-renders the MARA landing page", async () => {
   assert.match(html, /Your copilot[\s\S]*for DCS/);
   assert.match(html, /Get started/);
   assert.match(html, /Hands on the HOTAS/);
-  assert.match(html, /Free to use/);
-  assert.match(html, /usage is billed directly to your OpenAI account/);
+  assert.match(html, /MARA itself is free/);
+  assert.match(html, /any model usage is billed directly to your OpenAI account/);
+  assert.match(html, /How MARA[\s\S]*works/);
+  assert.match(html, /No MARA account is required/);
+  assert.match(html, /respects the export and telemetry restrictions/);
   assert.match(html, /id="roadmap"/);
   assert.match(html, /Radar assistance/);
+  assert.match(html, /using only information already available in your cockpit/);
   assert.match(html, /Helicopter support/);
+  assert.match(html, /important local warnings working even if the AI service/);
   assert.match(html, /working roadmap, not a release schedule/);
   assert.match(html, /Why I built this/);
   assert.match(html, /Community project/);

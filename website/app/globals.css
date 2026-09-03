@@ -80,6 +80,16 @@ h1 em { color: var(--blue); font-style: normal; }
 .capability-list h3 { margin: 0; font-size: 19px; text-transform: uppercase; }
 .capability-list p { margin: 0; line-height: 1.55; color: #3d4958; }
 
+.how-section { padding: clamp(75px, 9vw, 130px) clamp(24px, 7vw, 110px); display: grid; grid-template-columns: .8fr 1.2fr; gap: 7vw; background: #dceef6; border-top: 2px solid var(--ink); }
+.how-heading h2 { margin: 0; font-size: clamp(44px, 5.5vw, 82px); line-height: .95; letter-spacing: -.055em; text-transform: uppercase; }
+.how-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 2px solid var(--ink); }
+.how-list article { min-height: 210px; padding: 28px 26px 30px 0; display: grid; grid-template-columns: 38px 1fr; gap: 12px; border-bottom: 1px solid var(--line); }
+.how-list article:nth-child(odd) { border-right: 1px solid var(--line); }
+.how-list article:nth-child(even) { padding-left: 26px; }
+.how-list article > span { padding-top: 3px; color: var(--red); font: 800 10px var(--font-geist-mono), monospace; }
+.how-list h3 { margin: 0 0 10px; font-size: 18px; text-transform: uppercase; }
+.how-list p { margin: 0; color: #3d4958; line-height: 1.6; }
+
 .why-section { padding: clamp(75px, 9vw, 130px) clamp(24px, 7vw, 110px); display: grid; grid-template-columns: .9fr 1.1fr; gap: 9vw; align-items: start; color: var(--cream); background: var(--ink); border-top: 2px solid var(--ink); }
 .why-section h2 { margin: 0; font-size: clamp(44px, 5.5vw, 82px); line-height: .95; letter-spacing: -.055em; text-transform: uppercase; }
 .why-copy { max-width: 680px; font-size: clamp(17px, 1.6vw, 21px); line-height: 1.65; }
@@ -117,6 +127,7 @@ footer a { font-size: 13px; font-weight: 800; text-transform: uppercase; }
   .hero { grid-template-columns: 1fr; }
   .portrait { min-height: 610px; border-left: 0; border-top: 2px solid var(--ink); }
   .capabilities { grid-template-columns: 1fr; }
+  .how-section { grid-template-columns: 1fr; }
   .why-section { grid-template-columns: 1fr; }
   .home-roadmap-heading { grid-template-columns: 1fr; }
   .open-source-callout { grid-template-columns: 1fr; }
@@ -130,6 +141,8 @@ footer a { font-size: 13px; font-weight: 800; text-transform: uppercase; }
   .portrait-frame { width: 78%; }
   .capability-list article { grid-template-columns: 32px 1fr; }
   .capability-list p { grid-column: 2; }
+  .how-list { grid-template-columns: 1fr; }
+  .how-list article, .how-list article:nth-child(even) { min-height: 0; padding: 24px 0; border-right: 0; }
   footer { grid-template-columns: 1fr; }
 }
 

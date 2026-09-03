@@ -4,7 +4,14 @@ const capabilities = [
   ["01", "Startup guidance", "Walk through an F/A-18C cold start step by step. MARA checks supported cockpit state and can tell when you’re ready to continue."],
   ["02", "Cockpit questions", "Ask what a switch does, why a warning is on, or whether the aircraft is configured for the next step."],
   ["03", "In-flight help", "Get concise aircraft and flight information without digging through menus or taking your hands off the controls."],
-  ["04", "Hands on the HOTAS", "Bind PTT and mute to a key or HOTAS button and talk to MARA when you need her."],
+  ["04", "Hands on the HOTAS", "Talk to MARA through push-to-talk without leaving the cockpit or reaching for another interface."],
+];
+
+const howItWorks = [
+  ["Runs beside DCS", "MARA runs on your PC and reads supported aircraft data through DCS’s normal export interfaces. Advanced users can run the backend on another machine."],
+  ["Your OpenAI key", "Voice transcription and assistant replies use OpenAI with your own API key. No MARA account is required for the standard local setup."],
+  ["Local speech", "The standard local setup generates MARA’s spoken replies on your PC with Kokoro."],
+  ["Multiplayer boundary", "MARA respects the export and telemetry restrictions set by multiplayer servers."],
 ];
 
 export default function Home() {
@@ -28,15 +35,15 @@ export default function Home() {
           <p className="eyebrow">Experimental voice copilot for DCS</p>
           <h1>Your copilot <em>for DCS</em></h1>
           <p className="lede">
-            MARA is a voice copilot for DCS. She can follow supported cockpit
-            and flight state, help with procedures, answer questions, and point
-            out things you may have missed.
+            MARA can read supported cockpit and flight data, help with
+            procedures, answer questions, and point out things you may have
+            missed.
           </p>
           <div className="hero-actions">
             <a className="button button-primary" href="./docs/">Get started <span>→</span></a>
             <a className="text-link" href="#capabilities">See what works today ↓</a>
           </div>
-          <p className="hero-cost"><strong>Free to use.</strong> Bring your own OpenAI API key; usage is billed directly to your OpenAI account.</p>
+          <p className="hero-cost"><strong>MARA itself is free.</strong> Bring your own OpenAI API key; any model usage is billed directly to your OpenAI account.</p>
         </div>
 
         <div className="portrait" aria-label="Reserved area for MARA character artwork">
@@ -61,13 +68,28 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="how-section">
+        <div className="how-heading">
+          <p className="eyebrow">The basics</p>
+          <h2>How MARA<br />works</h2>
+        </div>
+        <div className="how-list">
+          {howItWorks.map(([title, body], index) => (
+            <article key={title}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <div><h3>{title}</h3><p>{body}</p></div>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section className="why-section">
         <div>
           <p className="eyebrow">Why I built this</p>
           <h2>It started with<br />a cold start.</h2>
         </div>
         <div className="why-copy">
-          <p>I started MARA because I wanted something beside me in DCS that could actually understand what was happening in the aircraft—not just respond to voice commands. It started as a cold-start copilot and has slowly grown into an experiment in what a useful virtual crew member could be.</p>
+          <p>I started MARA because I wanted something beside me in DCS that could actually react to what was happening in the aircraft—not just respond to voice commands. It started as a cold-start copilot and has slowly grown into an experiment in what a useful virtual crew member could be.</p>
           <p>I don’t know yet what MARA should become. That’s part of why I’m putting it out there early.</p>
         </div>
       </section>
